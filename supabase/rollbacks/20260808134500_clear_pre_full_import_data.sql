@@ -1,0 +1,2 @@
+-- The deleted pre-import finance data cannot be reconstructed automatically.
+-- Restore a Rangels JSON backup if recovery is required.
