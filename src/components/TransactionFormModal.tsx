@@ -1,0 +1,234 @@
+import { useState, useRef, useEffect } from 'react'
+import { Modal } from './Modal'
+import { today } from '../utils'
+import type { Transaction, Account, Category } from '../types/finance'
+
+interface Props {
+  transaction?: Transaction
+  accounts: Account[]
+  categories: Category[]
+  defaultDate?: string
+  onClose: () => void
+  onSave: (data: any) => Promise<void>
+}
+
+export function TransactionFormModal({ transaction, accounts, categories, defaultDate, onClose, onSave }: Props) {
+  const [description, setDescription] = useState(transaction?.description ?? '')
+  const [amount, setAmount] = useState(transaction ? String(Math.abs(transaction.amount)) : '')
+  const [isExpense, setIsExpense] = useState(!transaction || transaction.amount < 0)
+  const [date, setDate] = useState(transaction?.date ?? defaultDate ?? today())
+  const [accountId, setAccountId] = useState(transaction?.accountId ?? accounts[0]?.id ?? '')
+  const [categoryId, setCategoryId] = useState<string | null>(transaction?.categoryId ?? null)
+  const [comment, setComment] = useState(transaction?.comment ?? '')
+  const [isTransfer, setIsTransfer] = useState(transaction?.isTransfer ?? false)
+  const [targetAccountId, setTargetAccountId] = useState<string | null>(transaction?.targetAccountId ?? null)
+  const [saving, setSaving] = useState(false)
+  const [catSearch, setCatSearch] = useState('')
+  const [catOpen, setCatOpen] = useState(false)
+
+  const descRef = useRef<HTMLInputElement>(null)
+  useEffect(() => { descRef.current?.focus() }, [])
+
+  const filteredCats = categories.filter(c =>
+    !catSearch || c.fullName.toLowerCase().includes(catSearch.toLowerCase())
+  ).slice(0, 40)
+
+  const selectedCat = categories.find(c => c.id === categoryId)
+
+  async function handleSave() {
+    if (!description.trim() || !amount || !accountId) return
+    setSaving(true)
+    try {
+      const sign = isTransfer ? -1 : (isExpense ? -1 : 1)
+      await onSave({
+        description: description.trim(),
+        comment,
+        date,
+        amount: sign * Math.abs(parseFloat(amount)),
+        accountId,
+        targetAccountId: isTransfer ? targetAccountId : null,
+        categoryId,
+        isTransfer,
+        status: 'C'
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal title={transaction ? 'Edit Transaction' : 'New Transaction'} onClose={onClose}>
+      <div className="space-y-3">
+        {/* Type toggle */}
+        <div className="flex gap-1 p-1 bg-gray-100 rounded-lg">
+          {['Expense', 'Income', 'Transfer'].map(t => (
+            <button
+              key={t}
+              onClick={() => {
+                setIsTransfer(t === 'Transfer')
+                setIsExpense(t === 'Expense')
+              }}
+              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                (t === 'Transfer' && isTransfer) || (t === 'Expense' && !isTransfer && isExpense) || (t === 'Income' && !isTransfer && !isExpense)
+                  ? 'bg-white shadow text-gray-900'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {/* Description */}
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
+          <input
+            ref={descRef}
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="e.g. Coles Earlwood"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          {/* Amount */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Amount (AUD)</label>
+            <input
+              type="number"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="0.00"
+              step="0.01"
+              min="0"
+            />
+          </div>
+
+          {/* Date */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
+            <input
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          {/* Account */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{isTransfer ? 'From Account' : 'Account'}</label>
+            <select
+              value={accountId}
+              onChange={e => setAccountId(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </div>
+
+          {/* Target account (transfer) or Category */}
+          {isTransfer ? (
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">To Account</label>
+              <select
+                value={targetAccountId ?? ''}
+                onChange={e => setTargetAccountId(e.target.value || null)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select account…</option>
+                {accounts.filter(a => a.id !== accountId).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+          ) : null}
+
+          {/* Category — always shown */}
+          <div className={`relative ${isTransfer ? 'col-span-2' : ''}`}>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Category</label>
+            <button
+              type="button"
+              onClick={() => { setCatOpen(o => !o); setCatSearch('') }}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-left focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center gap-2"
+            >
+              {selectedCat ? (
+                <>
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: selectedCat.color }} />
+                  <span className="truncate">{selectedCat.fullName}</span>
+                </>
+              ) : (
+                <span className="text-gray-400">Select category…</span>
+              )}
+            </button>
+            {catOpen && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-30">
+                <div className="p-2 border-b border-gray-100">
+                  <input
+                    autoFocus
+                    value={catSearch}
+                    onChange={e => setCatSearch(e.target.value)}
+                    placeholder="Search…"
+                    className="w-full px-2 py-1 text-sm border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && filteredCats.length > 0) {
+                        setCategoryId(filteredCats[0].id)
+                        setCatOpen(false)
+                      }
+                      if (e.key === 'Escape') setCatOpen(false)
+                    }}
+                  />
+                </div>
+                <div className="max-h-48 overflow-y-auto">
+                  <button
+                    onMouseDown={() => { setCategoryId(null); setCatOpen(false) }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-50"
+                  >
+                    No category
+                  </button>
+                  {filteredCats.map(c => (
+                    <button
+                      key={c.id}
+                      onMouseDown={() => { setCategoryId(c.id); setCatOpen(false) }}
+                      className={`w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 flex items-center gap-2 ${categoryId === c.id ? 'bg-blue-50' : ''}`}
+                    >
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                      <span className="text-gray-700">{c.fullName}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Comment */}
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Note (optional)</label>
+          <input
+            value={comment}
+            onChange={e => setComment(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Add a note…"
+            onKeyDown={e => e.key === 'Enter' && handleSave()}
+          />
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          <button onClick={onClose} className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm hover:bg-gray-50">
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving || !description.trim() || !amount}
+            className="flex-1 bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : (transaction ? 'Update' : 'Add')}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}

@@ -19,6 +19,10 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // Preserve the original application's broad callback/data shapes during
+      // the port; generated Supabase types can tighten these incrementally.
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-expressions': 'off',
       'react-refresh/only-export-components': [
         'warn',
         { allowConstantExport: true },

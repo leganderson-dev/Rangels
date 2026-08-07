@@ -1,0 +1,338 @@
+import { useEffect, useState } from 'react'
+import { Plus, Pencil, Trash2, Calendar, RefreshCw } from 'lucide-react'
+import { Modal } from '../components/Modal'
+import { api } from '../api'
+import { fmt, formatDate, today, FREQUENCIES } from '../utils'
+import type { Account, Category, ScheduledTransaction } from '../types/finance'
+
+interface Props {
+  accounts: Account[]
+  categories: Category[]
+  onRefreshAccounts: () => void
+  selectedAccountId?: any
+  month?: any
+  year?: any
+  onRefreshCategories?: any
+  onMonthChange?: any
+  onYearChange?: any
+}
+
+export function ScheduledPage({ accounts, categories, onRefreshAccounts: onRefresh }: Props) {
+  const [scheduled, setScheduled] = useState<ScheduledTransaction[]>([])
+  const [editing, setEditing] = useState<ScheduledTransaction | null>(null)
+  const [showForm, setShowForm] = useState(false)
+
+  function load() { api.scheduled.list().then(setScheduled) }
+  useEffect(() => { load() }, [])
+
+  async function handleDelete(id: string) {
+    if (!confirm('Delete this scheduled transaction?')) return
+    await api.scheduled.delete(id)
+    load()
+  }
+
+  async function handleProcessDue() {
+    await api.scheduled.processDue()
+    load()
+    onRefresh()
+  }
+
+  const upcoming = scheduled.filter(s => s.isActive).sort((a, b) => a.nextDate.localeCompare(b.nextDate))
+  const inactive = scheduled.filter(s => !s.isActive)
+
+  return (
+    <div className="p-5 overflow-y-auto h-full space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-gray-800">Scheduled Transactions</h2>
+          <p className="text-xs text-gray-400 mt-0.5">{upcoming.length} active recurring transactions</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleProcessDue}
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 text-sm text-gray-600 rounded-lg hover:bg-gray-50"
+            title="Run any transactions due today"
+          >
+            <RefreshCw size={13} /> Process Due
+          </button>
+          <button
+            onClick={() => { setEditing(null); setShowForm(true) }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+          >
+            <Plus size={14} /> Add Scheduled
+          </button>
+        </div>
+      </div>
+
+      {upcoming.length === 0 && inactive.length === 0 && (
+        <div className="text-center py-14 text-gray-400 text-sm">
+          No scheduled transactions yet.
+          <button onClick={() => { setEditing(null); setShowForm(true) }} className="block mx-auto mt-2 text-blue-600 hover:underline">
+            Create your first
+          </button>
+        </div>
+      )}
+
+      {/* Active scheduled */}
+      {upcoming.length > 0 && (
+        <div className="space-y-2">
+          {upcoming.map(s => (
+            <ScheduledRow
+              key={s.id}
+              item={s}
+              onEdit={() => { setEditing(s); setShowForm(true) }}
+              onDelete={() => handleDelete(s.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Inactive */}
+      {inactive.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide pt-2">Inactive</p>
+          {inactive.map(s => (
+            <ScheduledRow
+              key={s.id}
+              item={s}
+              onEdit={() => { setEditing(s); setShowForm(true) }}
+              onDelete={() => handleDelete(s.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {showForm && (
+        <ScheduledFormModal
+          item={editing ?? undefined}
+          accounts={accounts}
+          categories={categories}
+          onClose={() => setShowForm(false)}
+          onSave={async data => {
+            if (editing && (editing as ScheduledTransaction).id) {
+              await api.scheduled.update((editing as ScheduledTransaction).id, data)
+            } else {
+              await api.scheduled.add(data)
+            }
+            load()
+            setShowForm(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function ScheduledRow({ item, onEdit, onDelete }: {
+  item: ScheduledTransaction
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const freqLabel = FREQUENCIES.find(f => f.value === item.frequency)?.label ?? item.frequency
+  const isOverdue = item.isActive && item.nextDate < today()
+
+  return (
+    <div className={`bg-white rounded-xl border p-4 flex items-center gap-3 ${item.isActive ? 'border-gray-200' : 'border-gray-100 opacity-60'}`}>
+      <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 shrink-0">
+        <Calendar size={16} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-800 truncate">{item.description}</p>
+        <p className="text-xs text-gray-400 mt-0.5">
+          {freqLabel} · Next: <span className={isOverdue ? 'text-red-500 font-medium' : ''}>{formatDate(item.nextDate)}</span>
+          {item.categoryFullName && ` · ${item.categoryFullName}`}
+        </p>
+      </div>
+      <div className="text-right shrink-0">
+        <p className={`text-sm font-semibold ${item.amount > 0 ? 'text-green-600' : 'text-gray-800'}`}>
+          {fmt(item.amount, true)}
+        </p>
+        <p className="text-xs text-gray-400">{item.accountName}</p>
+      </div>
+      <div className="flex gap-1 shrink-0">
+        <button onClick={onEdit} className="p-1.5 text-gray-400 hover:text-blue-600 rounded hover:bg-blue-50">
+          <Pencil size={13} />
+        </button>
+        <button onClick={onDelete} className="p-1.5 text-gray-400 hover:text-red-500 rounded hover:bg-red-50">
+          <Trash2 size={13} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ScheduledFormModal({ item, accounts, categories, onClose, onSave }: {
+  item?: ScheduledTransaction
+  accounts: Account[]
+  categories: Category[]
+  onClose: () => void
+  onSave: (data: any) => Promise<void>
+}) {
+  const [description, setDescription] = useState(item?.description ?? '')
+  const [amount, setAmount] = useState(item ? String(Math.abs(item.amount)) : '')
+  const [isExpense, setIsExpense] = useState(!item || item.amount < 0)
+  const [accountId, setAccountId] = useState(item?.accountId ?? accounts[0]?.id ?? '')
+  const [categoryId, setCategoryId] = useState<string | null>(item?.categoryId ?? null)
+  const [frequency, setFrequency] = useState(item?.frequency ?? 'monthly')
+  const [nextDate, setNextDate] = useState(item?.nextDate ?? today())
+  const [isActive, setIsActive] = useState(item?.isActive ?? true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [catSearch, setCatSearch] = useState('')
+
+  const filtered = categories.filter(c => !catSearch || c.fullName.toLowerCase().includes(catSearch.toLowerCase())).slice(0, 40)
+  const selectedCat = categories.find(c => c.id === categoryId)
+
+  async function handleSave() {
+    if (!description.trim() || !amount || !accountId) return
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave({
+        description: description.trim(),
+        amount: (isExpense ? -1 : 1) * Math.abs(parseFloat(amount)),
+        accountId,
+        categoryId,
+        frequency,
+        startDate: nextDate,
+        nextDate,
+        isActive
+      })
+    } catch (e: any) {
+      setError(e?.message ?? String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal title={item ? 'Edit Scheduled' : 'New Scheduled Transaction'} onClose={onClose}>
+      <div className="space-y-3">
+        <div className="flex gap-1 p-1 bg-gray-100 rounded-lg">
+          {['Expense', 'Income'].map(t => (
+            <button
+              key={t}
+              onClick={() => setIsExpense(t === 'Expense')}
+              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                (t === 'Expense') === isExpense ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
+          <input
+            autoFocus
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="e.g. Rent"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Amount (AUD)</label>
+            <input
+              type="number"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="0.00"
+              step="0.01"
+              min="0"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Next Date</label>
+            <input
+              type="date"
+              value={nextDate}
+              onChange={e => setNextDate(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Account</label>
+            <select
+              value={accountId}
+              onChange={e => setAccountId(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Frequency</label>
+            <select
+              value={frequency}
+              onChange={e => setFrequency(e.target.value as ScheduledTransaction['frequency'])}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {FREQUENCIES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Category */}
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Category (optional)</label>
+          <div className="relative">
+            <input
+              value={catSearch || (selectedCat ? selectedCat.fullName : '')}
+              onChange={e => { setCatSearch(e.target.value); if (!e.target.value) setCategoryId(null) }}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Search category…"
+              onFocus={() => setCatSearch('')}
+            />
+            {catSearch && (
+              <div className="absolute top-full left-0 right-0 mt-0.5 bg-white border border-gray-200 rounded-lg shadow-xl z-30 max-h-40 overflow-y-auto">
+                {filtered.map(c => (
+                  <button
+                    key={c.id}
+                    onMouseDown={() => { setCategoryId(c.id); setCatSearch('') }}
+                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 flex items-center gap-2"
+                  >
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
+                    {c.fullName}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Active toggle */}
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={isActive}
+            onChange={e => setIsActive(e.target.checked)}
+            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+          />
+          <span className="text-sm text-gray-600">Active (auto-execute when due)</span>
+        </label>
+
+        {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+        <div className="flex gap-2 pt-1">
+          <button onClick={onClose} className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm hover:bg-gray-50">
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving || !description.trim() || !amount}
+            className="flex-1 bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : (item ? 'Update' : 'Add')}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
