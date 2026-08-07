@@ -48,6 +48,12 @@ function App() {
   const [historyName, setHistoryName] = useState('')
   const [bankName, setBankName] = useState('')
   const [error, setError] = useState('')
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+
+  const categories = useMemo(
+    () => [...new Set(history.map(({ category }) => category))].sort(),
+    [history],
+  )
 
   const suggestedCount = useMemo(
     () => transactions.filter(({ suggestions }) => suggestions.length > 0).length,
@@ -80,6 +86,7 @@ function App() {
       setHistoryName(file.name)
       setTransactions([])
       setBankName('')
+      setEditingIndex(null)
       setError('')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not read the file.')
@@ -103,6 +110,7 @@ function App() {
         })),
       )
       setBankName(file.name)
+      setEditingIndex(null)
       setError('')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not read the file.')
@@ -117,6 +125,7 @@ function App() {
           : transaction,
       ),
     )
+    setEditingIndex(null)
   }
 
   function selectGroup(group: ConfidenceGroup) {
@@ -245,29 +254,78 @@ function App() {
                               <td className={transaction.amount < 0 ? 'negative amount' : 'positive amount'}>
                                 {currency.format(transaction.amount)}
                               </td>
-                              <td>
-                                <div className="suggestions">
-                                  {transaction.suggestions.length > 0 ? (
-                                    transaction.suggestions.map((suggestion) => (
-                                      <button
-                                        type="button"
-                                        key={suggestion.category}
-                                        className={
-                                          transaction.selectedCategory === suggestion.category
-                                            ? 'selected'
-                                            : ''
+                              <td className="category-cell">
+                                {editingIndex === index ? (
+                                  <div className="override-editor">
+                                    <select
+                                      aria-label={`Override category for ${transaction.description}`}
+                                      autoFocus
+                                      value={transaction.selectedCategory ?? ''}
+                                      onChange={(event) => {
+                                        if (event.target.value) {
+                                          selectCategory(index, event.target.value)
                                         }
-                                        title={`Matched “${suggestion.matchedDescription}”`}
-                                        onClick={() => selectCategory(index, suggestion.category)}
-                                      >
-                                        {suggestion.category}
-                                        <small>{Math.round(suggestion.confidence * 100)}%</small>
-                                      </button>
-                                    ))
-                                  ) : (
-                                    <span className="unmatched">No match</span>
-                                  )}
-                                </div>
+                                      }}
+                                    >
+                                      <option value="">Choose a category…</option>
+                                      {categories.map((category) => (
+                                        <option value={category} key={category}>
+                                          {category}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <button
+                                      type="button"
+                                      className="cancel-override"
+                                      onClick={() => setEditingIndex(null)}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="category-controls">
+                                    <div className="suggestions">
+                                      {transaction.suggestions.length > 0 ? (
+                                        transaction.suggestions.map((suggestion) => (
+                                          <button
+                                            type="button"
+                                            key={suggestion.category}
+                                            className={
+                                              transaction.selectedCategory === suggestion.category
+                                                ? 'selected'
+                                                : ''
+                                            }
+                                            title={`Matched “${suggestion.matchedDescription}”`}
+                                            onClick={() => selectCategory(index, suggestion.category)}
+                                          >
+                                            {suggestion.category}
+                                            <small>{Math.round(suggestion.confidence * 100)}%</small>
+                                          </button>
+                                        ))
+                                      ) : (
+                                        <span className="unmatched">No match</span>
+                                      )}
+                                      {transaction.selectedCategory &&
+                                        !transaction.suggestions.some(
+                                          ({ category }) =>
+                                            category === transaction.selectedCategory,
+                                        ) && (
+                                          <span className="manual-category">
+                                            {transaction.selectedCategory}
+                                          </span>
+                                        )}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="edit-category"
+                                      aria-label={`Override category for ${transaction.description}`}
+                                      title="Override category"
+                                      onClick={() => setEditingIndex(index)}
+                                    >
+                                      ✎
+                                    </button>
+                                  </div>
+                                )}
                               </td>
                             </tr>
                           ))}

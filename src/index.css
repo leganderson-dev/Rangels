@@ -306,8 +306,23 @@ th {
 
 .suggestions {
   display: flex;
-  min-width: 260px;
+  flex-wrap: wrap;
   gap: 6px;
+}
+
+.category-cell {
+  min-width: 340px;
+}
+
+.category-controls,
+.override-editor {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.category-controls .suggestions {
+  flex: 1;
 }
 
 .suggestions button {
@@ -343,6 +358,53 @@ th {
 
 .unmatched {
   color: #9a5a31;
+  font-size: 0.8rem;
+}
+
+.manual-category {
+  padding: 7px 9px;
+  border-radius: 8px;
+  color: #fff;
+  background: #285a43;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.edit-category {
+  display: grid;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid #d0d8d3;
+  border-radius: 7px;
+  color: #52635a;
+  background: #fff;
+  cursor: pointer;
+  font-size: 1rem;
+  place-items: center;
+}
+
+.edit-category:hover {
+  border-color: #71907f;
+  color: #285a43;
+}
+
+.override-editor select {
+  min-width: 220px;
+  padding: 8px 10px;
+  border: 1px solid #71907f;
+  border-radius: 8px;
+  color: #17201c;
+  background: #fff;
+}
+
+.cancel-override {
+  padding: 7px 9px;
+  border: 0;
+  color: #65716a;
+  background: transparent;
+  cursor: pointer;
   font-size: 0.8rem;
 }
 
