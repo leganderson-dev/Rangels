@@ -1,7 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { Session } from '@supabase/supabase-js'
 import { parseFourColumnBankExport, parseHistoricalExport } from './lib/importers'
 import { classifyConfidence, suggestCategories } from './lib/matching'
 import { filterCategoryGroups, groupCategoryPaths } from './lib/categories'
+import { commitImport, fingerprintFile } from './lib/persistence'
+import { supabase } from './lib/supabase'
 import type {
   ConfidenceGroup,
   HistoricalTransaction,
@@ -51,6 +54,20 @@ function App() {
   const [error, setError] = useState('')
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [categoryQuery, setCategoryQuery] = useState('')
+  const [session, setSession] = useState<Session | null>(null)
+  const [email, setEmail] = useState('')
+  const [accountName, setAccountName] = useState('')
+  const [fileFingerprint, setFileFingerprint] = useState('')
+  const [saveStatus, setSaveStatus] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    void supabase.auth.getSession().then(({ data }) => setSession(data.session))
+    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession)
+    })
+    return () => data.subscription.unsubscribe()
+  }, [])
 
   const categoryGroups = useMemo(
     () => groupCategoryPaths(history.map(({ category }) => category)),
@@ -93,6 +110,7 @@ function App() {
       setHistoryName(file.name)
       setTransactions([])
       setBankName('')
+      setFileFingerprint('')
       setEditingIndex(null)
       setError('')
     } catch (caught) {
@@ -109,7 +127,8 @@ function App() {
     }
 
     try {
-      const parsed = parseFourColumnBankExport(await readFile(file))
+      const contents = await readFile(file)
+      const parsed = parseFourColumnBankExport(contents)
       setTransactions(
         parsed.map((transaction) => ({
           ...transaction,
@@ -117,6 +136,7 @@ function App() {
         })),
       )
       setBankName(file.name)
+      setFileFingerprint(await fingerprintFile(contents))
       setEditingIndex(null)
       setError('')
     } catch (caught) {
@@ -151,6 +171,40 @@ function App() {
           : transaction
       }),
     )
+  }
+
+  async function sendSignInLink() {
+    if (!email.trim()) return
+    setSaveStatus('Sending sign-in link…')
+    const { error: authError } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { emailRedirectTo: window.location.origin },
+    })
+    setSaveStatus(
+      authError ? authError.message : 'Check your email for the Rangels sign-in link.',
+    )
+  }
+
+  async function saveImport() {
+    if (!session || !accountName.trim() || !fileFingerprint) return
+    setSaving(true)
+    setSaveStatus('Saving import…')
+    try {
+      const count = await commitImport({
+        ownerId: session.user.id,
+        accountName: accountName.trim(),
+        institution: accountName.trim(),
+        fileName: bankName,
+        fileFingerprint,
+        history,
+        transactions,
+      })
+      setSaveStatus(`${count} transactions saved to Supabase.`)
+    } catch (caught) {
+      setSaveStatus(caught instanceof Error ? caught.message : 'Could not save the import.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -196,6 +250,35 @@ function App() {
       </section>
 
       {error && <p className="error" role="alert">{error}</p>}
+
+      <section className="connection" aria-label="Supabase connection">
+        {session ? (
+          <>
+            <span>Signed in as {session.user.email}</span>
+            <button type="button" onClick={() => void supabase.auth.signOut()}>
+              Sign out
+            </button>
+          </>
+        ) : (
+          <>
+            <div>
+              <strong>Sign in to save</strong>
+              <span>We’ll email you a secure sign-in link.</span>
+            </div>
+            <input
+              type="email"
+              placeholder="Email address"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+            <button type="button" onClick={() => void sendSignInLink()}>
+              Send link
+            </button>
+          </>
+        )}
+      </section>
+
+      {saveStatus && <p className="save-status" role="status">{saveStatus}</p>}
 
       {transactions.length > 0 && (
         <section className="results">
@@ -376,6 +459,31 @@ function App() {
               )
             })}
           </div>
+
+          <section className="commit-panel">
+            <div>
+              <h2>Commit import</h2>
+              <p>Save confirmed transactions and teach Rangels for next time.</p>
+            </div>
+            <input
+              type="text"
+              placeholder="Account name, e.g. Everyday"
+              value={accountName}
+              onChange={(event) => setAccountName(event.target.value)}
+            />
+            <button
+              type="button"
+              disabled={
+                saving ||
+                !session ||
+                !accountName.trim() ||
+                confirmedCount !== transactions.length
+              }
+              onClick={() => void saveImport()}
+            >
+              {saving ? 'Saving…' : `Commit ${transactions.length} transactions`}
+            </button>
+          </section>
         </section>
       )}
     </main>

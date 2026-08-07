@@ -135,6 +135,72 @@ h1 {
   background: #fff5f4;
 }
 
+.connection,
+.commit-panel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 16px 18px;
+  border: 1px solid #d8dfda;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.connection > div,
+.commit-panel > div {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+}
+
+.connection span,
+.commit-panel p {
+  margin: 0;
+  color: #6c7771;
+  font-size: 0.82rem;
+}
+
+.connection input,
+.commit-panel input {
+  min-width: 220px;
+  padding: 9px 10px;
+  border: 1px solid #cbd5cf;
+  border-radius: 8px;
+}
+
+.connection button,
+.commit-panel button {
+  padding: 9px 12px;
+  border: 1px solid #547966;
+  border-radius: 8px;
+  color: #fff;
+  background: #285a43;
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.connection button:disabled,
+.commit-panel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.save-status {
+  margin: 12px 0 0;
+  color: #285a43;
+  font-size: 0.86rem;
+}
+
+.commit-panel {
+  margin-top: 28px;
+}
+
+.commit-panel h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
 .results {
   margin-top: 32px;
 }
@@ -493,6 +559,12 @@ th {
 
   .group-header {
     align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .connection,
+  .commit-panel {
+    align-items: stretch;
     flex-direction: column;
   }
 }
