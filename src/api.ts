@@ -172,15 +172,27 @@ async function bankPreview(token: string) {
       // Rank every non-zero match. Even low-confidence analysis rows should
       // begin with their highest score selected and remain editable.
       const suggestions = suggestCategories(row.description, history, Number.EPSILON)
-      const best = suggestions[0]
-      const category = best ? byPath.get(best.category) : undefined
+      const rankedSuggestions = suggestions
+        .map(suggestion => {
+          const category = byPath.get(suggestion.category)
+          return category ? {
+            categoryId: category.id,
+            categoryName: category.fullName,
+            confidence: suggestion.confidence,
+            reason: `Matched “${suggestion.matchedDescription}”`,
+          } : null
+        })
+        .filter((suggestion): suggestion is NonNullable<typeof suggestion> => suggestion !== null)
+        .slice(0, 3)
+      const best = rankedSuggestions[0]
       return {
         index,
         ...row,
-        suggestedCategoryId: category?.id ?? null,
-        suggestedCategoryName: category?.fullName ?? null,
+        suggestedCategoryId: best?.categoryId ?? null,
+        suggestedCategoryName: best?.categoryName ?? null,
         confidence: best?.confidence ?? 0,
-        reason: best ? `Matched “${best.matchedDescription}”` : 'No previous merchant match',
+        reason: best?.reason ?? 'No previous merchant match',
+        suggestions: rankedSuggestions,
       }
     }),
   }

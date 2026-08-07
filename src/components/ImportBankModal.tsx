@@ -16,6 +16,12 @@ interface PreviewRow {
   suggestedCategoryName: string | null
   confidence: number
   reason: string
+  suggestions: Array<{
+    categoryId: string
+    categoryName: string
+    confidence: number
+    reason: string
+  }>
 }
 
 interface Props {
@@ -144,8 +150,8 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
 
           {/* Table */}
           <div className="border border-gray-200 rounded-lg overflow-hidden">
-            <div className="grid grid-cols-[24px_90px_1fr_100px_220px] text-xs font-medium text-gray-400 uppercase tracking-wide bg-gray-50 px-3 py-2 gap-3">
-              <span /><span>Date</span><span>Description</span><span className="text-right">Amount</span><span>Suggestion</span>
+            <div className="grid grid-cols-[24px_90px_minmax(260px,1fr)_100px_minmax(520px,1.5fr)] text-xs font-medium text-gray-400 uppercase tracking-wide bg-gray-50 px-3 py-2 gap-3">
+              <span /><span>Date</span><span>Description</span><span className="text-right">Amount</span><span>Suggested categories</span>
             </div>
             <div className="max-h-[400px] overflow-y-auto divide-y divide-gray-100">
               {confidenceGroups.map(group => group.rows.length > 0 && (
@@ -231,7 +237,7 @@ function ImportRow({ row, categories, included, onIncluded, assignedCategoryId, 
 
   return (
     <div
-      className={`grid grid-cols-[24px_90px_1fr_100px_220px] gap-3 px-3 py-2 items-center text-sm hover:bg-gray-50 ${focused ? 'bg-blue-50' : ''} ${included ? '' : 'opacity-40'}`}
+      className={`grid grid-cols-[24px_90px_minmax(260px,1fr)_100px_minmax(520px,1.5fr)] gap-3 px-3 py-2 items-center text-sm hover:bg-gray-50 ${focused ? 'bg-blue-50' : ''} ${included ? '' : 'opacity-40'}`}
       onClick={onFocus}
     >
       <input type="checkbox" checked={included} onChange={onIncluded} onClick={e => e.stopPropagation()} />
@@ -241,25 +247,32 @@ function ImportRow({ row, categories, included, onIncluded, assignedCategoryId, 
         {fmt(row.amount)}
       </span>
       <div className="relative">
-        <button
-          onClick={e => { e.stopPropagation(); catOpen ? onCloseCat() : onOpenCat() }}
-          className={`w-full text-left px-2 py-1 rounded border text-xs flex items-center justify-between gap-1 transition-colors ${
-            catOpen ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
-          }`}
-        >
-          {assignedCat ? (
-            <span className="flex items-center gap-1.5 truncate">
-              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: assignedCat.color }} />
-              <span className="truncate">{assignedCat.fullName}</span>
-            </span>
-          ) : (
-            <span className="text-gray-400 italic">Uncategorised</span>
-          )}
-          <span className="flex items-center gap-1 text-gray-400"><span>{Math.round(row.confidence * 100)}%</span><Pencil size={11} /></span>
-        </button>
+        <div className="flex items-stretch gap-1.5">
+          <div className="grid grid-cols-3 gap-1.5 flex-1 min-w-0">
+            {row.suggestions.map((suggestion, index) => {
+              const category = categories.find(item => item.id === suggestion.categoryId)
+              const selected = assignedCategoryId === suggestion.categoryId
+              return (
+                <button key={suggestion.categoryId} title={`${suggestion.categoryName} — ${suggestion.reason}`} onClick={event => { event.stopPropagation(); onAssign(suggestion.categoryId) }} className={`relative min-w-0 rounded-md border px-2 py-1.5 text-left text-[11px] transition-colors ${index === 0 ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-200' : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/50'} ${selected ? 'font-semibold shadow-sm' : ''}`}>
+                  {index === 0 && <span className="absolute -top-2 left-2 rounded bg-blue-600 px-1 text-[8px] font-bold uppercase tracking-wide text-white">Best</span>}
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: category?.color ?? '#64748b' }} />
+                    <span className="truncate">{suggestion.categoryName}</span>
+                    <span className="ml-auto shrink-0 text-gray-400">{Math.round(suggestion.confidence * 100)}%</span>
+                    {selected && <Check size={11} className="shrink-0 text-blue-600" />}
+                  </span>
+                </button>
+              )
+            })}
+            {row.suggestions.length === 0 && <span className="col-span-3 px-2 py-1.5 text-xs italic text-gray-400">No scored suggestion</span>}
+          </div>
+          <button title={assignedCat ? `Change ${assignedCat.fullName}` : 'Choose a category'} onClick={e => { e.stopPropagation(); catOpen ? onCloseCat() : onOpenCat() }} className={`shrink-0 rounded-md border px-2 transition-colors ${catOpen ? 'border-blue-500 bg-blue-50 text-blue-600' : 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600'}`}>
+            <Pencil size={13} />
+          </button>
+        </div>
 
         {catOpen && (
-          <div className="absolute top-full left-0 right-0 mt-0.5 bg-white border border-gray-200 rounded-lg shadow-xl z-40">
+          <div className="absolute top-full right-0 mt-1 w-[420px] bg-white border border-gray-200 rounded-lg shadow-xl z-40">
             <div className="p-1.5 border-b border-gray-100">
               <input
                 ref={inputRef}
