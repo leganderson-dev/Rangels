@@ -249,12 +249,11 @@ function ImportRow({ row, categories, included, onIncluded, assignedCategoryId, 
       <div className="relative">
         <div className="flex items-stretch gap-1.5">
           <div className="grid grid-cols-3 gap-1.5 flex-1 min-w-0">
-            {row.suggestions.map((suggestion, index) => {
+            {row.suggestions.map(suggestion => {
               const category = categories.find(item => item.id === suggestion.categoryId)
               const selected = assignedCategoryId === suggestion.categoryId
               return (
-                <button key={suggestion.categoryId} title={`${suggestion.categoryName} — ${suggestion.reason}`} onClick={event => { event.stopPropagation(); onAssign(suggestion.categoryId) }} className={`relative min-w-0 rounded-md border px-2 py-1.5 text-left text-[11px] transition-colors ${index === 0 ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-200' : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/50'} ${selected ? 'font-semibold shadow-sm' : ''}`}>
-                  {index === 0 && <span className="absolute -top-2 left-2 rounded bg-blue-600 px-1 text-[8px] font-bold uppercase tracking-wide text-white">Best</span>}
+                <button key={suggestion.categoryId} title={`${suggestion.categoryName} — ${suggestion.reason}`} onClick={event => { event.stopPropagation(); onAssign(suggestion.categoryId) }} className={`relative min-w-0 rounded-md border px-2 py-1.5 text-left text-[11px] transition-colors ${selected ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-200 font-semibold shadow-sm' : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/50'}`}>
                   <span className="flex items-center gap-1.5 min-w-0">
                     <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: category?.color ?? '#64748b' }} />
                     <span className="truncate">{suggestion.categoryName}</span>
