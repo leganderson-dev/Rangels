@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Upload, Check, AlertCircle, Pencil } from 'lucide-react'
+import { Upload, Check, AlertCircle, Pencil, ChevronDown, ChevronRight } from 'lucide-react'
 import { Modal } from './Modal'
 import { api } from '../api'
 import { fmt, formatDate } from '../utils'
@@ -44,6 +44,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   const [catSearch, setCatSearch] = useState<Record<number, string>>({})
   const [catOpen, setCatOpen] = useState<number | null>(null)
   const [included, setIncluded] = useState<Set<number>>(new Set())
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<ConfidenceGroup>>(new Set())
 
   async function pickFile() {
     setLoading(true)
@@ -97,6 +98,14 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
       const next = new Set(current)
       const allSelected = groupRows.every(row => current.has(row.index))
       groupRows.forEach(row => allSelected ? next.delete(row.index) : next.add(row.index))
+      return next
+    })
+  }
+
+  function toggleCollapsed(group: ConfidenceGroup) {
+    setCollapsedGroups(current => {
+      const next = new Set(current)
+      next.has(group) ? next.delete(group) : next.add(group)
       return next
     })
   }
@@ -156,11 +165,14 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
             <div className="max-h-[400px] overflow-y-auto divide-y divide-gray-100">
               {confidenceGroups.map(group => group.rows.length > 0 && (
                 <div key={group.key}>
-                  <button onClick={() => toggleGroup(group.rows)} className="sticky top-0 z-10 w-full flex items-center gap-2 bg-slate-100 px-3 py-2 text-left text-xs font-semibold text-slate-700">
-                    <input readOnly type="checkbox" checked={group.rows.every(row => included.has(row.index))} />
-                    {group.label} <span className="font-normal text-slate-400">{group.range} · {group.rows.length}</span>
-                  </button>
-                  {group.rows.map(row => {
+                  <div className="sticky top-0 z-10 w-full flex items-center gap-2 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
+                    <input type="checkbox" checked={group.rows.every(row => included.has(row.index))} onChange={() => toggleGroup(group.rows)} title={`Select or exclude all ${group.label.toLowerCase()} transactions`} />
+                    <button onClick={() => toggleCollapsed(group.key)} className="flex flex-1 items-center gap-2 text-left" aria-expanded={!collapsedGroups.has(group.key)}>
+                      {collapsedGroups.has(group.key) ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                      {group.label} <span className="font-normal text-slate-400">{group.range} · {group.rows.length}</span>
+                    </button>
+                  </div>
+                  {!collapsedGroups.has(group.key) && group.rows.map(row => {
                     const i = rows.indexOf(row)
                     return <ImportRow key={row.index} row={row} categories={categories} included={included.has(row.index)} onIncluded={() => setIncluded(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} assignedCategoryId={assignments[row.index] ?? null} focused={focusRow === i} catOpen={catOpen === i} catSearch={catSearch[i] ?? ''} onFocus={() => setFocusRow(i)} onOpenCat={() => setCatOpen(i)} onCloseCat={() => setCatOpen(null)} onCatSearch={s => setCatSearch(c => ({ ...c, [i]: s }))} onAssign={catId => setAssignment(row.index, catId)} />
                   })}
