@@ -13,3 +13,11 @@ Rangels is a cross-platform application for macOS and Windows.
 - Make importing the primary workflow.
 - Avoid unnecessary abstractions.
 - Every feature must earn its place.
+
+## Bank imports
+
+The family uses three banks. Each bank has its own CSV export format, and Rangels must support all three.
+
+Each confirmed bank format should have a small, explicit parser. The parsers should normalize their records into the same internal transaction shape. Do not assume one universal CSV layout, and do not build a generic import framework before the three real formats are available.
+
+Raw financial exports must not be committed to the repository.
