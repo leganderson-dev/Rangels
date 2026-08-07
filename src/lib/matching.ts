@@ -6,16 +6,21 @@ import type {
 
 const BANK_NOISE = new Set([
   'australia',
+  'aus',
   'au',
   'bpay',
   'card',
   'debit',
+  'date',
   'eftpos',
   'netbank',
+  'ns',
+  'nsw',
   'payment',
   'purchase',
   'qld',
   'transfer',
+  'value',
   'visa',
 ])
 
@@ -35,34 +40,35 @@ export function normalizeDescription(description: string): string {
     .trim()
 }
 
-function bigrams(value: string): string[] {
-  const compact = value.replace(/\s+/g, ' ')
-  if (compact.length < 2) return compact ? [compact] : []
-
-  return Array.from(
-    { length: compact.length - 1 },
-    (_, index) => compact.slice(index, index + 2),
-  )
-}
-
 function similarity(left: string, right: string): number {
   if (!left || !right) return 0
   if (left === right) return 1
-  if (left.includes(right) || right.includes(left)) return 0.92
+  const leftWords = new Set(left.split(' ').filter(Boolean))
+  const rightWords = new Set(right.split(' ').filter(Boolean))
+  const common = [...leftWords].filter(word => rightWords.has(word)).length
+  if (common === 0) return 0
 
-  const leftPairs = bigrams(left)
-  const availableRightPairs = bigrams(right)
-  let matches = 0
-
-  for (const pair of leftPairs) {
-    const index = availableRightPairs.indexOf(pair)
-    if (index !== -1) {
-      matches += 1
-      availableRightPairs.splice(index, 1)
-    }
+  const smallerSize = Math.min(leftWords.size, rightWords.size)
+  if (common === smallerSize) {
+    // The stable merchant phrase is wholly present; extra bank text should not
+    // weaken what is effectively the same historical merchant.
+    return smallerSize >= 2 ? 1 : 0.85
   }
 
-  return (2 * matches) / (leftPairs.length + bigrams(right).length)
+  return common / Math.max(leftWords.size, rightWords.size)
+}
+
+export function relevantCategorySuggestions(
+  suggestions: CategorySuggestion[],
+): CategorySuggestion[] {
+  const best = suggestions[0]
+  if (!best) return []
+  if (best.confidence >= 0.9) return [best]
+
+  const relevanceFloor = Math.max(0.35, best.confidence - 0.2)
+  return suggestions
+    .filter(suggestion => suggestion.confidence >= relevanceFloor)
+    .slice(0, 3)
 }
 
 export function suggestCategories(

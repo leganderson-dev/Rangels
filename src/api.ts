@@ -10,7 +10,7 @@ import type {
   TransactionFilter,
 } from './types/finance'
 import { parseBankExport } from './lib/importers'
-import { normalizeDescription, suggestCategories } from './lib/matching'
+import { normalizeDescription, relevantCategorySuggestions, suggestCategories } from './lib/matching'
 import { parseDelimited } from './lib/csv'
 
 const pickedFiles = new Map<string, { name: string; text: string }>()
@@ -171,7 +171,9 @@ async function bankPreview(token: string) {
     rows: parsed.rows.map((row, index) => {
       // Rank every non-zero match. Even low-confidence analysis rows should
       // begin with their highest score selected and remain editable.
-      const suggestions = suggestCategories(row.description, history, Number.EPSILON)
+      const suggestions = relevantCategorySuggestions(
+        suggestCategories(row.description, history, Number.EPSILON),
+      )
       const rankedSuggestions = suggestions
         .map(suggestion => {
           const category = byPath.get(suggestion.category)

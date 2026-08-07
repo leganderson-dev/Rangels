@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   classifyConfidence,
   normalizeDescription,
+  relevantCategorySuggestions,
   suggestCategories,
 } from './matching'
 
@@ -49,5 +50,30 @@ describe('suggestCategories', () => {
     expect(suggestions).toEqual(
       [...suggestions].sort((left, right) => right.confidence - left.confidence),
     )
+  })
+
+  it('does not score unrelated categories from accidental character overlap', () => {
+    const bccHistory = [
+      { description: 'BCC RATES & DONATION', category: 'Council rates' },
+      { description: 'WOOLWORTHS SUPERMARKET', category: 'Supermarket' },
+      { description: 'FIGURINE SHOP', category: 'Figurines' },
+    ]
+    expect(suggestCategories('BCC RATES & DONATION NetBank BPAY 319186', bccHistory))
+      .toEqual([{ category: 'Council rates', confidence: 1, matchedDescription: 'BCC RATES & DONATION' }])
+  })
+
+  it('shows only one option for a very strong match', () => {
+    const suggestions = suggestCategories('VISA WOOLWORTHS 932 QLD', history)
+    expect(relevantCategorySuggestions(suggestions)).toEqual([suggestions[0]])
+  })
+
+  it('keeps only close, relevant alternatives for uncertain matches', () => {
+    const suggestions = [
+      { category: 'First', confidence: 0.7, matchedDescription: 'one' },
+      { category: 'Second', confidence: 0.62, matchedDescription: 'two' },
+      { category: 'Noise', confidence: 0.2, matchedDescription: 'three' },
+    ]
+    expect(relevantCategorySuggestions(suggestions).map(item => item.category))
+      .toEqual(['First', 'Second'])
   })
 })
