@@ -40,6 +40,15 @@ export function normalizeDescription(description: string): string {
     .trim()
 }
 
+export function transactionDuplicateKey(
+  accountId: string,
+  date: string,
+  amount: number,
+  description: string,
+): string {
+  return [accountId, date, amount.toFixed(2), normalizeDescription(description)].join('|')
+}
+
 function similarity(left: string, right: string): number {
   if (!left || !right) return 0
   if (left === right) return 1

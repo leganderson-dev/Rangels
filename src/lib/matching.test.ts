@@ -4,6 +4,7 @@ import {
   normalizeDescription,
   relevantCategorySuggestions,
   suggestCategories,
+  transactionDuplicateKey,
 } from './matching'
 
 describe('classifyConfidence', () => {
@@ -22,6 +23,15 @@ describe('normalizeDescription', () => {
     expect(normalizeDescription('VISA PURCHASE WOOLWORTHS #432 QLD')).toBe(
       'woolworths',
     )
+  })
+})
+
+describe('transactionDuplicateKey', () => {
+  it('ignores changing bank references but keeps account, date and amount', () => {
+    expect(transactionDuplicateKey('account-1', '2026-08-08', -12.3, 'VISA WOOLWORTHS #123 QLD'))
+      .toBe(transactionDuplicateKey('account-1', '2026-08-08', -12.30, 'WOOLWORTHS #999'))
+    expect(transactionDuplicateKey('account-1', '2026-08-09', -12.3, 'WOOLWORTHS'))
+      .not.toBe(transactionDuplicateKey('account-1', '2026-08-08', -12.3, 'WOOLWORTHS'))
   })
 })
 

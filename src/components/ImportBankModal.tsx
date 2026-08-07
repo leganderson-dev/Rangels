@@ -22,6 +22,8 @@ interface PreviewRow {
     confidence: number
     reason: string
   }>
+  duplicate: boolean
+  duplicateReason: string | null
 }
 
 interface Props {
@@ -52,14 +54,14 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
       const path = await api.import.bankCsvPick()
       if (!path) { setLoading(false); return }
       setFilePath(path)
-      const preview = await api.import.bankCsvPreview(path)
+      const preview = await api.import.bankCsvPreview(path, accountId)
       setFormat(preview.format)
       setRows(preview.rows)
       // Pre-fill assignments from suggestions
       const init: Record<number, string | null> = {}
       preview.rows.forEach(r => { init[r.index] = r.suggestedCategoryId })
       setAssignments(init)
-      setIncluded(new Set(preview.rows.map(r => r.index)))
+      setIncluded(new Set(preview.rows.filter(r => !r.duplicate).map(r => r.index)))
       setStep('categorize')
     } finally {
       setLoading(false)
@@ -85,7 +87,8 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
     setFocusRow(r => r + 1)
   }
 
-  const uncategorisedCount = rows.filter(r => assignments[r.index] == null).length
+  const uncategorisedCount = rows.filter(row => !row.duplicate && assignments[row.index] == null).length
+  const duplicateCount = rows.filter(row => row.duplicate).length
   const totalAmount = rows.reduce((s, r) => s + r.amount, 0)
   const confidenceGroups: Array<{ key: ConfidenceGroup; label: string; range: string; rows: PreviewRow[] }> = [
     { key: 'confident', label: 'Confident', range: '70–100%', rows: rows.filter(row => classifyConfidence(row.confidence) === 'confident') },
@@ -96,8 +99,9 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   function toggleGroup(groupRows: PreviewRow[]) {
     setIncluded(current => {
       const next = new Set(current)
-      const allSelected = groupRows.every(row => current.has(row.index))
-      groupRows.forEach(row => allSelected ? next.delete(row.index) : next.add(row.index))
+      const selectableRows = groupRows.filter(row => !row.duplicate)
+      const allSelected = selectableRows.every(row => current.has(row.index))
+      selectableRows.forEach(row => allSelected ? next.delete(row.index) : next.add(row.index))
       return next
     })
   }
@@ -149,6 +153,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
                 <AlertCircle size={14} /> {uncategorisedCount} uncategorised
               </span>
             )}
+            {duplicateCount > 0 && <span className="text-slate-500">{duplicateCount} duplicates excluded</span>}
             <span className="ml-auto font-semibold text-gray-700">{fmt(totalAmount, true)}</span>
           </div>
 
@@ -166,7 +171,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
               {confidenceGroups.map(group => group.rows.length > 0 && (
                 <div key={group.key}>
                   <div className="sticky top-0 z-10 w-full flex items-center gap-2 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
-                    <input type="checkbox" checked={group.rows.every(row => included.has(row.index))} onChange={() => toggleGroup(group.rows)} title={`Select or exclude all ${group.label.toLowerCase()} transactions`} />
+                    <input type="checkbox" checked={group.rows.filter(row => !row.duplicate).every(row => included.has(row.index))} onChange={() => toggleGroup(group.rows)} title={`Select or exclude all ${group.label.toLowerCase()} transactions`} />
                     <button onClick={() => toggleCollapsed(group.key)} className="flex flex-1 items-center gap-2 text-left" aria-expanded={!collapsedGroups.has(group.key)}>
                       {collapsedGroups.has(group.key) ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                       {group.label} <span className="font-normal text-slate-400">{group.range} · {group.rows.length}</span>
@@ -194,7 +199,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
               disabled={loading}
               className="bg-blue-600 text-white rounded-lg px-5 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
             >
-              {loading ? 'Importing…' : `Import ${rows.length} transactions`}
+              {loading ? 'Importing…' : `Import ${included.size} transactions`}
             </button>
           </div>
         </div>
@@ -252,9 +257,9 @@ function ImportRow({ row, categories, included, onIncluded, assignedCategoryId, 
       className={`grid grid-cols-[24px_90px_minmax(260px,1fr)_100px_minmax(520px,1.5fr)] gap-3 px-3 py-2 items-center text-sm hover:bg-gray-50 ${focused ? 'bg-blue-50' : ''} ${included ? '' : 'opacity-40'}`}
       onClick={onFocus}
     >
-      <input type="checkbox" checked={included} onChange={onIncluded} onClick={e => e.stopPropagation()} />
+      <input type="checkbox" checked={included} disabled={row.duplicate} onChange={onIncluded} onClick={e => e.stopPropagation()} />
       <span className="text-xs text-gray-400">{formatDate(row.date)}</span>
-      <span className="text-gray-700 truncate text-xs" title={row.reason}>{row.description}</span>
+      <span className="text-gray-700 truncate text-xs" title={row.duplicateReason ?? row.reason}>{row.description}{row.duplicate && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-700">Duplicate</span>}</span>
       <span className={`text-right text-xs font-semibold ${row.amount >= 0 ? 'text-green-600' : 'text-gray-700'}`}>
         {fmt(row.amount)}
       </span>

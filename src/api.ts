@@ -10,7 +10,7 @@ import type {
   TransactionFilter,
 } from './types/finance'
 import { parseBankExport } from './lib/importers'
-import { normalizeDescription, relevantCategorySuggestions, suggestCategories } from './lib/matching'
+import { normalizeDescription, relevantCategorySuggestions, suggestCategories, transactionDuplicateKey } from './lib/matching'
 import { parseDelimited } from './lib/csv'
 
 const pickedFiles = new Map<string, { name: string; text: string }>()
@@ -157,7 +157,7 @@ async function fileHash(text: string): Promise<string> {
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
-async function bankPreview(token: string) {
+async function bankPreview(token: string, accountId: string) {
   const file = pickedFiles.get(token)
   if (!file) throw new Error('Please choose the CSV again.')
   const parsed = parseBankExport(file.text)
@@ -166,9 +166,21 @@ async function bankPreview(token: string) {
     .filter(transaction => transaction.categoryId && transaction.categoryFullName)
     .map(transaction => ({ description: transaction.description, category: transaction.categoryFullName! }))
   const byPath = new Map(categories.map(category => [category.fullName, category]))
+  const existingKeys = new Set(
+    transactions
+      .filter(transaction => transaction.accountId === accountId && !transaction.isTransfer)
+      .map(transaction => transactionDuplicateKey(accountId, transaction.date, transaction.amount, transaction.description)),
+  )
+  const fileKeys = new Set<string>()
   return {
     format: parsed.format,
     rows: parsed.rows.map((row, index) => {
+      const duplicateKey = transactionDuplicateKey(accountId, row.date, row.amount, row.description)
+      const duplicate = existingKeys.has(duplicateKey) || fileKeys.has(duplicateKey)
+      const duplicateReason = existingKeys.has(duplicateKey)
+        ? 'Already exists in this account'
+        : fileKeys.has(duplicateKey) ? 'Repeated in this CSV' : null
+      fileKeys.add(duplicateKey)
       // Rank every non-zero match. Even low-confidence analysis rows should
       // begin with their highest score selected and remain editable.
       const suggestions = relevantCategorySuggestions(
@@ -195,6 +207,8 @@ async function bankPreview(token: string) {
         confidence: best?.confidence ?? 0,
         reason: best?.reason ?? 'No previous merchant match',
         suggestions: rankedSuggestions,
+        duplicate,
+        duplicateReason,
       }
     }),
   }
@@ -213,9 +227,18 @@ async function importBank(token: string, accountId: string, assignments: Record<
   let imported = 0
   let skipped = 0
   const errors: string[] = []
+  const existingTransactions = await listTransactions()
+  const duplicateKeys = new Set(
+    existingTransactions
+      .filter(transaction => transaction.accountId === accountId && !transaction.isTransfer)
+      .map(transaction => transactionDuplicateKey(accountId, transaction.date, transaction.amount, transaction.description)),
+  )
   for (const [index, row] of parsed.rows.entries()) {
     if (assignments[index] === '__skip__') continue
-    const sourceFingerprint = await fileHash(`${accountId}|${row.date}|${row.amount}|${row.description}`)
+    const duplicateKey = transactionDuplicateKey(accountId, row.date, row.amount, row.description)
+    if (duplicateKeys.has(duplicateKey)) { skipped += 1; continue }
+    duplicateKeys.add(duplicateKey)
+    const sourceFingerprint = await fileHash(duplicateKey)
     const { error } = await supabase.from('transactions').insert({ owner_id: owner, import_id: importRow.id, account_id: accountId, category_id: assignments[index] ?? null, occurred_on: row.date, description: row.description, normalized_description: normalizeDescription(row.description), amount: row.amount, balance: row.balance ?? null, source_fingerprint: sourceFingerprint, status: 'C' })
     if (!error) imported += 1
     else if (error.code === '23505') skipped += 1
@@ -956,8 +979,8 @@ export const api = {
     bankCsvPick: async (): Promise<string | null> => {
       return pickCsv()
     },
-    bankCsvPreview: async (_path: string): Promise<{ format: string; rows: any[] }> => {
-      return bankPreview(_path)
+    bankCsvPreview: async (_path: string, _accountId: string): Promise<{ format: string; rows: any[] }> => {
+      return bankPreview(_path, _accountId)
     },
     bankCsv: async (
       _path: string,
