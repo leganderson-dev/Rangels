@@ -167,8 +167,8 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
     return () => { window.removeEventListener('mousedown', close); window.removeEventListener('keydown', onKey) }
   }, [ctxMenu])
 
-  const income = transactions.filter(t => t.amount > 0 && !t.isTransfer).reduce((s, t) => s + t.amount, 0)
-  const expenses = transactions.filter(t => t.amount < 0 && !t.isTransfer).reduce((s, t) => s + t.amount, 0)
+  const income = transactions.filter(t => t.amount > 0 && !t.isTransfer && t.status === 'C').reduce((s, t) => s + t.amount, 0)
+  const expenses = transactions.filter(t => t.amount < 0 && !t.isTransfer && t.status === 'C').reduce((s, t) => s + t.amount, 0)
 
   const sorted = useMemo(() => {
     const getVal = (t: Transaction) => {

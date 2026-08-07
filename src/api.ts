@@ -61,14 +61,38 @@ async function importAlzex(): Promise<ImportResult | null> {
   if (required.some(name => at(name) < 0)) throw new Error('This is not a supported Alzex export.')
   const owner = await ownerId()
   const dataRows = rows.slice(1).filter(row => row[at('Description')]?.trim())
-  const accountColumns = [at('Account'), at('Withdraw account'), at('Target account')].filter(index => index >= 0)
-  const accountNames = [...new Set(dataRows.flatMap(row => accountColumns.flatMap(index => (row[index] ?? '').split(':')).map(name => name.trim()).filter(Boolean)))]
+  const accountColumns = [at('Withdraw account'), at('Target account')].filter(index => index >= 0)
+  const accountNames = [...new Set(dataRows.flatMap(row => accountColumns.map(index => row[index]?.trim()).filter(Boolean)))]
+  const openingBalances = new Map<string, number>()
+  for (const row of dataRows.filter(row => row[at('Description')]?.trim() === 'Opening balance')) {
+    const withdrawName = row[at('Withdraw account')]?.trim()
+    const targetName = row[at('Target account')]?.trim()
+    if (withdrawName) openingBalances.set(withdrawName, -Math.abs(Number(row[at('Withdraw amount')] || row[at('Amount')] || 0)))
+    if (targetName) openingBalances.set(targetName, Math.abs(Number(row[at('Target Amount')] || row[at('Amount')] || 0)))
+  }
+  const accountOrder = ['CartaodeCredito', 'NAB', 'NAB Savings', 'ING Currumundi', 'ING FireExtingusher', 'Leg CW', 'Smile - YL 700', 'Julia CW', 'Staging - Hub']
+  const accountProfile = (name: string, index: number) => ({
+    owner_id: owner,
+    name,
+    institution: name.startsWith('ING ') ? 'ING' : name.startsWith('NAB') ? 'NAB' : name === 'CartaodeCredito' ? 'Credit card' : 'CommBank',
+    currency: 'AUD',
+    type: 'cash',
+    initial_balance: openingBalances.get(name) ?? 0,
+    group_name: name.startsWith('ING ') ? 'ING' : name.startsWith('NAB') ? 'NAB' : ['Leg CW', 'Smile - YL 700', 'Julia CW'].includes(name) ? 'CW Accounts' : null,
+    is_active: !['Julia CW', 'Staging - Hub'].includes(name),
+    display_order: accountOrder.indexOf(name) >= 0 ? accountOrder.indexOf(name) : accountOrder.length + index,
+  })
   const existingAccounts = await supabase.from('accounts').select('id,name')
   fail(existingAccounts.error)
   const existingAccountNames = new Set((existingAccounts.data ?? []).map(row => row.name))
   const missingAccounts = accountNames.filter(name => !existingAccountNames.has(name))
   if (missingAccounts.length) {
-    const { error } = await supabase.from('accounts').insert(missingAccounts.map((name, index) => ({ owner_id: owner, name, institution: 'Alzex', currency: 'AUD', display_order: existingAccountNames.size + index })))
+    const { error } = await supabase.from('accounts').insert(missingAccounts.map((name, index) => accountProfile(name, existingAccountNames.size + index)))
+    fail(error)
+  }
+  for (const [index, name] of accountNames.entries()) {
+    if (!existingAccountNames.has(name)) continue
+    const { error } = await supabase.from('accounts').update(accountProfile(name, index)).eq('name', name)
     fail(error)
   }
   const categoryPaths = [...new Set(dataRows.map(row => row[at('Category')]?.trim()).filter(Boolean))]
@@ -98,9 +122,16 @@ async function importAlzex(): Promise<ImportResult | null> {
   let imported = 0
   let skipped = 0
   const errors: string[] = []
+  const existingExternalIds = await supabase.from('transactions').select('external_id').like('external_id', 'alzex:%')
+  fail(existingExternalIds.error)
+  const knownExternalIds = new Set((existingExternalIds.data ?? []).map(row => row.external_id).filter(Boolean))
+  const payloads: Row[] = []
   for (const row of dataRows) {
     const description = row[at('Description')].trim()
+    if (description === 'Opening balance') continue
     const uniqueId = at('Unique ID') >= 0 ? row[at('Unique ID')]?.trim() : ''
+    const externalId = uniqueId ? `alzex:${uniqueId}` : null
+    if (externalId && knownExternalIds.has(externalId)) { skipped += 1; continue }
     const withdrawName = (at('Withdraw account') >= 0 ? row[at('Withdraw account')] : '')?.trim()
     const targetName = (at('Target account') >= 0 ? row[at('Target account')] : '')?.trim()
     const sourceName = withdrawName || row[at('Account')]?.split(':')[0]?.trim()
@@ -110,10 +141,14 @@ async function importAlzex(): Promise<ImportResult | null> {
     const transactionAmount = isTransfer ? Math.abs(withdrawAmount || rawAmount) : rawAmount
     const accountId = accounts.get(sourceName)
     if (!accountId) { errors.push(`Unknown account for “${description}”.`); continue }
-    const { error } = await supabase.from('transactions').insert({ owner_id: owner, account_id: accountId, target_account_id: isTransfer ? accounts.get(targetName) ?? null : null, category_id: categories.get(row[at('Category')]?.trim()) ?? null, occurred_on: alzexDate(row[at('Date')]), description, normalized_description: normalizeDescription(description), amount: transactionAmount, comment: at('Comment') >= 0 ? row[at('Comment')] ?? '' : '', status: at('Status') >= 0 ? row[at('Status')] || 'C' : 'C', is_transfer: isTransfer, external_id: uniqueId ? `alzex:${uniqueId}` : null })
-    if (!error) imported += 1
-    else if (error.code === '23505') skipped += 1
-    else errors.push(error.message)
+    payloads.push({ owner_id: owner, account_id: accountId, target_account_id: isTransfer ? accounts.get(targetName) ?? null : null, category_id: categories.get(row[at('Category')]?.trim()) ?? null, occurred_on: alzexDate(row[at('Date')]), description, normalized_description: normalizeDescription(description), amount: transactionAmount, comment: at('Comment') >= 0 ? row[at('Comment')] ?? '' : '', status: at('Status') >= 0 ? row[at('Status')]?.trim() || 'P' : 'P', is_transfer: isTransfer, external_id: externalId })
+    if (externalId) knownExternalIds.add(externalId)
+  }
+  for (let index = 0; index < payloads.length; index += 500) {
+    const batch = payloads.slice(index, index + 500)
+    const { error } = await supabase.from('transactions').insert(batch)
+    if (error) errors.push(error.message)
+    else imported += batch.length
   }
   return { imported, skipped, errors: errors.slice(0, 20) }
 }
@@ -282,13 +317,14 @@ async function listAccounts(): Promise<Account[]> {
     rawAccounts(),
     supabase
       .from('transactions')
-      .select('account_id,target_account_id,amount,is_transfer'),
+      .select('account_id,target_account_id,amount,is_transfer,status'),
   ])
   fail(transactionResult.error)
 
   return accounts.map((account) => {
     let balance = Number(account.initial_balance)
     for (const transaction of transactionResult.data ?? []) {
+      if (transaction.status !== 'C') continue
       const amount = Number(transaction.amount)
       if (!transaction.is_transfer && transaction.account_id === account.id) {
         balance += amount
@@ -460,7 +496,9 @@ async function monthSummary(
   const transactions = await listTransactions({ month, year, accountId })
   const categories = await listCategories()
   const categoryMap = new Map(categories.map((category) => [category.id, category]))
-  const included = transactions.filter((transaction) => !transaction.isTransfer)
+  const included = transactions.filter(
+    (transaction) => !transaction.isTransfer && transaction.status === 'C',
+  )
   const income = included
     .filter((transaction) => transaction.amount > 0)
     .reduce((sum, transaction) => sum + transaction.amount, 0)
@@ -566,7 +604,9 @@ async function budgetList(month: number, year: number): Promise<Budget[]> {
       transactions
         .filter(
           (transaction) =>
-            transaction.categoryId === row.category_id && transaction.amount < 0,
+            transaction.categoryId === row.category_id &&
+            transaction.amount < 0 &&
+            transaction.status === 'C',
         )
         .reduce((sum, transaction) => sum + transaction.amount, 0),
     )
@@ -824,7 +864,7 @@ export const api = {
       const startBalance =
         initial +
         before
-          .filter((transaction) => !transaction.isTransfer)
+          .filter((transaction) => !transaction.isTransfer && transaction.status === 'C')
           .reduce((sum, transaction) => sum + transaction.amount, 0)
       const grouped = new Map<string, Transaction[]>()
       current.forEach((transaction) => {
@@ -836,7 +876,7 @@ export const api = {
       const days = [...grouped.entries()]
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([date, rows]) => {
-          const normal = rows.filter((row) => !row.isTransfer)
+          const normal = rows.filter((row) => !row.isTransfer && row.status === 'C')
           const income = normal
             .filter((row) => row.amount > 0)
             .reduce((sum, row) => sum + row.amount, 0)

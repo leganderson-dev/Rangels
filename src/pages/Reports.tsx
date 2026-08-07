@@ -50,7 +50,7 @@ export function ReportsPage({ categories, month, year, selectedAccountId, dateMo
       api.transactions.list({ dateFrom: customFrom!, dateTo: customTo!, accountId: selectedAccountId ?? undefined }).then(txs => {
         const byCat = new Map<string, any>()
         for (const t of txs) {
-          if (t.isTransfer) continue
+          if (t.isTransfer || t.status !== 'C') continue
           const key = t.categoryId ?? '__none'
           const existing = byCat.get(key)
           if (existing) existing.total += t.amount
@@ -97,7 +97,7 @@ export function ReportsPage({ categories, month, year, selectedAccountId, dateMo
       api.transactions.list({ dateFrom: customFrom!, dateTo: customTo!, accountId: selectedAccountId ?? undefined }).then(txs => {
         const byCat = new Map<string, any>()
         for (const t of txs) {
-          if (t.isTransfer) continue
+          if (t.isTransfer || t.status !== 'C') continue
           const key = t.categoryId ?? '__none'
           const existing = byCat.get(key)
           if (existing) existing.total += t.amount

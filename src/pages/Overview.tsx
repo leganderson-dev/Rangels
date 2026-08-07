@@ -26,11 +26,11 @@ export function OverviewPage({ accounts, selectedAccountId, month, year, dateMod
       : { month, year, accountId: selectedAccountId ?? undefined }
     if (dateMode === 'custom' && customFrom && customTo) {
       api.transactions.list(filter).then(txs => {
-        const income = txs.filter(t => t.amount > 0 && !t.isTransfer).reduce((s, t) => s + t.amount, 0)
-        const expenses = txs.filter(t => t.amount < 0 && !t.isTransfer).reduce((s, t) => s + t.amount, 0)
+        const income = txs.filter(t => t.amount > 0 && !t.isTransfer && t.status === 'C').reduce((s, t) => s + t.amount, 0)
+        const expenses = txs.filter(t => t.amount < 0 && !t.isTransfer && t.status === 'C').reduce((s, t) => s + t.amount, 0)
         const byCat = new Map<string, { categoryId: string; categoryFullName: string; categoryColor: string; total: number }>()
         for (const t of txs) {
-          if (t.categoryId && !t.isTransfer) {
+          if (t.categoryId && !t.isTransfer && t.status === 'C') {
             const existing = byCat.get(t.categoryId)
             if (existing) existing.total += t.amount
             else byCat.set(t.categoryId, { categoryId: t.categoryId, categoryFullName: t.categoryFullName ?? '', categoryColor: t.categoryColor ?? '#6b7280', total: t.amount })
