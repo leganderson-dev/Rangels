@@ -83,6 +83,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
 
   function setAssignment(rowIndex: number, categoryId: string | null) {
     setAssignments(a => ({ ...a, [rowIndex]: categoryId }))
+    setCatSearch(current => ({ ...current, [rowIndex]: '' }))
     setCatOpen(null)
     setFocusRow(r => r + 1)
   }
@@ -244,6 +245,13 @@ function ImportRow({ row, categories, included, onIncluded, assignedCategoryId, 
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const assignedCat = categories.find(c => c.id === assignedCategoryId)
+  const manuallySelected = assignedCat && !row.suggestions.some(suggestion => suggestion.categoryId === assignedCat.id)
+  const visibleSuggestions = manuallySelected
+    ? [
+        { categoryId: assignedCat.id, categoryName: assignedCat.fullName, confidence: null, reason: 'Manually selected' },
+        ...row.suggestions.slice(0, 2),
+      ]
+    : row.suggestions
   const filtered = categories.filter(c =>
     !catSearch || c.fullName.toLowerCase().includes(catSearch.toLowerCase())
   ).slice(0, 20)
@@ -266,7 +274,7 @@ function ImportRow({ row, categories, included, onIncluded, assignedCategoryId, 
       <div className="relative">
         <div className="flex items-stretch gap-1.5">
           <div className="grid grid-cols-3 gap-1.5 flex-1 min-w-0">
-            {row.suggestions.map(suggestion => {
+            {visibleSuggestions.map(suggestion => {
               const category = categories.find(item => item.id === suggestion.categoryId)
               const selected = assignedCategoryId === suggestion.categoryId
               return (
@@ -274,13 +282,13 @@ function ImportRow({ row, categories, included, onIncluded, assignedCategoryId, 
                   <span className="flex items-center gap-1.5 min-w-0">
                     <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: category?.color ?? '#64748b' }} />
                     <span className="truncate">{suggestion.categoryName}</span>
-                    <span className="ml-auto shrink-0 text-gray-400">{Math.round(suggestion.confidence * 100)}%</span>
+                    <span className="ml-auto shrink-0 text-gray-400">{suggestion.confidence === null ? 'Manual' : `${Math.round(suggestion.confidence * 100)}%`}</span>
                     {selected && <Check size={11} className="shrink-0 text-blue-600" />}
                   </span>
                 </button>
               )
             })}
-            {row.suggestions.length === 0 && <span className="col-span-3 px-2 py-1.5 text-xs italic text-gray-400">No scored suggestion</span>}
+            {visibleSuggestions.length === 0 && <span className="col-span-3 px-2 py-1.5 text-xs italic text-gray-400">No scored suggestion</span>}
           </div>
           <button title={assignedCat ? `Change ${assignedCat.fullName}` : 'Choose a category'} onClick={e => { e.stopPropagation(); catOpen ? onCloseCat() : onOpenCat() }} className={`shrink-0 rounded-md border px-2 transition-colors ${catOpen ? 'border-blue-500 bg-blue-50 text-blue-600' : 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600'}`}>
             <Pencil size={13} />
