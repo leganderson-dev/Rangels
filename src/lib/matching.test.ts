@@ -1,0 +1,30 @@
+import { describe, expect, it } from 'vitest'
+import { normalizeDescription, suggestCategories } from './matching'
+
+describe('normalizeDescription', () => {
+  it('removes changing references and common bank noise', () => {
+    expect(normalizeDescription('VISA PURCHASE WOOLWORTHS #432 QLD')).toBe(
+      'woolworths',
+    )
+  })
+})
+
+describe('suggestCategories', () => {
+  const history = [
+    { description: 'WOOLWORTHS #432', category: 'Groceries' },
+    { description: 'WOOLWORTHS FUEL 839', category: 'Fuel' },
+    { description: 'CITY COUNCIL RATES', category: 'Rates' },
+  ]
+
+  it('ranks prior merchant decisions and returns no more than three categories', () => {
+    const suggestions = suggestCategories('VISA WOOLWORTHS 932 QLD', history)
+
+    expect(suggestions[0]?.category).toBe('Groceries')
+    expect(suggestions[0]?.confidence).toBe(1)
+    expect(suggestions).toHaveLength(2)
+  })
+
+  it('does not suggest unrelated low-confidence history', () => {
+    expect(suggestCategories('AIRLINE TICKET', history)).toEqual([])
+  })
+})
