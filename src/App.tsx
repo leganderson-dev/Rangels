@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { parseFourColumnBankExport, parseHistoricalExport } from './lib/importers'
 import { classifyConfidence, suggestCategories } from './lib/matching'
+import { groupCategoryPaths } from './lib/categories'
 import type {
   ConfidenceGroup,
   HistoricalTransaction,
@@ -50,8 +51,8 @@ function App() {
   const [error, setError] = useState('')
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
 
-  const categories = useMemo(
-    () => [...new Set(history.map(({ category }) => category))].sort(),
+  const categoryGroups = useMemo(
+    () => groupCategoryPaths(history.map(({ category }) => category)),
     [history],
   )
 
@@ -268,10 +269,18 @@ function App() {
                                       }}
                                     >
                                       <option value="">Choose a category…</option>
-                                      {categories.map((category) => (
-                                        <option value={category} key={category}>
-                                          {category}
-                                        </option>
+                                      {categoryGroups.map((group) => (
+                                        <optgroup label={group.root} key={group.root}>
+                                          {group.categories.map((category) => (
+                                            <option
+                                              value={category.value}
+                                              key={category.value}
+                                            >
+                                              {category.depth > 1 ? '↳ ' : ''}
+                                              {category.label}
+                                            </option>
+                                          ))}
+                                        </optgroup>
                                       ))}
                                     </select>
                                     <button
