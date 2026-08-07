@@ -2,6 +2,8 @@
 
 Rangels is a cross-platform, merchant-first application built with React, TypeScript, Vite, and Supabase.
 
+Current version: **Rangels V0.1** (`0.1.0`)
+
 ## Prerequisites
 
 - Node.js 20.19+ or 22.12+
@@ -34,3 +36,7 @@ Open the local URL shown by Vite.
 - `npm run build` creates a production build.
 - `npm run lint` checks the codebase.
 - `npm run preview` serves the production build locally.
+
+## Versioning and rollback
+
+Rangels uses Git commits and annotated release tags so every released version has a clear rollback point. See [docs/versioning.md](docs/versioning.md) for the versioning policy and recovery commands.
