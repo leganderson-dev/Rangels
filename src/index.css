@@ -321,6 +321,12 @@ th {
   gap: 8px;
 }
 
+.override-editor {
+  position: relative;
+  align-items: stretch;
+  flex-direction: column;
+}
+
 .category-controls .suggestions {
   flex: 1;
 }
@@ -390,8 +396,9 @@ th {
   color: #285a43;
 }
 
-.override-editor select {
-  min-width: 280px;
+.override-editor input {
+  width: 100%;
+  min-width: 300px;
   padding: 8px 10px;
   border: 1px solid #71907f;
   border-radius: 8px;
@@ -399,7 +406,63 @@ th {
   background: #fff;
 }
 
+.category-results {
+  overflow: auto;
+  max-height: 280px;
+  border: 1px solid #d5ddd8;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.category-results > p {
+  margin: 0;
+  padding: 14px;
+  color: #7a847f;
+  font-size: 0.82rem;
+}
+
+.category-result-group {
+  display: grid;
+  padding: 7px;
+  border-bottom: 1px solid #edf0ee;
+}
+
+.category-result-group:last-child {
+  border-bottom: 0;
+}
+
+.category-result-group > strong {
+  padding: 5px 7px;
+  color: #77827c;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.category-result-group button {
+  display: flex;
+  gap: 7px;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 6px;
+  color: #26342d;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.category-result-group button:hover,
+.category-result-group button:focus-visible {
+  outline: 0;
+  background: #edf5f1;
+}
+
+.category-result-group button span {
+  color: #829188;
+}
+
 .cancel-override {
+  align-self: flex-start;
   padding: 7px 9px;
   border: 0;
   color: #65716a;

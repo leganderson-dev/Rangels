@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { parseFourColumnBankExport, parseHistoricalExport } from './lib/importers'
 import { classifyConfidence, suggestCategories } from './lib/matching'
-import { groupCategoryPaths } from './lib/categories'
+import { filterCategoryGroups, groupCategoryPaths } from './lib/categories'
 import type {
   ConfidenceGroup,
   HistoricalTransaction,
@@ -50,11 +50,17 @@ function App() {
   const [bankName, setBankName] = useState('')
   const [error, setError] = useState('')
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  const [categoryQuery, setCategoryQuery] = useState('')
 
   const categoryGroups = useMemo(
     () => groupCategoryPaths(history.map(({ category }) => category)),
     [history],
   )
+  const filteredCategoryGroups = useMemo(
+    () => filterCategoryGroups(categoryGroups, categoryQuery),
+    [categoryGroups, categoryQuery],
+  )
+  const firstFilteredCategory = filteredCategoryGroups[0]?.categories[0]?.value
 
   const suggestedCount = useMemo(
     () => transactions.filter(({ suggestions }) => suggestions.length > 0).length,
@@ -127,6 +133,7 @@ function App() {
       ),
     )
     setEditingIndex(null)
+    setCategoryQuery('')
   }
 
   function selectGroup(group: ConfidenceGroup) {
@@ -258,35 +265,53 @@ function App() {
                               <td className="category-cell">
                                 {editingIndex === index ? (
                                   <div className="override-editor">
-                                    <select
-                                      aria-label={`Override category for ${transaction.description}`}
+                                    <input
+                                      type="search"
+                                      aria-label={`Search categories for ${transaction.description}`}
+                                      placeholder="Type to search categories…"
                                       autoFocus
-                                      value={transaction.selectedCategory ?? ''}
-                                      onChange={(event) => {
-                                        if (event.target.value) {
-                                          selectCategory(index, event.target.value)
+                                      value={categoryQuery}
+                                      onChange={(event) => setCategoryQuery(event.target.value)}
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter' && firstFilteredCategory) {
+                                          event.preventDefault()
+                                          selectCategory(index, firstFilteredCategory)
+                                        } else if (event.key === 'Escape') {
+                                          setEditingIndex(null)
+                                          setCategoryQuery('')
                                         }
                                       }}
-                                    >
-                                      <option value="">Choose a category…</option>
-                                      {categoryGroups.map((group) => (
-                                        <optgroup label={group.root} key={group.root}>
-                                          {group.categories.map((category) => (
-                                            <option
-                                              value={category.value}
-                                              key={category.value}
-                                            >
-                                              {category.depth > 1 ? '↳ ' : ''}
-                                              {category.label}
-                                            </option>
-                                          ))}
-                                        </optgroup>
-                                      ))}
-                                    </select>
+                                    />
+                                    <div className="category-results">
+                                      {filteredCategoryGroups.length > 0 ? (
+                                        filteredCategoryGroups.map((group) => (
+                                          <div className="category-result-group" key={group.root}>
+                                            <strong>{group.root}</strong>
+                                            {group.categories.map((category) => (
+                                              <button
+                                                type="button"
+                                                key={category.value}
+                                                onClick={() =>
+                                                  selectCategory(index, category.value)
+                                                }
+                                              >
+                                                {category.depth > 1 && <span>↳</span>}
+                                                {category.label}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        ))
+                                      ) : (
+                                        <p>No matching categories.</p>
+                                      )}
+                                    </div>
                                     <button
                                       type="button"
                                       className="cancel-override"
-                                      onClick={() => setEditingIndex(null)}
+                                      onClick={() => {
+                                        setEditingIndex(null)
+                                        setCategoryQuery('')
+                                      }}
                                     >
                                       Cancel
                                     </button>
@@ -329,7 +354,10 @@ function App() {
                                       className="edit-category"
                                       aria-label={`Override category for ${transaction.description}`}
                                       title="Override category"
-                                      onClick={() => setEditingIndex(index)}
+                                      onClick={() => {
+                                        setEditingIndex(index)
+                                        setCategoryQuery('')
+                                      }}
                                     >
                                       ✎
                                     </button>

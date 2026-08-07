@@ -27,3 +27,22 @@ export function groupCategoryPaths(categories: string[]): CategoryGroup[] {
     categories: groupedCategories,
   }))
 }
+
+export function filterCategoryGroups(
+  groups: CategoryGroup[],
+  query: string,
+): CategoryGroup[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  if (!normalizedQuery) return groups
+
+  return groups
+    .map((group) => ({
+      ...group,
+      categories: group.categories.filter((category) =>
+        `${group.root} ${category.label} ${category.value}`
+          .toLocaleLowerCase()
+          .includes(normalizedQuery),
+      ),
+    }))
+    .filter((group) => group.categories.length > 0)
+}

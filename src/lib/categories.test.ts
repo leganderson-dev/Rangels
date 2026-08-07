@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { groupCategoryPaths } from './categories'
+import { filterCategoryGroups, groupCategoryPaths } from './categories'
 
 describe('groupCategoryPaths', () => {
   it('preserves values while exposing category levels', () => {
@@ -35,5 +35,33 @@ describe('groupCategoryPaths', () => {
         ],
       },
     ])
+  })
+})
+
+describe('filterCategoryGroups', () => {
+  const groups = groupCategoryPaths([
+    'Bank:Interest',
+    'Entertainment & Recreation:Alcohol',
+    'Food:Cafe',
+  ])
+
+  it('searches roots, children, and complete paths', () => {
+    expect(filterCategoryGroups(groups, 'entertainment')).toEqual([
+      {
+        root: 'Entertainment & Recreation',
+        categories: [
+          {
+            value: 'Entertainment & Recreation:Alcohol',
+            label: 'Alcohol',
+            depth: 1,
+          },
+        ],
+      },
+    ])
+    expect(filterCategoryGroups(groups, 'cafe')[0]?.root).toBe('Food')
+  })
+
+  it('returns all groups for an empty search', () => {
+    expect(filterCategoryGroups(groups, '  ')).toEqual(groups)
   })
 })
