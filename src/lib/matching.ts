@@ -1,5 +1,6 @@
 import type {
   CategorySuggestion,
+  ConfidenceGroup,
   HistoricalTransaction,
 } from '../types/import'
 
@@ -17,6 +18,12 @@ const BANK_NOISE = new Set([
   'transfer',
   'visa',
 ])
+
+export function classifyConfidence(confidence: number): ConfidenceGroup {
+  if (confidence >= 0.7) return 'confident'
+  if (confidence >= 0.5) return 'likely'
+  return 'analysis'
+}
 
 export function normalizeDescription(description: string): string {
   return description

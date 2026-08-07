@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeDescription, suggestCategories } from './matching'
+import {
+  classifyConfidence,
+  normalizeDescription,
+  suggestCategories,
+} from './matching'
+
+describe('classifyConfidence', () => {
+  it('uses the agreed confidence boundaries', () => {
+    expect(classifyConfidence(1)).toBe('confident')
+    expect(classifyConfidence(0.7)).toBe('confident')
+    expect(classifyConfidence(0.699)).toBe('likely')
+    expect(classifyConfidence(0.5)).toBe('likely')
+    expect(classifyConfidence(0.499)).toBe('analysis')
+    expect(classifyConfidence(0)).toBe('analysis')
+  })
+})
 
 describe('normalizeDescription', () => {
   it('removes changing references and common bank noise', () => {

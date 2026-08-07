@@ -144,9 +144,99 @@ h1 {
   gap: 44px;
   padding: 18px 22px;
   border: 1px solid #d8dfda;
-  border-bottom: 0;
-  border-radius: 14px 14px 0 0;
+  border-radius: 14px;
   background: #fff;
+}
+
+.confidence-groups {
+  display: grid;
+  gap: 28px;
+  margin-top: 28px;
+}
+
+.confidence-group {
+  overflow: hidden;
+  border: 1px solid #d8dfda;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.confidence-group.confident {
+  border-top: 4px solid #2d7551;
+}
+
+.confidence-group.likely {
+  border-top: 4px solid #c19031;
+}
+
+.confidence-group.analysis {
+  border-top: 4px solid #b65b50;
+}
+
+.group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 22px;
+}
+
+.group-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.group-title h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.group-title span {
+  color: #68736d;
+  font-size: 0.78rem;
+}
+
+.group-title strong {
+  display: grid;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 7px;
+  border-radius: 14px;
+  color: #345847;
+  background: #edf3f0;
+  font-size: 0.78rem;
+  place-items: center;
+}
+
+.group-header p {
+  margin: 5px 0 0;
+  color: #707a75;
+  font-size: 0.86rem;
+}
+
+.group-select {
+  flex: 0 0 auto;
+  padding: 9px 12px;
+  border: 1px solid #547966;
+  border-radius: 8px;
+  color: #fff;
+  background: #285a43;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.group-select:hover {
+  background: #204a37;
+}
+
+.empty-group {
+  margin: 0;
+  padding: 18px 22px;
+  border-top: 1px solid #edf0ee;
+  color: #7a847f;
+  font-size: 0.88rem;
 }
 
 .summary div {
@@ -167,8 +257,7 @@ h1 {
 .table-wrap {
   overflow: auto;
   max-height: 620px;
-  border: 1px solid #d8dfda;
-  border-radius: 0 0 14px 14px;
+  border-top: 1px solid #d8dfda;
   background: #fff;
 }
 
@@ -275,5 +364,10 @@ th {
   .summary div {
     display: grid;
     gap: 2px;
+  }
+
+  .group-header {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

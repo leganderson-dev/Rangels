@@ -1,7 +1,11 @@
 import { useMemo, useState } from 'react'
 import { parseFourColumnBankExport, parseHistoricalExport } from './lib/importers'
-import { suggestCategories } from './lib/matching'
-import type { HistoricalTransaction, ImportedTransaction } from './types/import'
+import { classifyConfidence, suggestCategories } from './lib/matching'
+import type {
+  ConfidenceGroup,
+  HistoricalTransaction,
+  ImportedTransaction,
+} from './types/import'
 
 const currency = new Intl.NumberFormat('en-AU', {
   style: 'currency',
@@ -11,6 +15,32 @@ const currency = new Intl.NumberFormat('en-AU', {
 async function readFile(file: File): Promise<string> {
   return file.text()
 }
+
+const groupDetails: {
+  id: ConfidenceGroup
+  title: string
+  range: string
+  description: string
+}[] = [
+  {
+    id: 'confident',
+    title: 'Confident',
+    range: '70–100%',
+    description: 'Strong matches that should need a quick check.',
+  },
+  {
+    id: 'likely',
+    title: 'Likely',
+    range: '50–69%',
+    description: 'Useful possibilities that deserve a closer look.',
+  },
+  {
+    id: 'analysis',
+    title: 'Requires analysis',
+    range: 'Below 50%',
+    description: 'Weak or missing matches that need a decision.',
+  },
+]
 
 function App() {
   const [history, setHistory] = useState<HistoricalTransaction[]>([])
@@ -25,6 +55,19 @@ function App() {
   )
   const confirmedCount = useMemo(
     () => transactions.filter(({ selectedCategory }) => selectedCategory).length,
+    [transactions],
+  )
+  const groupedTransactions = useMemo(
+    () =>
+      groupDetails.map((group) => ({
+        ...group,
+        transactions: transactions
+          .map((transaction, index) => ({ transaction, index }))
+          .filter(({ transaction }) =>
+            classifyConfidence(transaction.suggestions[0]?.confidence ?? 0) ===
+            group.id,
+          ),
+      })),
     [transactions],
   )
 
@@ -73,6 +116,23 @@ function App() {
           ? { ...transaction, selectedCategory: category }
           : transaction,
       ),
+    )
+  }
+
+  function selectGroup(group: ConfidenceGroup) {
+    setTransactions((current) =>
+      current.map((transaction) => {
+        const topSuggestion = transaction.suggestions[0]
+        const transactionGroup = classifyConfidence(topSuggestion?.confidence ?? 0)
+
+        return transactionGroup === group && topSuggestion
+          ? {
+              ...transaction,
+              selectedCategory:
+                transaction.selectedCategory ?? topSuggestion.category,
+            }
+          : transaction
+      }),
     )
   }
 
@@ -137,52 +197,89 @@ function App() {
             </div>
           </div>
 
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Description</th>
-                  <th>Amount</th>
-                  <th>Category suggestions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {transactions.map((transaction, index) => (
-                  <tr key={`${transaction.date}-${transaction.description}-${index}`}>
-                    <td>{transaction.date}</td>
-                    <td className="description">{transaction.description}</td>
-                    <td className={transaction.amount < 0 ? 'negative amount' : 'positive amount'}>
-                      {currency.format(transaction.amount)}
-                    </td>
-                    <td>
-                      <div className="suggestions">
-                        {transaction.suggestions.length > 0 ? (
-                          transaction.suggestions.map((suggestion) => (
-                            <button
-                              type="button"
-                              key={suggestion.category}
-                              className={
-                                transaction.selectedCategory === suggestion.category
-                                  ? 'selected'
-                                  : ''
-                              }
-                              title={`Matched “${suggestion.matchedDescription}”`}
-                              onClick={() => selectCategory(index, suggestion.category)}
-                            >
-                              {suggestion.category}
-                              <small>{Math.round(suggestion.confidence * 100)}%</small>
-                            </button>
-                          ))
-                        ) : (
-                          <span className="unmatched">No match</span>
-                        )}
+          <div className="confidence-groups">
+            {groupedTransactions.map((group) => {
+              const selectableCount = group.transactions.filter(
+                ({ transaction }) =>
+                  transaction.suggestions[0] && !transaction.selectedCategory,
+              ).length
+
+              return (
+                <section className={`confidence-group ${group.id}`} key={group.id}>
+                  <div className="group-header">
+                    <div>
+                      <div className="group-title">
+                        <h2>{group.title}</h2>
+                        <span>{group.range}</span>
+                        <strong>{group.transactions.length}</strong>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      <p>{group.description}</p>
+                    </div>
+                    {selectableCount > 0 && (
+                      <button
+                        type="button"
+                        className="group-select"
+                        onClick={() => selectGroup(group.id)}
+                      >
+                        Accept top suggestions ({selectableCount})
+                      </button>
+                    )}
+                  </div>
+
+                  {group.transactions.length > 0 ? (
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Description</th>
+                            <th>Amount</th>
+                            <th>Category suggestions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.transactions.map(({ transaction, index }) => (
+                            <tr key={`${transaction.date}-${transaction.description}-${index}`}>
+                              <td>{transaction.date}</td>
+                              <td className="description">{transaction.description}</td>
+                              <td className={transaction.amount < 0 ? 'negative amount' : 'positive amount'}>
+                                {currency.format(transaction.amount)}
+                              </td>
+                              <td>
+                                <div className="suggestions">
+                                  {transaction.suggestions.length > 0 ? (
+                                    transaction.suggestions.map((suggestion) => (
+                                      <button
+                                        type="button"
+                                        key={suggestion.category}
+                                        className={
+                                          transaction.selectedCategory === suggestion.category
+                                            ? 'selected'
+                                            : ''
+                                        }
+                                        title={`Matched “${suggestion.matchedDescription}”`}
+                                        onClick={() => selectCategory(index, suggestion.category)}
+                                      >
+                                        {suggestion.category}
+                                        <small>{Math.round(suggestion.confidence * 100)}%</small>
+                                      </button>
+                                    ))
+                                  ) : (
+                                    <span className="unmatched">No match</span>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="empty-group">No transactions in this group.</p>
+                  )}
+                </section>
+              )
+            })}
           </div>
         </section>
       )}

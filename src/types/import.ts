@@ -17,3 +17,5 @@ export type ImportedTransaction = {
   suggestions: CategorySuggestion[]
   selectedCategory?: string
 }
+
+export type ConfidenceGroup = 'confident' | 'likely' | 'analysis'
