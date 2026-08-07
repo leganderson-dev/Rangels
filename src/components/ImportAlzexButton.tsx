@@ -9,9 +9,11 @@ interface Props {
 export function ImportAlzexButton({ onDone }: Props) {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<{ imported: number; skipped: number } | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   async function handleImport() {
     setLoading(true)
+    setError(null)
     try {
       const res = await api.import.alzex()
       if (res) {
@@ -19,6 +21,8 @@ export function ImportAlzexButton({ onDone }: Props) {
         onDone()
         setTimeout(() => setResult(null), 4000)
       }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The Alzex import failed.')
     } finally {
       setLoading(false)
     }
@@ -40,7 +44,11 @@ export function ImportAlzexButton({ onDone }: Props) {
           ✓ {result.imported} imported, {result.skipped} skipped
         </div>
       )}
+      {error && (
+        <div className="absolute top-full right-0 mt-1 max-w-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700 z-20">
+          Import failed: {error}
+        </div>
+      )}
     </div>
   )
 }
-

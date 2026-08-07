@@ -61,20 +61,34 @@ async function importAlzex(): Promise<ImportResult | null> {
   if (required.some(name => at(name) < 0)) throw new Error('This is not a supported Alzex export.')
   const owner = await ownerId()
   const dataRows = rows.slice(1).filter(row => row[at('Description')]?.trim())
-  const accountNames = [...new Set(dataRows.map(row => row[at('Account')]?.trim()).filter(Boolean))]
-  for (const name of accountNames) {
-    const { error } = await supabase.from('accounts').upsert({ owner_id: owner, name, institution: 'Alzex', currency: 'AUD' }, { onConflict: 'owner_id,name' })
+  const accountColumns = [at('Account'), at('Withdraw account'), at('Target account')].filter(index => index >= 0)
+  const accountNames = [...new Set(dataRows.flatMap(row => accountColumns.flatMap(index => (row[index] ?? '').split(':')).map(name => name.trim()).filter(Boolean)))]
+  const existingAccounts = await supabase.from('accounts').select('id,name')
+  fail(existingAccounts.error)
+  const existingAccountNames = new Set((existingAccounts.data ?? []).map(row => row.name))
+  const missingAccounts = accountNames.filter(name => !existingAccountNames.has(name))
+  if (missingAccounts.length) {
+    const { error } = await supabase.from('accounts').insert(missingAccounts.map((name, index) => ({ owner_id: owner, name, institution: 'Alzex', currency: 'AUD', display_order: existingAccountNames.size + index })))
     fail(error)
   }
   const categoryPaths = [...new Set(dataRows.map(row => row[at('Category')]?.trim()).filter(Boolean))]
+  const existingCategories = await supabase.from('categories').select('id,path')
+  fail(existingCategories.error)
+  const categoryIds = new Map((existingCategories.data ?? []).map(row => [row.path, row.id]))
   for (const path of categoryPaths) {
     let parentId: string | null = null
     const parts = path.split(':').map(part => part.trim()).filter(Boolean)
     for (let index = 0; index < parts.length; index += 1) {
       const currentPath = parts.slice(0, index + 1).join(':')
-      const categoryResult: { data: { id: string } | null; error: { message: string } | null } = await supabase.from('categories').upsert({ owner_id: owner, parent_id: parentId, name: parts[index], path: currentPath }, { onConflict: 'owner_id,path' }).select('id').single()
-      fail(categoryResult.error)
-      parentId = categoryResult.data?.id ?? null
+      const knownId = categoryIds.get(currentPath)
+      if (knownId) {
+        parentId = knownId
+      } else {
+        const categoryResult: { data: { id: string } | null; error: { message: string } | null } = await supabase.from('categories').insert({ owner_id: owner, parent_id: parentId, name: parts[index], path: currentPath }).select('id').single()
+        fail(categoryResult.error)
+        parentId = categoryResult.data?.id ?? null
+        if (parentId) categoryIds.set(currentPath, parentId)
+      }
     }
   }
   const [accountResult, categoryResult] = await Promise.all([supabase.from('accounts').select('id,name'), supabase.from('categories').select('id,path')])
@@ -87,7 +101,15 @@ async function importAlzex(): Promise<ImportResult | null> {
   for (const row of dataRows) {
     const description = row[at('Description')].trim()
     const uniqueId = at('Unique ID') >= 0 ? row[at('Unique ID')]?.trim() : ''
-    const { error } = await supabase.from('transactions').insert({ owner_id: owner, account_id: accounts.get(row[at('Account')]?.trim()), category_id: categories.get(row[at('Category')]?.trim()) ?? null, occurred_on: alzexDate(row[at('Date')]), description, normalized_description: normalizeDescription(description), amount: Number(row[at('Amount')]), comment: at('Comment') >= 0 ? row[at('Comment')] ?? '' : '', status: at('Status') >= 0 ? row[at('Status')] || 'C' : 'C', external_id: uniqueId ? `alzex:${uniqueId}` : null })
+    const sourceName = (at('Withdraw account') >= 0 ? row[at('Withdraw account')] : '')?.trim() || row[at('Account')]?.split(':')[0]?.trim()
+    const targetName = (at('Target account') >= 0 ? row[at('Target account')] : '')?.trim()
+    const isTransfer = Boolean(targetName)
+    const withdrawAmount = at('Withdraw amount') >= 0 ? Number(row[at('Withdraw amount')]) : 0
+    const rawAmount = Number(row[at('Amount')])
+    const transactionAmount = isTransfer ? Math.abs(withdrawAmount || rawAmount) : rawAmount
+    const accountId = accounts.get(sourceName)
+    if (!accountId) { errors.push(`Unknown account for “${description}”.`); continue }
+    const { error } = await supabase.from('transactions').insert({ owner_id: owner, account_id: accountId, target_account_id: targetName ? accounts.get(targetName) ?? null : null, category_id: categories.get(row[at('Category')]?.trim()) ?? null, occurred_on: alzexDate(row[at('Date')]), description, normalized_description: normalizeDescription(description), amount: transactionAmount, comment: at('Comment') >= 0 ? row[at('Comment')] ?? '' : '', status: at('Status') >= 0 ? row[at('Status')] || 'C' : 'C', is_transfer: isTransfer, external_id: uniqueId ? `alzex:${uniqueId}` : null })
     if (!error) imported += 1
     else if (error.code === '23505') skipped += 1
     else errors.push(error.message)
