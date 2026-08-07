@@ -101,15 +101,16 @@ async function importAlzex(): Promise<ImportResult | null> {
   for (const row of dataRows) {
     const description = row[at('Description')].trim()
     const uniqueId = at('Unique ID') >= 0 ? row[at('Unique ID')]?.trim() : ''
-    const sourceName = (at('Withdraw account') >= 0 ? row[at('Withdraw account')] : '')?.trim() || row[at('Account')]?.split(':')[0]?.trim()
+    const withdrawName = (at('Withdraw account') >= 0 ? row[at('Withdraw account')] : '')?.trim()
     const targetName = (at('Target account') >= 0 ? row[at('Target account')] : '')?.trim()
-    const isTransfer = Boolean(targetName)
+    const sourceName = withdrawName || row[at('Account')]?.split(':')[0]?.trim()
+    const isTransfer = Boolean(withdrawName && targetName && withdrawName !== targetName)
     const withdrawAmount = at('Withdraw amount') >= 0 ? Number(row[at('Withdraw amount')]) : 0
     const rawAmount = Number(row[at('Amount')])
     const transactionAmount = isTransfer ? Math.abs(withdrawAmount || rawAmount) : rawAmount
     const accountId = accounts.get(sourceName)
     if (!accountId) { errors.push(`Unknown account for “${description}”.`); continue }
-    const { error } = await supabase.from('transactions').insert({ owner_id: owner, account_id: accountId, target_account_id: targetName ? accounts.get(targetName) ?? null : null, category_id: categories.get(row[at('Category')]?.trim()) ?? null, occurred_on: alzexDate(row[at('Date')]), description, normalized_description: normalizeDescription(description), amount: transactionAmount, comment: at('Comment') >= 0 ? row[at('Comment')] ?? '' : '', status: at('Status') >= 0 ? row[at('Status')] || 'C' : 'C', is_transfer: isTransfer, external_id: uniqueId ? `alzex:${uniqueId}` : null })
+    const { error } = await supabase.from('transactions').insert({ owner_id: owner, account_id: accountId, target_account_id: isTransfer ? accounts.get(targetName) ?? null : null, category_id: categories.get(row[at('Category')]?.trim()) ?? null, occurred_on: alzexDate(row[at('Date')]), description, normalized_description: normalizeDescription(description), amount: transactionAmount, comment: at('Comment') >= 0 ? row[at('Comment')] ?? '' : '', status: at('Status') >= 0 ? row[at('Status')] || 'C' : 'C', is_transfer: isTransfer, external_id: uniqueId ? `alzex:${uniqueId}` : null })
     if (!error) imported += 1
     else if (error.code === '23505') skipped += 1
     else errors.push(error.message)
@@ -168,7 +169,9 @@ async function bankPreview(token: string) {
   return {
     format: parsed.format,
     rows: parsed.rows.map((row, index) => {
-      const suggestions = suggestCategories(row.description, history)
+      // Rank every non-zero match. Even low-confidence analysis rows should
+      // begin with their highest score selected and remain editable.
+      const suggestions = suggestCategories(row.description, history, Number.EPSILON)
       const best = suggestions[0]
       const category = best ? byPath.get(best.category) : undefined
       return {

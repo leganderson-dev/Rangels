@@ -1,0 +1,2 @@
+-- This data correction intentionally has no automatic rollback. The previous
+-- state incorrectly represented ordinary Alzex income as a same-account transfer.

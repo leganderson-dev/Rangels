@@ -42,4 +42,12 @@ describe('suggestCategories', () => {
   it('does not suggest unrelated low-confidence history', () => {
     expect(suggestCategories('AIRLINE TICKET', history)).toEqual([])
   })
+
+  it('can rank the highest non-zero score for manual analysis', () => {
+    const suggestions = suggestCategories('CITY AIRLINE TICKET', history, Number.EPSILON)
+    expect(suggestions[0]?.confidence).toBeGreaterThan(0)
+    expect(suggestions).toEqual(
+      [...suggestions].sort((left, right) => right.confidence - left.confidence),
+    )
+  })
 })

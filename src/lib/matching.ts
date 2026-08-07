@@ -68,6 +68,7 @@ function similarity(left: string, right: string): number {
 export function suggestCategories(
   description: string,
   history: HistoricalTransaction[],
+  minimumConfidence = 0.35,
 ): CategorySuggestion[] {
   const normalized = normalizeDescription(description)
   const bestByCategory = new Map<string, CategorySuggestion>()
@@ -78,7 +79,7 @@ export function suggestCategories(
       normalizeDescription(transaction.description),
     )
 
-    if (confidence < 0.35) continue
+    if (confidence < minimumConfidence) continue
 
     const existing = bestByCategory.get(transaction.category)
     if (!existing || confidence > existing.confidence) {
