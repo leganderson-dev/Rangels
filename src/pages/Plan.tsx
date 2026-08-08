@@ -37,12 +37,12 @@ export function PlanPage({ month, year }: Props) {
     .reduce((sum, transaction) => sum + transaction.amount, 0)
   const actualByBucket = useMemo(() => {
     const result = new Map<string, number>()
-    for (const transaction of householdTransactions) {
+    for (const transaction of transactions) {
       if (transaction.amount >= 0 || !transaction.bucketId) continue
       result.set(transaction.bucketId, (result.get(transaction.bucketId) ?? 0) + Math.abs(transaction.amount))
     }
     return result
-  }, [householdTransactions])
+  }, [transactions])
 
   if (loading) return <div className="h-full overflow-auto p-6 text-sm text-slate-500">Loading the shared household plan…</div>
   if (error) return <div className="m-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>

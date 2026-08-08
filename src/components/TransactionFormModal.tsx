@@ -4,6 +4,7 @@ import { today } from '../utils'
 import type { Transaction, Account, Category } from '../types/finance'
 import type { ClassificationOptions } from '../types/finance'
 import { api } from '../api'
+import { canUseHouseholdBucket, emptyBucketLabel } from '../lib/classification'
 
 interface Props {
   transaction?: Transaction
@@ -231,15 +232,15 @@ export function TransactionFormModal({ transaction, accounts, categories, defaul
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">Context</label>
-                <select value={contextId} onChange={e => { setContextId(e.target.value); if (options.contexts.find(item => item.id === e.target.value)?.name !== 'Household') setBucketId('') }} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+                <select value={contextId} onChange={e => { const nextContext = options.contexts.find(item => item.id === e.target.value); setContextId(e.target.value); if (!canUseHouseholdBucket(nextContext?.name, isExpense ? 'expense' : 'income')) setBucketId('') }} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
                   <option value="">Not classified</option>
                   {options.contexts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">Household bucket</label>
-                <select value={bucketId} onChange={e => setBucketId(e.target.value)} disabled={!isExpense || options.contexts.find(item => item.id === contextId)?.name !== 'Household'} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400">
-                  <option value="">{!isExpense ? 'Allocation source' : 'None'}</option>
+                <select value={bucketId} onChange={e => setBucketId(e.target.value)} disabled={!canUseHouseholdBucket(options.contexts.find(item => item.id === contextId)?.name, isExpense ? 'expense' : 'income')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400">
+                  <option value="">{emptyBucketLabel(options.contexts.find(item => item.id === contextId)?.name, isExpense ? 'expense' : 'income')}</option>
                   {isExpense && options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
                 </select>
               </div>

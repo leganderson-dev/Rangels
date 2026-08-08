@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle2, Pencil, Search, Sparkles, Store } from 'lucide-react'
 import { api } from '../api'
 import { Modal } from '../components/Modal'
+import { canUseHouseholdBucket, emptyBucketLabel } from '../lib/classification'
 import { merchantLogo } from '../lib/merchantLogos'
 import { fmt, formatDate } from '../utils'
 import type { Category, ClassificationOptions, MerchantInsight } from '../types/finance'
@@ -315,7 +316,8 @@ function MerchantRuleModal({ merchant, categories, options, onClose, onSave }: {
   const [bucketId, setBucketId] = useState(merchant.bucketId ?? '')
   const [taxTreatment, setTaxTreatment] = useState(merchant.taxTreatment)
   const purpose = options.categories.find(item => item.id === canonicalCategoryId)
-  const householdExpense = options.contexts.find(item => item.id === contextId)?.name === 'Household' && purpose?.type === 'expense'
+  const context = options.contexts.find(item => item.id === contextId)
+  const householdExpense = canUseHouseholdBucket(context?.name, purpose?.type)
 
   async function save() {
     const rulePhrases = phrases.split('\n').map(phrase => phrase.trim()).filter(Boolean)
@@ -338,7 +340,7 @@ function MerchantRuleModal({ merchant, categories, options, onClose, onSave }: {
         <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 space-y-3">
           <div><p className="text-xs font-semibold text-slate-700">V0.4 structured defaults</p><p className="text-[11px] text-slate-400">Remembered for matching transactions during future imports.</p></div>
           <div><label className="mb-1 block text-xs text-slate-500">Purpose</label><select value={canonicalCategoryId} onChange={event => { setCanonicalCategoryId(event.target.value); if (options.categories.find(item => item.id === event.target.value)?.type === 'income') setBucketId('') }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Requires review</option>{[...new Set(options.categories.map(item => item.family))].map(family => <optgroup key={family} label={family}>{options.categories.filter(item => item.family === family).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>)}</select></div>
-          <div className="grid grid-cols-2 gap-3"><div><label className="mb-1 block text-xs text-slate-500">Context</label><select value={contextId} onChange={event => { setContextId(event.target.value); if (options.contexts.find(item => item.id === event.target.value)?.name !== 'Household') setBucketId('') }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Requires review</option>{options.contexts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div><div><label className="mb-1 block text-xs text-slate-500">Household bucket</label><select value={bucketId} onChange={event => setBucketId(event.target.value)} disabled={!householdExpense} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"><option value="">{purpose?.type === 'income' ? 'Allocation source' : 'None'}</option>{householdExpense && options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div></div>
+          <div className="grid grid-cols-2 gap-3"><div><label className="mb-1 block text-xs text-slate-500">Context</label><select value={contextId} onChange={event => { const nextContext = options.contexts.find(item => item.id === event.target.value); setContextId(event.target.value); if (!canUseHouseholdBucket(nextContext?.name, purpose?.type)) setBucketId('') }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Requires review</option>{options.contexts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div><div><label className="mb-1 block text-xs text-slate-500">Household bucket</label><select value={bucketId} onChange={event => setBucketId(event.target.value)} disabled={!householdExpense} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"><option value="">{emptyBucketLabel(context?.name, purpose?.type)}</option>{householdExpense && options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div></div>
           <div><label className="mb-1 block text-xs text-slate-500">Tax treatment</label><select value={taxTreatment} onChange={event => setTaxTreatment(event.target.value as typeof taxTreatment)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="none">None</option><option value="deductible">Deductible</option><option value="review">Needs review</option></select></div>
         </div>
         <div>
