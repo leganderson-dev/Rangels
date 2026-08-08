@@ -145,7 +145,12 @@ export function createCategoryMatcher(history: HistoricalTransaction[]) {
     }
 
     const candidateIndexes = new Set<number>()
-    new Set(normalized.split(' ')).forEach(token => byToken.get(token)?.forEach(index => candidateIndexes.add(index)))
+    const usefulTokens = [...new Set(normalized.split(' '))]
+      .map(token => ({ token, size: byToken.get(token)?.size ?? 0 }))
+      .filter(item => item.size > 0)
+      .sort((left, right) => left.size - right.size)
+      .slice(0, 3)
+    usefulTokens.forEach(({ token }) => byToken.get(token)?.forEach(index => candidateIndexes.add(index)))
     return suggestCategories(
       description,
       [...candidateIndexes].map(index => normalizedHistory[index]),

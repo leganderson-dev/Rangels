@@ -20,17 +20,36 @@ import { merchantDisplayName, merchantKey } from './lib/merchants'
 const pickedFiles = new Map<string, { name: string; text: string }>()
 
 async function pickCsv(): Promise<string | null> {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = '.csv,text/csv,text/plain'
-    input.onchange = async () => {
-      const file = input.files?.[0]
-      if (!file) return resolve(null)
-      const token = crypto.randomUUID()
-      pickedFiles.set(token, { name: file.name, text: await file.text() })
-      resolve(token)
+    input.style.display = 'none'
+    document.body.appendChild(input)
+    let settled = false
+    let timeout: number | undefined
+    const finish = (value: string | null, error?: Error) => {
+      if (settled) return
+      settled = true
+      if (timeout !== undefined) window.clearTimeout(timeout)
+      input.remove()
+      if (error) reject(error)
+      else resolve(value)
     }
+    input.addEventListener('cancel', () => finish(null))
+    input.addEventListener('change', () => {
+      const file = input.files?.[0]
+      if (!file) return finish(null)
+      timeout = window.setTimeout(() => finish(null, new Error('The CSV could not be read within 15 seconds. Please choose a local file and try again.')), 15000)
+      const reader = new FileReader()
+      reader.onerror = () => finish(null, new Error(`Could not read ${file.name}. Please copy it to a local folder and try again.`))
+      reader.onload = () => {
+        const token = crypto.randomUUID()
+        pickedFiles.set(token, { name: file.name, text: String(reader.result ?? '') })
+        finish(token)
+      }
+      reader.readAsText(file)
+    })
     input.click()
   })
 }

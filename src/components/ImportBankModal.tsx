@@ -49,11 +49,13 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   const [collapsedGroups, setCollapsedGroups] = useState<Set<ConfidenceGroup>>(new Set())
   const [mappings, setMappings] = useState<LegacyCategoryMapping[]>([])
   const [loadingStage, setLoadingStage] = useState('')
+  const [loadError, setLoadError] = useState('')
 
   useEffect(() => { api.classification.mappings().then(setMappings).catch(console.error) }, [])
 
   async function pickFile() {
     setLoading(true)
+    setLoadError('')
     setLoadingStage('Reading CSV and checking duplicates…')
     try {
       const path = await api.import.bankCsvPick()
@@ -69,6 +71,8 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
       setAssignments(init)
       setIncluded(new Set(preview.rows.filter(r => !r.duplicate).map(r => r.index)))
       setStep('categorize')
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'The CSV could not be analysed.')
     } finally {
       setLoading(false)
       setLoadingStage('')
@@ -151,6 +155,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
             </button>
           </div>
           {loading && <div className="w-full max-w-sm"><div className="h-1 overflow-hidden rounded-full bg-slate-100"><div className="h-full w-2/3 animate-pulse rounded-full bg-blue-500" /></div><p className="mt-2 text-center text-xs text-slate-400">{loadingStage}</p></div>}
+          {loadError && <div className="max-w-md rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-center text-xs text-red-700">{loadError}</div>}
         </div>
       )}
 
