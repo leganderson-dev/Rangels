@@ -98,7 +98,7 @@ export function HelpInfoModal({ onClose }: { onClose: () => void }) {
               The reusable economic meaning—Groceries, Software, Insurance, Salary. Purpose replaces the reporting job previously performed by hundreds of legacy category paths.
             </Concept>
             <Concept term="Bucket" question="Which Household allocation did this expense consume?" status="Live">
-              Daily Expenses, Splurge, Smile, or Fire Extinguisher. Buckets apply to Household allocation; business and property transactions use their Context and Purpose instead.
+              Daily Expenses, Splurge, Smile, or Fire Extinguisher. Buckets apply to Household expenses. Income is an allocation source, while ledger transfers consume no Bucket.
             </Concept>
             <Concept term="Allocation plan" question="How should eligible income be divided?" status="Foundation">
               The shared Household target is 60/10/10/20. It is a percentage plan, independent of which physical account holds the money. Target versus actual is shown in Plan.
@@ -148,7 +148,7 @@ export function HelpInfoModal({ onClose }: { onClose: () => void }) {
           </div>
         </section>
 
-        <div className="flex items-center justify-between border-t border-slate-200 pt-4 text-[11px] text-slate-400"><span>Rangels V0.6.2 · This guide reflects the current agreed model.</span><span>Ledger first · Import first · No destructive legacy conversion</span></div>
+        <div className="flex items-center justify-between border-t border-slate-200 pt-4 text-[11px] text-slate-400"><span>Rangels V0.6.3 · This guide reflects the current agreed model.</span><span>Ledger first · Import first · No destructive legacy conversion</span></div>
       </div>
     </Modal>
   )

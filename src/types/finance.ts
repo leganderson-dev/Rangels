@@ -106,6 +106,7 @@ export interface LegacyCategoryMapping {
   status: 'mapped' | 'review' | 'preserved'
   notes: string
   transactionCount: number
+  legacyCategoryType: 'income' | 'expense' | 'transfer'
 }
 
 export interface ScheduledTransaction {

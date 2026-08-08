@@ -634,7 +634,7 @@ async function listClassificationOptions(): Promise<ClassificationOptions> {
 async function listCategoryMappings(): Promise<LegacyCategoryMapping[]> {
   const [mappingResult, categoryResult, options, transactionRows] = await Promise.all([
     supabase.from('category_classifications').select('*'),
-    supabase.from('categories').select('id,path').order('path'),
+    supabase.from('categories').select('id,path,type').order('path'),
     listClassificationOptions(),
     fetchAllRows(() => supabase.from('transactions').select('category_id')),
   ])
@@ -665,6 +665,7 @@ async function listCategoryMappings(): Promise<LegacyCategoryMapping[]> {
       status: preserved && !row ? 'preserved' : row?.migration_status ?? 'review',
       notes: preserved && !row ? 'Reserved for manual owner review' : row?.notes ?? '',
       transactionCount: transactionCounts.get(category.id) ?? 0,
+      legacyCategoryType: category.type,
     }
   })
 }

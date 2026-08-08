@@ -238,9 +238,9 @@ export function TransactionFormModal({ transaction, accounts, categories, defaul
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">Household bucket</label>
-                <select value={bucketId} onChange={e => setBucketId(e.target.value)} disabled={options.contexts.find(item => item.id === contextId)?.name !== 'Household'} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400">
-                  <option value="">None</option>
-                  {options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+                <select value={bucketId} onChange={e => setBucketId(e.target.value)} disabled={!isExpense || options.contexts.find(item => item.id === contextId)?.name !== 'Household'} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400">
+                  <option value="">{!isExpense ? 'Allocation source' : 'None'}</option>
+                  {isExpense && options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
                 </select>
               </div>
             </div>

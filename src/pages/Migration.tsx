@@ -22,6 +22,7 @@ function draftFor(mapping: LegacyCategoryMapping): Draft {
 }
 
 function issuesFor(mapping: LegacyCategoryMapping, draft: Draft, options: ClassificationOptions): string[] {
+  if (mapping.legacyCategoryType === 'transfer') return []
   const issues: string[] = []
   const purpose = options.categories.find(item => item.id === draft.canonicalCategoryId)
   const context = options.contexts.find(item => item.id === draft.contextId)
@@ -139,6 +140,9 @@ export function MigrationPage() {
           {visible.map(mapping => {
             const { draft, issues, persistedIssues, dirty } = stateFor(mapping)
             const context = options.contexts.find(item => item.id === draft.contextId)
+            const purpose = options.categories.find(item => item.id === draft.canonicalCategoryId)
+            const income = purpose?.type === 'income' || mapping.legacyCategoryType === 'income'
+            const transfer = mapping.legacyCategoryType === 'transfer'
             const complete = persistedIssues.length === 0
             return (
               <div key={mapping.categoryId} className={`rounded-xl border bg-white shadow-sm ${complete ? 'border-emerald-200' : mapping.status === 'preserved' ? 'border-violet-200' : 'border-slate-200'}`}>
@@ -152,13 +156,18 @@ export function MigrationPage() {
                     {!complete && <div className="mt-2 flex flex-wrap gap-1 pl-6">{issues.map(issue => <span key={issue} className="rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-700">Needs {issue}</span>)}</div>}
                   </div>
 
-                  <Field label="Purpose"><select value={draft.canonicalCategoryId} onChange={event => setDrafts(current => ({ ...current, [mapping.categoryId]: { ...draft, canonicalCategoryId: event.target.value } }))} className="field-select"><option value="">Choose purpose…</option>{[...new Set(options.categories.map(item => item.family))].map(family => <optgroup key={family} label={family}>{options.categories.filter(item => item.family === family).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>)}</select></Field>
-                  <Field label="Context"><select value={draft.contextId} onChange={event => { const contextId = event.target.value; const household = options.contexts.find(item => item.id === contextId)?.name === 'Household'; setDrafts(current => ({ ...current, [mapping.categoryId]: { ...draft, contextId, bucketId: household ? draft.bucketId : '' } })) }} className="field-select"><option value="">Choose context…</option>{options.contexts.filter(item => item.name !== 'Review required').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
-                  <Field label="Household bucket"><select value={draft.bucketId} disabled={context?.name !== 'Household'} onChange={event => setDrafts(current => ({ ...current, [mapping.categoryId]: { ...draft, bucketId: event.target.value } }))} className="field-select disabled:bg-slate-100 disabled:text-slate-400"><option value="">{context?.name === 'Household' ? 'Choose bucket…' : 'Not applicable'}</option>{options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
-                  <Field label="Tax"><select value={draft.taxTreatment} onChange={event => setDrafts(current => ({ ...current, [mapping.categoryId]: { ...draft, taxTreatment: event.target.value as Draft['taxTreatment'] } }))} className="field-select"><option value="none">None</option><option value="deductible">Deductible</option><option value="review">Needs review</option></select></Field>
-                  <button onClick={() => save(mapping)} disabled={savingId === mapping.categoryId || !dirty} className={`flex h-[34px] items-center justify-center gap-1 rounded-lg px-3 text-xs font-semibold ${complete && !dirty ? 'bg-emerald-50 text-emerald-700' : dirty ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-100 text-slate-400'} disabled:cursor-default`}>
-                    {complete && !dirty ? <><Check size={13} /> Resolved</> : savingId === mapping.categoryId ? 'Applying…' : dirty ? <>Save <ChevronRight size={13} /></> : 'No changes'}
-                  </button>
+                  {transfer ? <>
+                    <div className="col-span-4 rounded-lg border border-sky-100 bg-sky-50 px-4 py-2.5 text-xs text-sky-700"><strong>Ledger transfer:</strong> classification comes from its source and target accounts. It creates no income or expense and consumes no Household Bucket.</div>
+                    <div className="flex h-[34px] items-center justify-center gap-1 rounded-lg bg-emerald-50 px-3 text-xs font-semibold text-emerald-700"><Check size={13} /> Exempt</div>
+                  </> : <>
+                    <Field label="Purpose"><select value={draft.canonicalCategoryId} onChange={event => { const canonicalCategoryId = event.target.value; const nextPurpose = options.categories.find(item => item.id === canonicalCategoryId); setDrafts(current => ({ ...current, [mapping.categoryId]: { ...draft, canonicalCategoryId, bucketId: nextPurpose?.type === 'income' ? '' : draft.bucketId } })) }} className="field-select"><option value="">Choose purpose…</option>{[...new Set(options.categories.map(item => item.family))].map(family => <optgroup key={family} label={family}>{options.categories.filter(item => item.family === family).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>)}</select></Field>
+                    <Field label="Context"><select value={draft.contextId} onChange={event => { const contextId = event.target.value; const household = options.contexts.find(item => item.id === contextId)?.name === 'Household'; setDrafts(current => ({ ...current, [mapping.categoryId]: { ...draft, contextId, bucketId: household && !income ? draft.bucketId : '' } })) }} className="field-select"><option value="">Choose context…</option>{options.contexts.filter(item => item.name !== 'Review required').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+                    <Field label="Household bucket"><select value={draft.bucketId} disabled={context?.name !== 'Household' || income} onChange={event => setDrafts(current => ({ ...current, [mapping.categoryId]: { ...draft, bucketId: event.target.value } }))} className="field-select disabled:bg-slate-100 disabled:text-slate-400"><option value="">{income ? 'Allocation source' : context?.name === 'Household' ? 'Choose bucket…' : 'Not applicable'}</option>{!income && options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+                    <Field label="Tax"><select value={draft.taxTreatment} onChange={event => setDrafts(current => ({ ...current, [mapping.categoryId]: { ...draft, taxTreatment: event.target.value as Draft['taxTreatment'] } }))} className="field-select"><option value="none">None</option><option value="deductible">Deductible</option><option value="review">Needs review</option></select></Field>
+                    <button onClick={() => save(mapping)} disabled={savingId === mapping.categoryId || !dirty} className={`flex h-[34px] items-center justify-center gap-1 rounded-lg px-3 text-xs font-semibold ${complete && !dirty ? 'bg-emerald-50 text-emerald-700' : dirty ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-100 text-slate-400'} disabled:cursor-default`}>
+                      {complete && !dirty ? <><Check size={13} /> Resolved</> : savingId === mapping.categoryId ? 'Applying…' : dirty ? <>Save <ChevronRight size={13} /></> : 'No changes'}
+                    </button>
+                  </>}
                 </div>
               </div>
             )
