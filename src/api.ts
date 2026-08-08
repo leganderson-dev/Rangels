@@ -350,7 +350,9 @@ async function bankPreview(token: string, accountId: string, onProgress?: Import
   return { format: parsed.format, rows }
 }
 
-async function importBank(token: string, accountId: string, assignments: Record<number, string | null>): Promise<ImportResult> {
+type BankImportAssignment = { categoryId: string | null; canonicalCategoryId?: string | null; contextId?: string | null; bucketId?: string | null; taxTreatment?: string; reimbursementStatus?: string; tags?: string[] }
+
+async function importBank(token: string, accountId: string, assignments: Record<number, BankImportAssignment | '__skip__'>): Promise<ImportResult> {
   const file = pickedFiles.get(token)
   if (!file) throw new Error('Please choose the CSV again.')
   const parsed = parseBankExport(file.text)
@@ -374,12 +376,13 @@ async function importBank(token: string, accountId: string, assignments: Record<
   )
   const payloads: Row[] = []
   for (const [index, row] of parsed.rows.entries()) {
-    if (assignments[index] === '__skip__') continue
+    const assignment = assignments[index]
+    if (assignment === '__skip__') continue
     const duplicateKey = transactionDuplicateKey(accountId, row.date, row.amount, row.description)
     if (duplicateKeys.has(duplicateKey)) { skipped += 1; continue }
     duplicateKeys.add(duplicateKey)
     const merchantRule = matchMerchantRule(row.description, merchantRules)
-    payloads.push({ owner_id: owner, import_id: importRow.id, account_id: accountId, merchant_id: merchantRule?.merchantId ?? null, category_id: assignments[index] ?? null, canonical_category_id: merchantRule?.canonicalCategoryId ?? null, context_id: merchantRule?.contextId ?? null, bucket_id: merchantRule?.bucketId ?? null, tax_treatment: merchantRule?.taxTreatment ?? 'none', occurred_on: row.date, description: row.description, normalized_description: normalizeDescription(row.description), amount: row.amount, balance: row.balance ?? null, source_fingerprint: await fileHash(duplicateKey), status: 'C' })
+    payloads.push({ owner_id: owner, import_id: importRow.id, account_id: accountId, merchant_id: merchantRule?.merchantId ?? null, category_id: assignment?.categoryId ?? null, canonical_category_id: assignment?.canonicalCategoryId ?? merchantRule?.canonicalCategoryId ?? null, context_id: assignment?.contextId ?? merchantRule?.contextId ?? null, bucket_id: assignment?.bucketId ?? merchantRule?.bucketId ?? null, tax_treatment: assignment?.taxTreatment ?? merchantRule?.taxTreatment ?? 'none', reimbursement_status: assignment?.reimbursementStatus ?? 'none', tags: assignment?.tags ?? [], occurred_on: row.date, description: row.description, normalized_description: normalizeDescription(row.description), amount: row.amount, balance: row.balance ?? null, source_fingerprint: await fileHash(duplicateKey), status: 'C' })
   }
   for (let index = 0; index < payloads.length; index += 500) {
     const batch = payloads.slice(index, index + 500)
@@ -1442,7 +1445,7 @@ export const api = {
     bankCsv: async (
       _path: string,
       _accountId: string,
-      _assignments: Record<number, string | null>,
+      _assignments: Record<number, BankImportAssignment | '__skip__'>,
     ): Promise<ImportResult> => {
       return importBank(_path, _accountId, _assignments)
     },
