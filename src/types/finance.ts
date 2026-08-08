@@ -7,6 +7,7 @@ export interface Account {
   isActive: boolean
   displayOrder: number
   groupName: string | null
+  lastUpdatedOn: string | null
   balance?: number
 }
 

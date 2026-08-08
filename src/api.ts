@@ -361,6 +361,7 @@ async function listAccounts(): Promise<Account[]> {
       isActive: account.is_active,
       displayOrder: account.display_order,
       groupName: account.group_name,
+      lastUpdatedOn: account.last_updated_on,
       balance,
     }
   })
@@ -730,6 +731,7 @@ export const api = {
       if (data.color !== undefined) payload.color = data.color
       if (data.initialBalance !== undefined) payload.initial_balance = data.initialBalance
       if (data.groupName !== undefined) payload.group_name = data.groupName
+      if (data.lastUpdatedOn !== undefined) payload.last_updated_on = data.lastUpdatedOn
       const { error } = await supabase.from('accounts').update(payload).eq('id', id)
       fail(error)
     },

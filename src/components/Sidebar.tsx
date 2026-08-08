@@ -234,6 +234,7 @@ export function Sidebar({ accounts, selectedAccountId, onSelectAccount, onRefres
             isDropOnto={dropZone?.kind === 'onto' && dropZone.id === account.id}
             onClick={() => onSelectAccount(account.id === selectedAccountId ? null : account.id)}
             onEdit={() => setEditAccount(account)}
+            onLastUpdatedChange={async value => { await api.accounts.update(account.id, { lastUpdatedOn: value }); onRefresh() }}
             onDragStart={() => { setDragId(account.id); setDropZone(null) }}
             onDragEnd={() => { setDragId(null); setDropZone(null) }}
             onDragOver={e => handleAccountDragOver(account.id, e)}
@@ -302,6 +303,7 @@ export function Sidebar({ accounts, selectedAccountId, onSelectAccount, onRefres
                       isDropOnto={dropZone?.kind === 'onto' && dropZone.id === account.id}
                       onClick={() => onSelectAccount(account.id === selectedAccountId ? null : account.id)}
                       onEdit={() => setEditAccount(account)}
+                      onLastUpdatedChange={async value => { await api.accounts.update(account.id, { lastUpdatedOn: value }); onRefresh() }}
                       onDragStart={() => { setDragId(account.id); setDropZone(null) }}
                       onDragEnd={() => { setDragId(null); setDropZone(null) }}
                       onDragOver={e => handleAccountDragOver(account.id, e)}
@@ -391,7 +393,7 @@ export function Sidebar({ accounts, selectedAccountId, onSelectAccount, onRefres
   )
 }
 
-function DraggableRow({ account, selected, isDragging, isDropBefore, isDropOnto, onClick, onEdit, onDragStart, onDragEnd, onDragOver, onDrop }: {
+function DraggableRow({ account, selected, isDragging, isDropBefore, isDropOnto, onClick, onEdit, onLastUpdatedChange, onDragStart, onDragEnd, onDragOver, onDrop }: {
   account: Account
   selected: boolean
   isDragging: boolean
@@ -399,12 +401,19 @@ function DraggableRow({ account, selected, isDragging, isDropBefore, isDropOnto,
   isDropOnto: boolean
   onClick: () => void
   onEdit: () => void
+  onLastUpdatedChange: (value: string | null) => Promise<void>
   onDragStart: () => void
   onDragEnd: () => void
   onDragOver: (e: React.DragEvent) => void
   onDrop: (e: React.DragEvent) => void
 }) {
   const balance = account.balance ?? 0
+  const [editingDate, setEditingDate] = useState(false)
+  const [savingDate, setSavingDate] = useState(false)
+
+  const formattedDate = account.lastUpdatedOn
+    ? new Date(`${account.lastUpdatedOn}T00:00:00`).toLocaleDateString('en-AU')
+    : null
 
   return (
     <div onDragOver={onDragOver} onDrop={onDrop}>
@@ -428,6 +437,34 @@ function DraggableRow({ account, selected, isDragging, isDropBefore, isDropOnto,
           <p className={`text-xs font-semibold ${balance < 0 ? 'text-red-400' : 'text-slate-400'}`}>
             {fmt(balance)}
           </p>
+          {editingDate ? (
+            <input
+              autoFocus
+              type="date"
+              value={account.lastUpdatedOn ?? ''}
+              onPointerDown={e => e.stopPropagation()}
+              onClick={e => e.stopPropagation()}
+              onBlur={() => setEditingDate(false)}
+              onChange={async e => {
+                e.stopPropagation()
+                setSavingDate(true)
+                await onLastUpdatedChange(e.target.value || null)
+                setSavingDate(false)
+                setEditingDate(false)
+              }}
+              className="mt-0.5 block w-full rounded border border-slate-600 bg-slate-800 px-1 py-0.5 text-[10px] text-slate-300 outline-none focus:border-blue-400 [color-scheme:dark]"
+            />
+          ) : (
+            <button
+              type="button"
+              onPointerDown={e => e.stopPropagation()}
+              onClick={e => { e.stopPropagation(); setEditingDate(true) }}
+              className="mt-0.5 block text-[10px] leading-none text-slate-500 hover:text-slate-300"
+              title="Change last updated date"
+            >
+              {savingDate ? 'Saving…' : formattedDate ? `Updated ${formattedDate}` : 'Set updated date'}
+            </button>
+          )}
         </div>
         <button
           onClick={e => { e.stopPropagation(); onEdit() }}
