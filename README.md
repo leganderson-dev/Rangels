@@ -42,7 +42,7 @@ Open the local URL shown by Vite.
 
 Rangels includes accounts, hierarchical categories, transactions and bulk editing, transfers, scheduled transactions, budgets and budget groups, overview/report/calendar views, JSON backup/restore, and CSV import.
 
-V0.2 adds a merchant-first transaction view, stronger category hierarchy, an actionable Needs category state, and a more focused transaction toolbar while preserving the V0.1 workflow.
+V0.2 adds a merchant-first transaction view, stronger category hierarchy, an actionable Needs category state, a focused transaction toolbar, and a Merchant intelligence tab where historical evidence can be confirmed as reusable classification rules.
 
 The import workflow supports CommBank, NAB, ING, generic four-column bank exports, and Alzex exports. Suggestions learn from previous categorisation, are grouped as Confident (70–100%), Likely (50–70%), and Requires analysis (below 50%), and can be selected in groups or overridden line by line.
 

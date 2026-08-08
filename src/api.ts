@@ -4,6 +4,7 @@ import type {
   Budget,
   Category,
   ImportResult,
+  MerchantInsight,
   MonthSummary,
   ScheduledTransaction,
   Transaction,
@@ -12,6 +13,7 @@ import type {
 import { parseBankExport } from './lib/importers'
 import { normalizeDescription, relevantCategorySuggestions, suggestCategories, transactionDuplicateKey } from './lib/matching'
 import { parseDelimited } from './lib/csv'
+import { merchantDisplayName, merchantKey } from './lib/merchants'
 
 const pickedFiles = new Map<string, { name: string; text: string }>()
 
@@ -203,11 +205,18 @@ async function bankPreview(token: string, accountId: string) {
   const file = pickedFiles.get(token)
   if (!file) throw new Error('Please choose the CSV again.')
   const parsed = parseBankExport(file.text)
-  const [transactions, categories] = await Promise.all([listTransactions(), listCategories()])
+  const [transactions, categories, merchantRulesResult] = await Promise.all([
+    listTransactions(),
+    listCategories(),
+    supabase.from('merchants').select('normalized_name,default_category_id').not('default_category_id', 'is', null),
+  ])
+  fail(merchantRulesResult.error)
   const history = transactions
     .filter(transaction => transaction.categoryId && transaction.categoryFullName)
     .map(transaction => ({ description: transaction.description, category: transaction.categoryFullName! }))
   const byPath = new Map(categories.map(category => [category.fullName, category]))
+  const byId = new Map(categories.map(category => [category.id, category]))
+  const merchantRules = new Map((merchantRulesResult.data ?? []).map(rule => [rule.normalized_name, rule.default_category_id]))
   const existingKeys = new Set(
     transactions
       .filter(transaction => transaction.accountId === accountId && !transaction.isTransfer)
@@ -225,10 +234,10 @@ async function bankPreview(token: string, accountId: string) {
       fileKeys.add(duplicateKey)
       // Rank every non-zero match. Even low-confidence analysis rows should
       // begin with their highest score selected and remain editable.
-      const suggestions = relevantCategorySuggestions(
-        suggestCategories(row.description, history, Number.EPSILON),
-      )
-      const rankedSuggestions = suggestions
+      const ruleCategoryId = merchantRules.get(merchantKey(row.description))
+      const ruleCategory = ruleCategoryId ? byId.get(ruleCategoryId) : null
+      const suggestions = relevantCategorySuggestions(suggestCategories(row.description, history, Number.EPSILON))
+      const learnedSuggestions = suggestions
         .map(suggestion => {
           const category = byPath.get(suggestion.category)
           return category ? {
@@ -240,6 +249,12 @@ async function bankPreview(token: string, accountId: string) {
         })
         .filter((suggestion): suggestion is NonNullable<typeof suggestion> => suggestion !== null)
         .slice(0, 3)
+      const rankedSuggestions = ruleCategory ? [{
+        categoryId: ruleCategory.id,
+        categoryName: ruleCategory.fullName,
+        confidence: 1,
+        reason: 'Remembered merchant classification',
+      }, ...learnedSuggestions.filter(suggestion => suggestion.categoryId !== ruleCategory.id)].slice(0, 3) : learnedSuggestions
       const best = rankedSuggestions[0]
       return {
         index,
@@ -270,6 +285,9 @@ async function importBank(token: string, accountId: string, assignments: Record<
   let skipped = 0
   const errors: string[] = []
   const existingTransactions = await listTransactions()
+  const merchantResult = await supabase.from('merchants').select('id,normalized_name')
+  fail(merchantResult.error)
+  const merchantIds = new Map((merchantResult.data ?? []).map(merchant => [merchant.normalized_name, merchant.id]))
   const duplicateKeys = new Set(
     existingTransactions
       .filter(transaction => transaction.accountId === accountId && !transaction.isTransfer)
@@ -281,7 +299,7 @@ async function importBank(token: string, accountId: string, assignments: Record<
     if (duplicateKeys.has(duplicateKey)) { skipped += 1; continue }
     duplicateKeys.add(duplicateKey)
     const sourceFingerprint = await fileHash(duplicateKey)
-    const { error } = await supabase.from('transactions').insert({ owner_id: owner, import_id: importRow.id, account_id: accountId, category_id: assignments[index] ?? null, occurred_on: row.date, description: row.description, normalized_description: normalizeDescription(row.description), amount: row.amount, balance: row.balance ?? null, source_fingerprint: sourceFingerprint, status: 'C' })
+    const { error } = await supabase.from('transactions').insert({ owner_id: owner, import_id: importRow.id, account_id: accountId, merchant_id: merchantIds.get(merchantKey(row.description)) ?? null, category_id: assignments[index] ?? null, occurred_on: row.date, description: row.description, normalized_description: normalizeDescription(row.description), amount: row.amount, balance: row.balance ?? null, source_fingerprint: sourceFingerprint, status: 'C' })
     if (!error) imported += 1
     else if (error.code === '23505') skipped += 1
     else errors.push(error.message)
@@ -698,6 +716,130 @@ async function budgetGroupList(month: number, year: number): Promise<any[]> {
   })
 }
 
+type MerchantHistoryGroup = {
+  name: string
+  aliases: Set<string>
+  transactionIds: string[]
+  totalAmount: number
+  firstSeen: string
+  lastSeen: string
+  categoryCounts: Map<string, { name: string; color: string; count: number }>
+}
+
+async function listMerchantInsights(): Promise<MerchantInsight[]> {
+  const [transactions, merchantResult] = await Promise.all([
+    listTransactions(),
+    supabase.from('merchants').select('id,name,normalized_name,default_category_id'),
+  ])
+  fail(merchantResult.error)
+  const remembered = new Map((merchantResult.data ?? []).map(row => [row.normalized_name, row]))
+  const groups = new Map<string, MerchantHistoryGroup>()
+
+  for (const transaction of transactions) {
+    if (transaction.status !== 'C' || transaction.isTransfer) continue
+    const key = merchantKey(transaction.description)
+    if (!key) continue
+    const current: MerchantHistoryGroup = groups.get(key) ?? {
+      name: merchantDisplayName(transaction.description),
+      aliases: new Set<string>(),
+      transactionIds: [] as string[],
+      totalAmount: 0,
+      firstSeen: transaction.date,
+      lastSeen: transaction.date,
+      categoryCounts: new Map<string, { name: string; color: string; count: number }>(),
+    }
+    current.aliases.add(transaction.description)
+    current.transactionIds.push(transaction.id)
+    current.totalAmount += Math.abs(transaction.amount)
+    if (transaction.date < current.firstSeen) current.firstSeen = transaction.date
+    if (transaction.date > current.lastSeen) {
+      current.lastSeen = transaction.date
+      current.name = merchantDisplayName(transaction.description)
+    }
+    if (transaction.categoryId && transaction.categoryFullName && !/^\?+$/.test(transaction.categoryFullName.trim())) {
+      const category = current.categoryCounts.get(transaction.categoryId) ?? {
+        name: transaction.categoryFullName,
+        color: transaction.categoryColor ?? '#64748b',
+        count: 0,
+      }
+      category.count += 1
+      current.categoryCounts.set(transaction.categoryId, category)
+    }
+    groups.set(key, current)
+  }
+
+  return [...groups.entries()].map(([key, group]) => {
+    const rule = remembered.get(key)
+    const candidates = [...group.categoryCounts.entries()]
+      .map(([categoryId, category]) => ({
+        categoryId,
+        categoryName: category.name,
+        categoryColor: category.color,
+        count: category.count,
+        percentage: category.count / group.transactionIds.length,
+      }))
+      .sort((left, right) => right.count - left.count)
+      .slice(0, 3)
+    const rememberedCategoryId = rule?.default_category_id ?? null
+    const top = rememberedCategoryId
+      ? candidates.find(candidate => candidate.categoryId === rememberedCategoryId) ?? candidates[0]
+      : candidates[0]
+    return {
+      key,
+      name: rule?.name ?? group.name,
+      aliases: [...group.aliases].slice(0, 8),
+      transactionIds: group.transactionIds,
+      transactionCount: group.transactionIds.length,
+      totalAmount: group.totalAmount,
+      firstSeen: group.firstSeen,
+      lastSeen: group.lastSeen,
+      confidence: rule ? 1 : top?.percentage ?? 0,
+      categoryId: rememberedCategoryId ?? top?.categoryId ?? null,
+      remembered: Boolean(rule),
+      candidates,
+    }
+  }).sort((left, right) => right.transactionCount - left.transactionCount || left.name.localeCompare(right.name))
+}
+
+async function applyMerchantCategory(data: {
+  key: string
+  name: string
+  aliases: string[]
+  transactionIds: string[]
+  categoryId: string
+}): Promise<void> {
+  const owner = await ownerId()
+  const { data: merchant, error } = await supabase.from('merchants').upsert({
+    owner_id: owner,
+    name: data.name,
+    normalized_name: data.key,
+    default_category_id: data.categoryId,
+  }, { onConflict: 'owner_id,normalized_name' }).select('id').single()
+  fail(error)
+  if (!merchant) throw new Error('Could not save the merchant rule.')
+
+  const aliases = [...new Map(data.aliases.map(alias => [normalizeDescription(alias), alias])).entries()]
+    .filter(([normalized]) => normalized)
+    .map(([normalized, alias]) => ({
+      owner_id: owner,
+      merchant_id: merchant.id,
+      alias,
+      normalized_alias: normalized,
+    }))
+  if (aliases.length) {
+    const { error: aliasError } = await supabase.from('merchant_aliases').upsert(aliases, { onConflict: 'owner_id,normalized_alias' })
+    fail(aliasError)
+  }
+  for (let index = 0; index < data.transactionIds.length; index += 500) {
+    const { error: transactionError } = await supabase.from('transactions').update({
+      category_id: data.categoryId,
+      merchant_id: merchant.id,
+      updated_at: new Date().toISOString(),
+    }).in('id', data.transactionIds.slice(index, index + 500))
+    fail(transactionError)
+  }
+}
+
 export const api = {
   accounts: {
     list: listAccounts,
@@ -758,6 +900,10 @@ export const api = {
         }),
       )
     },
+  },
+  merchants: {
+    list: listMerchantInsights,
+    applyCategory: applyMerchantCategory,
   },
   categories: {
     list: listCategories,

@@ -5,6 +5,7 @@ import { monthName } from '../utils'
 const TABS: { id: Page; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'transactions', label: 'Transactions' },
+  { id: 'merchants', label: 'Merchants' },
   { id: 'calendar', label: 'Calendar' },
   { id: 'categories', label: 'Categories' },
   { id: 'reports', label: 'Reports' },
@@ -34,7 +35,7 @@ export function TopNav({
   customFrom, onCustomFromChange,
   customTo, onCustomToChange,
 }: Props) {
-  const showDateNav = page !== 'scheduled'
+  const showDateNav = ['overview', 'transactions', 'calendar', 'reports', 'budget'].includes(page)
 
   return (
     <header className="bg-white border-b border-gray-200 flex items-center gap-4 px-4 h-11 shrink-0 titlebar-drag">
@@ -113,4 +114,3 @@ export function TopNav({
     </header>
   )
 }
-

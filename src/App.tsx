@@ -8,12 +8,13 @@ import { ScheduledPage } from './pages/Scheduled'
 import { ReportsPage } from './pages/Reports'
 import { CategoriesPage } from './pages/Categories'
 import { CalendarPage } from './pages/Calendar'
+import { MerchantsPage } from './pages/Merchants'
 import { api } from './api'
 import type { Account, Category } from './types/finance'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
 
-export type Page = 'overview' | 'transactions' | 'categories' | 'reports' | 'budget' | 'scheduled' | 'calendar'
+export type Page = 'overview' | 'transactions' | 'merchants' | 'categories' | 'reports' | 'budget' | 'scheduled' | 'calendar'
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
@@ -136,6 +137,7 @@ function FinanceApp() {
         <main className="flex-1 overflow-hidden">
           {page === 'overview' && <OverviewPage {...pageProps} />}
           {page === 'transactions' && <TransactionsPage {...pageProps} />}
+          {page === 'merchants' && <MerchantsPage {...pageProps} />}
           {page === 'categories' && <CategoriesPage {...pageProps} />}
           {page === 'reports' && <ReportsPage {...pageProps} />}
           {page === 'budget' && <BudgetPage {...pageProps} />}

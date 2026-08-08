@@ -1,0 +1,234 @@
+import { useEffect, useMemo, useState } from 'react'
+import { AlertCircle, CheckCircle2, Search, Sparkles, Store } from 'lucide-react'
+import { api } from '../api'
+import { fmt, formatDate } from '../utils'
+import type { Category, MerchantInsight } from '../types/finance'
+
+interface Props {
+  categories: Category[]
+  onRefreshCategories: () => void
+}
+
+type MerchantFilter = 'all' | 'learned' | 'review' | 'unclassified'
+
+function merchantState(merchant: MerchantInsight): Exclude<MerchantFilter, 'all'> {
+  if (!merchant.categoryId) return 'unclassified'
+  if (merchant.remembered || merchant.confidence >= 0.8) return 'learned'
+  return 'review'
+}
+
+export function MerchantsPage({ categories, onRefreshCategories }: Props) {
+  const [merchants, setMerchants] = useState<MerchantInsight[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState<MerchantFilter>('all')
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [applying, setApplying] = useState<string | null>(null)
+  const [visibleCount, setVisibleCount] = useState(100)
+  const [message, setMessage] = useState<string | null>(null)
+
+  async function load() {
+    setLoading(true)
+    try {
+      const data = await api.merchants.list()
+      setMerchants(data)
+      setDrafts(Object.fromEntries(data.filter(item => item.categoryId).map(item => [item.key, item.categoryId!])))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [])
+
+  const counts = useMemo(() => ({
+    all: merchants.length,
+    learned: merchants.filter(item => merchantState(item) === 'learned').length,
+    review: merchants.filter(item => merchantState(item) === 'review').length,
+    unclassified: merchants.filter(item => merchantState(item) === 'unclassified').length,
+  }), [merchants])
+
+  const filtered = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase()
+    return merchants.filter(merchant => {
+      if (filter !== 'all' && merchantState(merchant) !== filter) return false
+      return !query || merchant.name.toLocaleLowerCase().includes(query) || merchant.aliases.some(alias => alias.toLocaleLowerCase().includes(query))
+    })
+  }, [merchants, search, filter])
+
+  const categoryOptions = [...categories]
+    .filter(category => !/^\?+$/.test(category.fullName.trim()))
+    .sort((left, right) => left.fullName.localeCompare(right.fullName))
+
+  async function apply(merchant: MerchantInsight) {
+    const categoryId = drafts[merchant.key]
+    if (!categoryId) return
+    setApplying(merchant.key)
+    setMessage(null)
+    try {
+      await api.merchants.applyCategory({
+        key: merchant.key,
+        name: merchant.name,
+        aliases: merchant.aliases,
+        transactionIds: merchant.transactionIds,
+        categoryId,
+      })
+      setMessage(`${merchant.name} will now use this category for existing and future matching transactions.`)
+      await load()
+      onRefreshCategories()
+    } finally {
+      setApplying(null)
+    }
+  }
+
+  const filters: Array<{ key: MerchantFilter; label: string }> = [
+    { key: 'all', label: 'All' },
+    { key: 'learned', label: 'Learned' },
+    { key: 'review', label: 'Needs review' },
+    { key: 'unclassified', label: 'Unclassified' },
+  ]
+
+  return (
+    <div className="flex h-full flex-col bg-slate-50/60">
+      <div className="shrink-0 border-b border-slate-200 bg-white px-6 py-4">
+        <div className="flex items-start gap-4">
+          <div>
+            <h1 className="text-lg font-bold text-slate-900">Merchants</h1>
+            <p className="mt-0.5 text-sm text-slate-500">Turn transaction history into reliable classification rules.</p>
+          </div>
+          <div className="flex-1" />
+          <div className="relative w-72">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={search} onChange={event => { setSearch(event.target.value); setVisibleCount(100) }} placeholder="Search merchants or aliases…" className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-4 gap-3">
+          <Stat label="Merchants learned" value={counts.all} tone="slate" />
+          <Stat label="High confidence" value={counts.learned} tone="green" />
+          <Stat label="Needs review" value={counts.review} tone="amber" />
+          <Stat label="Unclassified" value={counts.unclassified} tone="rose" />
+        </div>
+
+        <div className="mt-4 flex items-center gap-2">
+          {filters.map(item => (
+            <button key={item.key} onClick={() => { setFilter(item.key); setVisibleCount(100) }} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${filter === item.key ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>
+              {item.label} <span className={filter === item.key ? 'text-slate-300' : 'text-slate-400'}>{counts[item.key]}</span>
+            </button>
+          ))}
+          <div className="flex-1" />
+          <p className="text-xs text-slate-400">Confirming a merchant updates its history and future matches.</p>
+        </div>
+        {message && <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{message}</div>}
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4">
+        {loading ? (
+          <div className="flex h-48 items-center justify-center text-sm text-slate-400">Analysing merchant history…</div>
+        ) : filtered.length === 0 ? (
+          <div className="flex h-48 items-center justify-center text-sm text-slate-400">No merchants match this view.</div>
+        ) : (
+          <div className="mx-auto max-w-7xl space-y-2">
+            {filtered.slice(0, visibleCount).map(merchant => (
+              <MerchantRow
+                key={merchant.key}
+                merchant={merchant}
+                categories={categoryOptions}
+                selectedCategoryId={drafts[merchant.key] ?? ''}
+                applying={applying === merchant.key}
+                onCategoryChange={categoryId => setDrafts(current => ({ ...current, [merchant.key]: categoryId }))}
+                onApply={() => apply(merchant)}
+              />
+            ))}
+            {visibleCount < filtered.length && (
+              <button onClick={() => setVisibleCount(count => count + 100)} className="w-full rounded-xl border border-slate-200 bg-white py-3 text-sm font-medium text-slate-600 hover:bg-slate-50">
+                Show 100 more · {filtered.length - visibleCount} remaining
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function Stat({ label, value, tone }: { label: string; value: number; tone: 'slate' | 'green' | 'amber' | 'rose' }) {
+  const styles = {
+    slate: 'border-slate-200 bg-slate-50 text-slate-700',
+    green: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    amber: 'border-amber-200 bg-amber-50 text-amber-700',
+    rose: 'border-rose-200 bg-rose-50 text-rose-700',
+  }
+  return (
+    <div className={`rounded-xl border px-4 py-3 ${styles[tone]}`}>
+      <p className="text-2xl font-bold tabular-nums">{value}</p>
+      <p className="mt-0.5 text-xs font-medium opacity-70">{label}</p>
+    </div>
+  )
+}
+
+function MerchantRow({ merchant, categories, selectedCategoryId, applying, onCategoryChange, onApply }: {
+  merchant: MerchantInsight
+  categories: Category[]
+  selectedCategoryId: string
+  applying: boolean
+  onCategoryChange: (categoryId: string) => void
+  onApply: () => void
+}) {
+  const state = merchantState(merchant)
+  const badge = state === 'learned'
+    ? { label: merchant.remembered ? 'Remembered' : 'High confidence', classes: 'bg-emerald-50 text-emerald-700 border-emerald-200', Icon: CheckCircle2 }
+    : state === 'review'
+      ? { label: 'Needs review', classes: 'bg-amber-50 text-amber-700 border-amber-200', Icon: AlertCircle }
+      : { label: 'Unclassified', classes: 'bg-rose-50 text-rose-700 border-rose-200', Icon: AlertCircle }
+
+  return (
+    <article className="grid grid-cols-[minmax(240px,1.2fr)_minmax(300px,1.5fr)_150px_220px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-r border-slate-100 p-4">
+        <div className="flex gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500"><Store size={17} /></div>
+          <div className="min-w-0">
+            <h2 className="truncate text-sm font-bold text-slate-900" title={merchant.name}>{merchant.name}</h2>
+            <span className={`mt-1 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${badge.classes}`}><badge.Icon size={10} />{badge.label}</span>
+          </div>
+        </div>
+        <details className="mt-3 text-[11px] text-slate-400">
+          <summary className="cursor-pointer hover:text-slate-600">{merchant.aliases.length} source description{merchant.aliases.length === 1 ? '' : 's'}</summary>
+          <div className="mt-1 max-h-20 space-y-1 overflow-y-auto pr-2">{merchant.aliases.map(alias => <p key={alias} className="truncate" title={alias}>{alias}</p>)}</div>
+        </details>
+        <p className="mt-2 text-[10px] text-slate-400">First seen {formatDate(merchant.firstSeen)} · Last seen {formatDate(merchant.lastSeen)}</p>
+      </div>
+
+      <div className="border-r border-slate-100 p-4">
+        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Category evidence</p>
+        {merchant.candidates.length ? merchant.candidates.map(candidate => (
+          <div key={candidate.categoryId} className="mb-2 grid grid-cols-[minmax(120px,1fr)_120px_42px] items-center gap-2 text-xs">
+            <span className="truncate text-slate-600" title={candidate.categoryName}>{candidate.categoryName}</span>
+            <div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full" style={{ width: `${candidate.percentage * 100}%`, backgroundColor: candidate.categoryColor }} /></div>
+            <span className="text-right tabular-nums text-slate-400">{Math.round(candidate.percentage * 100)}%</span>
+          </div>
+        )) : <p className="text-xs text-slate-400">No prior category decisions.</p>}
+      </div>
+
+      <div className="border-r border-slate-100 p-4">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">History</p>
+        <p className="mt-2 text-xl font-bold text-slate-800 tabular-nums">{merchant.transactionCount}</p>
+        <p className="text-xs text-slate-400">transactions</p>
+        <p className="mt-3 text-sm font-semibold text-slate-700 tabular-nums">{fmt(merchant.totalAmount)}</p>
+        <p className="text-[10px] text-slate-400">absolute value</p>
+        <div className="mt-3 flex items-center gap-1.5 text-xs text-slate-500"><Sparkles size={12} className={merchant.confidence >= 0.8 ? 'text-emerald-500' : 'text-amber-500'} />{Math.round(merchant.confidence * 100)}% confidence</div>
+      </div>
+
+      <div className="p-4">
+        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Classification</label>
+        <select value={selectedCategoryId} onChange={event => onCategoryChange(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700 outline-none focus:border-blue-400">
+          <option value="">Choose category…</option>
+          {categories.map(category => <option key={category.id} value={category.id}>{category.fullName}</option>)}
+        </select>
+        <button onClick={onApply} disabled={!selectedCategoryId || applying} className="mt-3 w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-40">
+          {applying ? 'Applying…' : `Apply to ${merchant.transactionCount} & remember`}
+        </button>
+        <p className="mt-2 text-center text-[10px] text-slate-400">Used for future matching imports</p>
+      </div>
+    </article>
+  )
+}

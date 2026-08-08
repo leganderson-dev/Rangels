@@ -7,6 +7,7 @@ import { TransactionFormModal } from '../components/TransactionFormModal'
 import { ImportBankModal } from '../components/ImportBankModal'
 import { ImportAlzexButton } from '../components/ImportAlzexButton'
 import type { Transaction, Account, Category, ScheduledTransaction } from '../types/finance'
+import { merchantDisplayName } from '../lib/merchants'
 
 interface Props {
   accounts: Account[]
@@ -687,22 +688,6 @@ function buildHierarchyGroups(transactions: Transaction[], catMap: Map<string, C
 
 type ColWidths = { amount: number; category: number; date: number; account: number }
 
-function merchantFirstDescription(description: string): string {
-  const cleaned = description
-    .replace(/\bvalue\s+date:\s*\d{1,2}\/\d{1,2}\/\d{2,4}.*$/i, '')
-    .replace(/\b(?:aus\s+)?card\s+x{1,2}\d+.*$/i, '')
-    .replace(/\bnetbank\s+(?:bpay|transfer).*$/i, '')
-    .replace(/\b(?:ref|reference)[:\s-]*[a-z0-9-]{6,}.*$/i, '')
-    .replace(/\b\d{8,}\b/g, '')
-    .replace(/^([a-z][a-z&'*.-]+)\s+\d{3,6}\s+/i, '$1 ')
-    .replace(/\s+(?:AU|AUS)$/i, '')
-    .replace(/^\s*(?:EFTPOS|DEBIT CARD PURCHASE|CARD PURCHASE)\s+/i, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-  return cleaned || description.trim()
-}
-
 function TransactionRow({ tx, selected, selectedCount, categories, colWidths, indent = 'single', onSelect, onEdit, onDelete, onCategoryChange, onRightClick, onDragStart, onDragEnd }: {
   tx: Transaction; selected: boolean; selectedCount: number; categories: Category[]
   colWidths: ColWidths; indent?: 'none' | 'single' | 'double'
@@ -718,7 +703,7 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
   const dropRef = useRef<HTMLDivElement>(null)
   const [dropPos, setDropPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
   const applyingToMany = selected && selectedCount > 1
-  const displayDescription = merchantFirstDescription(tx.description)
+  const displayDescription = merchantDisplayName(tx.description)
   const showSourceDescription = displayDescription.toLocaleLowerCase() !== tx.description.trim().toLocaleLowerCase()
   // No slice limit — show all categories; filter as user types
   const filteredCats = categories.filter(c => !q || c.fullName.toLowerCase().includes(q.toLowerCase()))

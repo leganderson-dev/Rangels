@@ -107,3 +107,26 @@ export interface TransactionFilter {
   search?: string
   groupBy?: 'category' | 'date' | 'account'
 }
+
+export interface MerchantCategoryCandidate {
+  categoryId: string
+  categoryName: string
+  categoryColor: string
+  count: number
+  percentage: number
+}
+
+export interface MerchantInsight {
+  key: string
+  name: string
+  aliases: string[]
+  transactionIds: string[]
+  transactionCount: number
+  totalAmount: number
+  firstSeen: string
+  lastSeen: string
+  confidence: number
+  categoryId: string | null
+  remembered: boolean
+  candidates: MerchantCategoryCandidate[]
+}
