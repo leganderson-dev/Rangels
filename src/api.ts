@@ -4,6 +4,7 @@ import type {
   Budget,
   Category,
   ClassificationOptions,
+  LegacyCategoryMapping,
   ImportResult,
   MerchantInsight,
   MonthSummary,
@@ -12,7 +13,7 @@ import type {
   TransactionFilter,
 } from './types/finance'
 import { parseBankExport } from './lib/importers'
-import { normalizeDescription, relevantCategorySuggestions, suggestCategories, transactionDuplicateKey } from './lib/matching'
+import { createCategoryMatcher, normalizeDescription, relevantCategorySuggestions, transactionDuplicateKey } from './lib/matching'
 import { parseDelimited } from './lib/csv'
 import { merchantDisplayName, merchantKey } from './lib/merchants'
 
@@ -202,14 +203,14 @@ async function fileHash(text: string): Promise<string> {
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
-type MerchantRuleMatch = { merchantId: string; categoryId: string }
+type MerchantRuleMatch = { merchantId: string; categoryId: string; canonicalCategoryId: string | null; contextId: string | null; bucketId: string | null; taxTreatment: string }
 
 async function loadMerchantClassificationRules(): Promise<{
   byKey: Map<string, MerchantRuleMatch>
   aliases: Array<{ phrase: string; rule: MerchantRuleMatch }>
 }> {
   const [merchantResult, aliasResult] = await Promise.all([
-    supabase.from('merchants').select('id,normalized_name,default_category_id').not('default_category_id', 'is', null),
+    supabase.from('merchants').select('id,normalized_name,default_category_id,default_canonical_category_id,default_context_id,default_bucket_id,default_tax_treatment').not('default_category_id', 'is', null),
     supabase.from('merchant_aliases').select('merchant_id,normalized_alias'),
   ])
   fail(merchantResult.error)
@@ -217,6 +218,10 @@ async function loadMerchantClassificationRules(): Promise<{
   const byMerchantId = new Map((merchantResult.data ?? []).map(merchant => [merchant.id, {
     merchantId: merchant.id,
     categoryId: merchant.default_category_id!,
+    canonicalCategoryId: merchant.default_canonical_category_id,
+    contextId: merchant.default_context_id,
+    bucketId: merchant.default_bucket_id,
+    taxTreatment: merchant.default_tax_treatment,
   }]))
   return {
     byKey: new Map((merchantResult.data ?? []).map(merchant => [merchant.normalized_name, byMerchantId.get(merchant.id)!])),
@@ -225,6 +230,13 @@ async function loadMerchantClassificationRules(): Promise<{
       .filter((item): item is { phrase: string; rule: MerchantRuleMatch } => Boolean(item.phrase && item.rule))
       .sort((left, right) => right.phrase.length - left.phrase.length),
   }
+}
+
+let merchantRuleCache: Awaited<ReturnType<typeof loadMerchantClassificationRules>> | null = null
+
+async function cachedMerchantClassificationRules() {
+  if (!merchantRuleCache) merchantRuleCache = await loadMerchantClassificationRules()
+  return merchantRuleCache
 }
 
 function matchMerchantRule(description: string, rules: Awaited<ReturnType<typeof loadMerchantClassificationRules>>): MerchantRuleMatch | null {
@@ -241,20 +253,25 @@ async function bankPreview(token: string, accountId: string) {
   const file = pickedFiles.get(token)
   if (!file) throw new Error('Please choose the CSV again.')
   const parsed = parseBankExport(file.text)
-  const [transactions, categories, merchantRules] = await Promise.all([
-    listTransactions(),
-    listCategories(),
-    loadMerchantClassificationRules(),
+  const [transactionRows, categoryResult, merchantRules] = await Promise.all([
+    fetchAllRows(() => supabase.from('transactions')
+      .select('account_id,occurred_on,amount,description,category_id,is_transfer')),
+    supabase.from('categories').select('id,path,color'),
+    cachedMerchantClassificationRules(),
   ])
-  const history = transactions
-    .filter(transaction => transaction.categoryId && transaction.categoryFullName)
-    .map(transaction => ({ description: transaction.description, category: transaction.categoryFullName! }))
-  const byPath = new Map(categories.map(category => [category.fullName, category]))
+  fail(categoryResult.error)
+  const categories = categoryResult.data ?? []
+  const categoryPathById = new Map(categories.map(category => [category.id, category.path]))
+  const history = transactionRows
+    .filter(transaction => transaction.category_id && categoryPathById.has(transaction.category_id))
+    .map(transaction => ({ description: transaction.description, category: categoryPathById.get(transaction.category_id)! }))
+  const matchHistory = createCategoryMatcher(history)
+  const byPath = new Map(categories.map(category => [category.path, category]))
   const byId = new Map(categories.map(category => [category.id, category]))
   const existingKeys = new Set(
-    transactions
-      .filter(transaction => transaction.accountId === accountId && !transaction.isTransfer)
-      .map(transaction => transactionDuplicateKey(accountId, transaction.date, transaction.amount, transaction.description)),
+    transactionRows
+      .filter(transaction => transaction.account_id === accountId && !transaction.is_transfer)
+      .map(transaction => transactionDuplicateKey(accountId, transaction.occurred_on, Number(transaction.amount), transaction.description)),
   )
   const fileKeys = new Set<string>()
   return {
@@ -270,13 +287,13 @@ async function bankPreview(token: string, accountId: string) {
       // begin with their highest score selected and remain editable.
       const ruleCategoryId = matchMerchantRule(row.description, merchantRules)?.categoryId
       const ruleCategory = ruleCategoryId ? byId.get(ruleCategoryId) : null
-      const suggestions = relevantCategorySuggestions(suggestCategories(row.description, history, Number.EPSILON))
+      const suggestions = relevantCategorySuggestions(matchHistory(row.description, Number.EPSILON))
       const learnedSuggestions = suggestions
         .map(suggestion => {
           const category = byPath.get(suggestion.category)
           return category ? {
             categoryId: category.id,
-            categoryName: category.fullName,
+            categoryName: category.path,
             confidence: suggestion.confidence,
             reason: `Matched “${suggestion.matchedDescription}”`,
           } : null
@@ -285,7 +302,7 @@ async function bankPreview(token: string, accountId: string) {
         .slice(0, 3)
       const rankedSuggestions = ruleCategory ? [{
         categoryId: ruleCategory.id,
-        categoryName: ruleCategory.fullName,
+        categoryName: ruleCategory.path,
         confidence: 1,
         reason: 'Remembered merchant classification',
       }, ...learnedSuggestions.filter(suggestion => suggestion.categoryId !== ruleCategory.id)].slice(0, 3) : learnedSuggestions
@@ -318,22 +335,29 @@ async function importBank(token: string, accountId: string, assignments: Record<
   let imported = 0
   let skipped = 0
   const errors: string[] = []
-  const existingTransactions = await listTransactions()
-  const merchantRules = await loadMerchantClassificationRules()
+  const existingTransactions = await fetchAllRows(() => supabase.from('transactions')
+    .select('occurred_on,amount,description,is_transfer')
+    .eq('account_id', accountId))
+  const merchantRules = await cachedMerchantClassificationRules()
   const duplicateKeys = new Set(
     existingTransactions
-      .filter(transaction => transaction.accountId === accountId && !transaction.isTransfer)
-      .map(transaction => transactionDuplicateKey(accountId, transaction.date, transaction.amount, transaction.description)),
+      .filter(transaction => !transaction.is_transfer)
+      .map(transaction => transactionDuplicateKey(accountId, transaction.occurred_on, Number(transaction.amount), transaction.description)),
   )
+  const payloads: Row[] = []
   for (const [index, row] of parsed.rows.entries()) {
     if (assignments[index] === '__skip__') continue
     const duplicateKey = transactionDuplicateKey(accountId, row.date, row.amount, row.description)
     if (duplicateKeys.has(duplicateKey)) { skipped += 1; continue }
     duplicateKeys.add(duplicateKey)
-    const sourceFingerprint = await fileHash(duplicateKey)
-    const { error } = await supabase.from('transactions').insert({ owner_id: owner, import_id: importRow.id, account_id: accountId, merchant_id: matchMerchantRule(row.description, merchantRules)?.merchantId ?? null, category_id: assignments[index] ?? null, occurred_on: row.date, description: row.description, normalized_description: normalizeDescription(row.description), amount: row.amount, balance: row.balance ?? null, source_fingerprint: sourceFingerprint, status: 'C' })
-    if (!error) imported += 1
-    else if (error.code === '23505') skipped += 1
+    const merchantRule = matchMerchantRule(row.description, merchantRules)
+    payloads.push({ owner_id: owner, import_id: importRow.id, account_id: accountId, merchant_id: merchantRule?.merchantId ?? null, category_id: assignments[index] ?? null, canonical_category_id: merchantRule?.canonicalCategoryId ?? null, context_id: merchantRule?.contextId ?? null, bucket_id: merchantRule?.bucketId ?? null, tax_treatment: merchantRule?.taxTreatment ?? 'none', occurred_on: row.date, description: row.description, normalized_description: normalizeDescription(row.description), amount: row.amount, balance: row.balance ?? null, source_fingerprint: await fileHash(duplicateKey), status: 'C' })
+  }
+  for (let index = 0; index < payloads.length; index += 500) {
+    const batch = payloads.slice(index, index + 500)
+    const { error } = await supabase.from('transactions').insert(batch)
+    if (!error) imported += batch.length
+    else if (error.code === '23505') skipped += batch.length
     else errors.push(error.message)
   }
   pickedFiles.delete(token)
@@ -526,6 +550,67 @@ async function listClassificationOptions(): Promise<ClassificationOptions> {
     buckets: buckets.data ?? [],
     categories: (categories.data ?? []) as ClassificationOptions['categories'],
   }
+}
+
+async function listCategoryMappings(): Promise<LegacyCategoryMapping[]> {
+  const [mappingResult, categoryResult, options] = await Promise.all([
+    supabase.from('category_classifications').select('*'),
+    supabase.from('categories').select('id,path').order('path'),
+    listClassificationOptions(),
+  ])
+  fail(mappingResult.error)
+  fail(categoryResult.error)
+  const categories = categoryResult.data ?? []
+  const rows = new Map((mappingResult.data ?? []).map(row => [row.legacy_category_id, row]))
+  const canonical = new Map(options.categories.map(item => [item.id, item.name]))
+  const contexts = new Map(options.contexts.map(item => [item.id, item.name]))
+  const buckets = new Map(options.buckets.map(item => [item.id, item.name]))
+  return categories.map(category => {
+    const row = rows.get(category.id)
+    const preserved = ['ToBeRefunded', 'Reibursment'].includes(category.path)
+    return {
+      categoryId: category.id,
+      categoryPath: category.path,
+      canonicalCategoryId: row?.canonical_category_id ?? null,
+      canonicalCategoryName: row?.canonical_category_id ? canonical.get(row.canonical_category_id) ?? null : null,
+      contextId: row?.context_id ?? null,
+      contextName: row?.context_id ? contexts.get(row.context_id) ?? null : null,
+      bucketId: row?.bucket_id ?? null,
+      bucketName: row?.bucket_id ? buckets.get(row.bucket_id) ?? null : null,
+      taxTreatment: row?.tax_treatment ?? 'none',
+      status: preserved && !row ? 'preserved' : row?.migration_status ?? 'review',
+      notes: preserved && !row ? 'Reserved for manual owner review' : row?.notes ?? '',
+    }
+  })
+}
+
+async function saveCategoryMapping(categoryId: string, data: {
+  canonicalCategoryId: string | null
+  contextId: string | null
+  bucketId: string | null
+  taxTreatment: 'none' | 'deductible' | 'review'
+}): Promise<void> {
+  const owner = await ownerId()
+  const status = data.canonicalCategoryId && data.contextId ? 'mapped' : 'review'
+  const { error } = await supabase.from('category_classifications').upsert({
+    owner_id: owner,
+    legacy_category_id: categoryId,
+    canonical_category_id: data.canonicalCategoryId,
+    context_id: data.contextId,
+    bucket_id: data.bucketId,
+    tax_treatment: data.taxTreatment,
+    migration_status: status,
+    notes: 'Owner-reviewed mapping',
+  }, { onConflict: 'legacy_category_id' })
+  fail(error)
+  const { error: transactionError } = await supabase.from('transactions').update({
+    canonical_category_id: data.canonicalCategoryId,
+    context_id: data.contextId,
+    bucket_id: data.bucketId,
+    tax_treatment: data.taxTreatment,
+    updated_at: new Date().toISOString(),
+  }).eq('category_id', categoryId)
+  fail(transactionError)
 }
 
 function transactionPayload(data: Record<string, any>): Row {
@@ -793,7 +878,7 @@ type MerchantHistoryGroup = {
 async function listMerchantInsights(): Promise<MerchantInsight[]> {
   const [transactions, merchantResult, aliasResult] = await Promise.all([
     listTransactions(),
-    supabase.from('merchants').select('id,name,normalized_name,default_category_id'),
+    supabase.from('merchants').select('id,name,normalized_name,default_category_id,default_canonical_category_id,default_context_id,default_bucket_id,default_tax_treatment'),
     supabase.from('merchant_aliases').select('merchant_id,alias'),
   ])
   fail(merchantResult.error)
@@ -869,6 +954,10 @@ async function listMerchantInsights(): Promise<MerchantInsight[]> {
       remembered: Boolean(rule),
       rulePhrases: rule ? aliasesByMerchant.get(rule.id) ?? [] : [],
       candidates,
+      canonicalCategoryId: rule?.default_canonical_category_id ?? null,
+      contextId: rule?.default_context_id ?? null,
+      bucketId: rule?.default_bucket_id ?? null,
+      taxTreatment: rule?.default_tax_treatment ?? 'none',
     }
   }).sort((left, right) => right.transactionCount - left.transactionCount || left.name.localeCompare(right.name))
 }
@@ -910,6 +999,7 @@ async function applyMerchantCategory(data: {
     }).in('id', data.transactionIds.slice(index, index + 500))
     fail(transactionError)
   }
+  merchantRuleCache = null
 }
 
 async function saveMerchantRule(data: {
@@ -919,6 +1009,10 @@ async function saveMerchantRule(data: {
   phrases: string[]
   categoryId: string
   transactionIds: string[]
+  canonicalCategoryId: string | null
+  contextId: string | null
+  bucketId: string | null
+  taxTreatment: 'none' | 'deductible' | 'review'
 }): Promise<void> {
   const owner = await ownerId()
   const normalizedName = data.key
@@ -927,6 +1021,10 @@ async function saveMerchantRule(data: {
     name: data.name.trim(),
     normalized_name: normalizedName,
     default_category_id: data.categoryId,
+    default_canonical_category_id: data.canonicalCategoryId,
+    default_context_id: data.contextId,
+    default_bucket_id: data.bucketId,
+    default_tax_treatment: data.taxTreatment,
   }, { onConflict: 'owner_id,normalized_name' }).select('id').single()
   fail(error)
   if (!merchant) throw new Error('Could not save the merchant rule.')
@@ -946,10 +1044,15 @@ async function saveMerchantRule(data: {
     const { error: transactionError } = await supabase.from('transactions').update({
       merchant_id: merchant.id,
       category_id: data.categoryId,
+      canonical_category_id: data.canonicalCategoryId,
+      context_id: data.contextId,
+      bucket_id: data.bucketId,
+      tax_treatment: data.taxTreatment,
       updated_at: new Date().toISOString(),
     }).in('id', data.transactionIds.slice(index, index + 500))
     fail(transactionError)
   }
+  merchantRuleCache = null
 }
 
 export const api = {
@@ -1020,6 +1123,8 @@ export const api = {
   },
   classification: {
     options: listClassificationOptions,
+    mappings: listCategoryMappings,
+    saveMapping: saveCategoryMapping,
   },
   categories: {
     list: listCategories,

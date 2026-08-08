@@ -70,6 +70,20 @@ export interface ClassificationOptions {
   categories: CanonicalCategory[]
 }
 
+export interface LegacyCategoryMapping {
+  categoryId: string
+  categoryPath: string
+  canonicalCategoryId: string | null
+  canonicalCategoryName: string | null
+  contextId: string | null
+  contextName: string | null
+  bucketId: string | null
+  bucketName: string | null
+  taxTreatment: 'none' | 'deductible' | 'review'
+  status: 'mapped' | 'review' | 'preserved'
+  notes: string
+}
+
 export interface ScheduledTransaction {
   id: string
   description: string
@@ -156,4 +170,8 @@ export interface MerchantInsight {
   remembered: boolean
   rulePhrases: string[]
   candidates: MerchantCategoryCandidate[]
+  canonicalCategoryId: string | null
+  contextId: string | null
+  bucketId: string | null
+  taxTreatment: 'none' | 'deductible' | 'review'
 }

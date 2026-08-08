@@ -3,7 +3,7 @@ import { AlertCircle, CheckCircle2, Pencil, Search, Sparkles, Store } from 'luci
 import { api } from '../api'
 import { Modal } from '../components/Modal'
 import { fmt, formatDate } from '../utils'
-import type { Category, MerchantInsight } from '../types/finance'
+import type { Category, ClassificationOptions, MerchantInsight } from '../types/finance'
 
 interface Props {
   categories: Category[]
@@ -28,6 +28,7 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
   const [visibleCount, setVisibleCount] = useState(100)
   const [message, setMessage] = useState<string | null>(null)
   const [editingRule, setEditingRule] = useState<MerchantInsight | null>(null)
+  const [classificationOptions, setClassificationOptions] = useState<ClassificationOptions>({ contexts: [], buckets: [], categories: [] })
 
   async function load() {
     setLoading(true)
@@ -40,7 +41,7 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); api.classification.options().then(setClassificationOptions).catch(console.error) }, [])
 
   const counts = useMemo(() => ({
     all: merchants.length,
@@ -144,6 +145,7 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
         <MerchantRuleModal
           merchant={editingRule}
           categories={categoryOptions}
+          options={classificationOptions}
           onClose={() => setEditingRule(null)}
           onSave={async data => {
             await api.merchants.saveRule({
@@ -252,23 +254,28 @@ function MerchantRow({ merchant, categories, selectedCategoryId, applying, onCat
   )
 }
 
-function MerchantRuleModal({ merchant, categories, onClose, onSave }: {
+function MerchantRuleModal({ merchant, categories, options, onClose, onSave }: {
   merchant: MerchantInsight
   categories: Category[]
+  options: ClassificationOptions
   onClose: () => void
-  onSave: (data: { name: string; categoryId: string; phrases: string[] }) => Promise<void>
+  onSave: (data: { name: string; categoryId: string; phrases: string[]; canonicalCategoryId: string | null; contextId: string | null; bucketId: string | null; taxTreatment: 'none' | 'deductible' | 'review' }) => Promise<void>
 }) {
   const [name, setName] = useState(merchant.name)
   const [categoryId, setCategoryId] = useState(merchant.categoryId ?? '')
   const [phrases, setPhrases] = useState((merchant.rulePhrases.length ? merchant.rulePhrases : [merchant.name]).join('\n'))
   const [saving, setSaving] = useState(false)
+  const [canonicalCategoryId, setCanonicalCategoryId] = useState(merchant.canonicalCategoryId ?? '')
+  const [contextId, setContextId] = useState(merchant.contextId ?? '')
+  const [bucketId, setBucketId] = useState(merchant.bucketId ?? '')
+  const [taxTreatment, setTaxTreatment] = useState(merchant.taxTreatment)
 
   async function save() {
     const rulePhrases = phrases.split('\n').map(phrase => phrase.trim()).filter(Boolean)
     if (!name.trim() || !categoryId || rulePhrases.length === 0) return
     setSaving(true)
     try {
-      await onSave({ name: name.trim(), categoryId, phrases: rulePhrases })
+      await onSave({ name: name.trim(), categoryId, phrases: rulePhrases, canonicalCategoryId: canonicalCategoryId || null, contextId: contextId || null, bucketId: bucketId || null, taxTreatment })
     } finally {
       setSaving(false)
     }
@@ -280,6 +287,12 @@ function MerchantRuleModal({ merchant, categories, onClose, onSave }: {
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600">Merchant name</label>
           <input autoFocus value={name} onChange={event => setName(event.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+        </div>
+        <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 space-y-3">
+          <div><p className="text-xs font-semibold text-slate-700">V0.4 structured defaults</p><p className="text-[11px] text-slate-400">Remembered for matching transactions during future imports.</p></div>
+          <div><label className="mb-1 block text-xs text-slate-500">Purpose</label><select value={canonicalCategoryId} onChange={event => setCanonicalCategoryId(event.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Requires review</option>{[...new Set(options.categories.map(item => item.family))].map(family => <optgroup key={family} label={family}>{options.categories.filter(item => item.family === family).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>)}</select></div>
+          <div className="grid grid-cols-2 gap-3"><div><label className="mb-1 block text-xs text-slate-500">Context</label><select value={contextId} onChange={event => { setContextId(event.target.value); if (!options.contexts.find(item => item.id === event.target.value)?.name.startsWith('Personal')) setBucketId('') }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Requires review</option>{options.contexts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div><div><label className="mb-1 block text-xs text-slate-500">Personal bucket</label><select value={bucketId} onChange={event => setBucketId(event.target.value)} disabled={!options.contexts.find(item => item.id === contextId)?.name.startsWith('Personal')} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"><option value="">None</option>{options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div></div>
+          <div><label className="mb-1 block text-xs text-slate-500">Tax treatment</label><select value={taxTreatment} onChange={event => setTaxTreatment(event.target.value as typeof taxTreatment)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="none">None</option><option value="deductible">Deductible</option><option value="review">Needs review</option></select></div>
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600">Default category</label>

@@ -1,11 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import {
   classifyConfidence,
+  createCategoryMatcher,
   normalizeDescription,
   relevantCategorySuggestions,
   suggestCategories,
   transactionDuplicateKey,
 } from './matching'
+
+describe('createCategoryMatcher', () => {
+  it('indexes exact merchant history and keeps the dominant category first', () => {
+    const match = createCategoryMatcher([
+      { description: 'NETFLIX.COM Melbourne AU', category: 'Subscriptions' },
+      { description: 'NETFLIX.COM Melbourne AU', category: 'Subscriptions' },
+      { description: 'NETFLIX.COM Melbourne AU', category: 'Entertainment' },
+    ])
+    expect(match('NETFLIX.COM Melbourne AU')[0]).toMatchObject({ category: 'Subscriptions', confidence: 1 })
+  })
+})
 
 describe('classifyConfidence', () => {
   it('uses the agreed confidence boundaries', () => {

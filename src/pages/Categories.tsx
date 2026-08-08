@@ -1,8 +1,8 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Plus, Pencil, Trash2, ChevronRight, ChevronDown, Tag, Search, ChevronsUpDown, ChevronsDownUp, Wand2, TrendingUp, TrendingDown, ArrowLeftRight, ArrowUpDown, ArrowUp, ArrowDown, Download } from 'lucide-react'
 import { Modal } from '../components/Modal'
 import { api } from '../api'
-import type { Category } from '../types/finance'
+import type { Category, ClassificationOptions, LegacyCategoryMapping } from '../types/finance'
 
 interface Props {
   categories: Category[]
@@ -61,9 +61,27 @@ export function CategoriesPage({ categories, onRefreshCategories: onRefresh }: P
   const [migrating, setMigrating] = useState(false)
   const [sortBy, setSortBy] = useState<'name' | 'count'>('name')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [mappings, setMappings] = useState<LegacyCategoryMapping[]>([])
+  const [classificationOptions, setClassificationOptions] = useState<ClassificationOptions>({ contexts: [], buckets: [], categories: [] })
+  const [editingMapping, setEditingMapping] = useState<LegacyCategoryMapping | null>(null)
+  const [mappingFilter, setMappingFilter] = useState<'all' | 'mapped' | 'review' | 'preserved'>('all')
+
+  async function refreshMappings() {
+    const [nextMappings, nextOptions] = await Promise.all([api.classification.mappings(), api.classification.options()])
+    setMappings(nextMappings)
+    setClassificationOptions(nextOptions)
+  }
+
+  useEffect(() => { refreshMappings().catch(console.error) }, [categories])
 
   const parents = useMemo(() => categories.filter(c => !c.parentId), [categories])
-  const childrenOf = (id: string) => categories.filter(c => c.parentId === id)
+  const childrenOf = useCallback((id: string) => categories.filter(c => c.parentId === id), [categories])
+  const mappingByCategory = useMemo(() => new Map(mappings.map(mapping => [mapping.categoryId, mapping])), [mappings])
+  const mappingCounts = useMemo(() => ({
+    mapped: mappings.filter(mapping => mapping.status === 'mapped').length,
+    review: mappings.filter(mapping => mapping.status === 'review').length,
+    preserved: mappings.filter(mapping => mapping.status === 'preserved').length,
+  }), [mappings])
 
   // For each parent: sum of its own txCount + all children's txCount
   const parentTxCount = useMemo(() => {
@@ -92,8 +110,12 @@ export function CategoriesPage({ categories, onRefreshCategories: onRefresh }: P
           childrenOf(p.id).some(c => c.name.toLowerCase().includes(q))
         )
       : parents
+    const statusFiltered = mappingFilter === 'all' ? filtered : filtered.filter(parent => {
+      const family = [parent, ...childrenOf(parent.id)]
+      return family.some(category => mappingByCategory.get(category.id)?.status === mappingFilter)
+    })
 
-    const sorted = [...filtered].sort((a, b) => {
+    const sorted = [...statusFiltered].sort((a, b) => {
       let cmp = 0
       if (sortBy === 'count') {
         cmp = (parentTxCount.get(a.id) ?? 0) - (parentTxCount.get(b.id) ?? 0)
@@ -108,7 +130,7 @@ export function CategoriesPage({ categories, onRefreshCategories: onRefresh }: P
       income: sorted.filter(p => p.type === 'income'),
       transfer: sorted.filter(p => p.type === 'transfer'),
     }
-  }, [parents, search, categories, sortBy, sortDir, parentTxCount])
+  }, [parents, search, sortBy, sortDir, parentTxCount, mappingFilter, mappingByCategory, childrenOf])
 
   async function handleMigrate() {
     if (!confirm(`Auto-organize ${colonCount} flat categories into parent/child hierarchy using the colon as separator?\n\nExample: "Contas diversas:Energy Bill" → parent "Contas diversas" with child "Energy Bill"\n\nThis cannot be undone.`)) return
@@ -254,6 +276,18 @@ export function CategoriesPage({ categories, onRefreshCategories: onRefresh }: P
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        <div className="mx-4 mt-4 rounded-xl border border-blue-100 bg-blue-50/60 p-3">
+          <div className="flex items-center gap-3">
+            <div>
+              <p className="text-xs font-semibold text-slate-800">V0.3 classification mappings</p>
+              <p className="text-[11px] text-slate-500">Legacy categories remain intact. Map them to reusable Purpose, Context, Personal bucket and Tax treatment.</p>
+            </div>
+            <div className="flex-1" />
+            {([['all', mappings.length], ['mapped', mappingCounts.mapped], ['review', mappingCounts.review], ['preserved', mappingCounts.preserved]] as const).map(([key, count]) => (
+              <button key={key} onClick={() => setMappingFilter(key)} className={`rounded-lg border px-3 py-1.5 text-xs capitalize ${mappingFilter === key ? 'border-blue-500 bg-white text-blue-700 shadow-sm' : 'border-blue-100 text-slate-500 hover:bg-white'}`}>{key} · {count}</button>
+            ))}
+          </div>
+        </div>
         {/* Migration banner */}
         {colonCount > 0 && (
           <div className="mx-4 mt-4 flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
@@ -324,6 +358,7 @@ export function CategoriesPage({ categories, onRefreshCategories: onRefresh }: P
                           </div>
                           <span className="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm" style={{ backgroundColor: parent.color }} />
                           <span className="flex-1 text-sm font-semibold text-gray-800">{parent.name}</span>
+                          <ClassificationSummary mapping={mappingByCategory.get(parent.id)} onEdit={() => { const mapping = mappingByCategory.get(parent.id); if (mapping) setEditingMapping(mapping) }} />
                           {(() => {
                             const total = parentTxCount.get(parent.id) ?? 0
                             return total > 0 ? (
@@ -366,6 +401,7 @@ export function CategoriesPage({ categories, onRefreshCategories: onRefresh }: P
                             <div className="w-2 h-px bg-gray-200 shrink-0" />
                             <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: child.color }} />
                             <span className="flex-1 text-sm text-gray-600">{child.name}</span>
+                            <ClassificationSummary mapping={mappingByCategory.get(child.id)} onEdit={() => { const mapping = mappingByCategory.get(child.id); if (mapping) setEditingMapping(mapping) }} />
                             {(child.txCount ?? 0) > 0 && (
                               <span className="text-xs text-gray-400 tabular-nums">{child.txCount}</span>
                             )}
@@ -427,8 +463,52 @@ export function CategoriesPage({ categories, onRefreshCategories: onRefresh }: P
           }}
         />
       )}
+      {editingMapping && (
+        <ClassificationMappingModal mapping={editingMapping} options={classificationOptions} onClose={() => setEditingMapping(null)} onSave={async data => {
+          await api.classification.saveMapping(editingMapping.categoryId, data)
+          await refreshMappings()
+          onRefresh()
+          setEditingMapping(null)
+        }} />
+      )}
     </div>
   )
+}
+
+function ClassificationSummary({ mapping, onEdit }: { mapping?: LegacyCategoryMapping; onEdit: () => void }) {
+  if (!mapping) return null
+  const tone = mapping.status === 'mapped' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : mapping.status === 'preserved' ? 'bg-violet-50 text-violet-700 border-violet-100' : 'bg-amber-50 text-amber-700 border-amber-100'
+  return (
+    <button onClick={event => { event.stopPropagation(); onEdit() }} className="flex max-w-[52%] items-center gap-1.5 overflow-hidden text-[10px]" title="Edit V0.3 classification mapping">
+      <span className={`shrink-0 rounded-full border px-2 py-0.5 font-semibold capitalize ${tone}`}>{mapping.status}</span>
+      {mapping.canonicalCategoryName && <span className="truncate rounded bg-slate-100 px-2 py-0.5 text-slate-600">{mapping.canonicalCategoryName}</span>}
+      {mapping.contextName && <span className="truncate text-slate-400">{mapping.contextName}</span>}
+      {mapping.bucketName && <span className="shrink-0 text-blue-500">· {mapping.bucketName}</span>}
+    </button>
+  )
+}
+
+function ClassificationMappingModal({ mapping, options, onClose, onSave }: { mapping: LegacyCategoryMapping; options: ClassificationOptions; onClose: () => void; onSave: (data: { canonicalCategoryId: string | null; contextId: string | null; bucketId: string | null; taxTreatment: 'none' | 'deductible' | 'review' }) => Promise<void> }) {
+  const [canonicalCategoryId, setCanonicalCategoryId] = useState(mapping.canonicalCategoryId ?? '')
+  const [contextId, setContextId] = useState(mapping.contextId ?? '')
+  const [bucketId, setBucketId] = useState(mapping.bucketId ?? '')
+  const [taxTreatment, setTaxTreatment] = useState(mapping.taxTreatment)
+  const [saving, setSaving] = useState(false)
+  const context = options.contexts.find(item => item.id === contextId)
+  async function save() {
+    setSaving(true)
+    try { await onSave({ canonicalCategoryId: canonicalCategoryId || null, contextId: contextId || null, bucketId: bucketId || null, taxTreatment }) } finally { setSaving(false) }
+  }
+  return <Modal title="Map legacy category" onClose={onClose}>
+    <div className="space-y-4">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><p className="text-[10px] uppercase tracking-wide text-slate-400">Legacy category</p><p className="mt-1 text-sm font-semibold text-slate-800">{mapping.categoryPath}</p>{mapping.status === 'preserved' && <p className="mt-1 text-xs text-violet-600">Preserved for your manual decision. Saving here is an explicit owner change.</p>}</div>
+      <div><label className="mb-1 block text-xs text-slate-500">Purpose</label><select value={canonicalCategoryId} onChange={e => setCanonicalCategoryId(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"><option value="">Requires review</option>{[...new Set(options.categories.map(item => item.family))].map(family => <optgroup key={family} label={family}>{options.categories.filter(item => item.family === family).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>)}</select></div>
+      <div className="grid grid-cols-2 gap-3"><div><label className="mb-1 block text-xs text-slate-500">Context</label><select value={contextId} onChange={e => { setContextId(e.target.value); if (!options.contexts.find(item => item.id === e.target.value)?.name.startsWith('Personal')) setBucketId('') }} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"><option value="">Requires review</option>{options.contexts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div><div><label className="mb-1 block text-xs text-slate-500">Personal bucket</label><select value={bucketId} onChange={e => setBucketId(e.target.value)} disabled={!context?.name.startsWith('Personal')} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"><option value="">None</option>{options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div></div>
+      <div><label className="mb-1 block text-xs text-slate-500">Tax treatment</label><select value={taxTreatment} onChange={e => setTaxTreatment(e.target.value as typeof taxTreatment)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"><option value="none">None</option><option value="deductible">Deductible</option><option value="review">Needs review</option></select></div>
+      <p className="text-[11px] text-slate-400">Saving updates this default and applies it to existing transactions in the legacy category. Ledger amounts, dates and accounts are not changed.</p>
+      <div className="flex gap-2"><button onClick={onClose} className="flex-1 rounded-lg border border-slate-300 px-4 py-2 text-sm">Cancel</button><button onClick={save} disabled={saving} className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{saving ? 'Applying…' : 'Save & apply'}</button></div>
+    </div>
+  </Modal>
 }
 
 function CategoryFormModal({ category, parentId, defaultType, categories, onClose, onSave }: {

@@ -3,7 +3,7 @@ import { Upload, Check, AlertCircle, Pencil, ChevronDown, ChevronRight } from 'l
 import { Modal } from './Modal'
 import { api } from '../api'
 import { fmt, formatDate } from '../utils'
-import type { Account, Category, ImportResult } from '../types/finance'
+import type { Account, Category, ImportResult, LegacyCategoryMapping } from '../types/finance'
 import { classifyConfidence } from '../lib/matching'
 import type { ConfidenceGroup } from '../types/import'
 
@@ -47,13 +47,19 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   const [catOpen, setCatOpen] = useState<number | null>(null)
   const [included, setIncluded] = useState<Set<number>>(new Set())
   const [collapsedGroups, setCollapsedGroups] = useState<Set<ConfidenceGroup>>(new Set())
+  const [mappings, setMappings] = useState<LegacyCategoryMapping[]>([])
+  const [loadingStage, setLoadingStage] = useState('')
+
+  useEffect(() => { api.classification.mappings().then(setMappings).catch(console.error) }, [])
 
   async function pickFile() {
     setLoading(true)
+    setLoadingStage('Reading CSV and checking duplicates…')
     try {
       const path = await api.import.bankCsvPick()
       if (!path) { setLoading(false); return }
       setFilePath(path)
+      setLoadingStage('Matching merchants and building suggestions…')
       const preview = await api.import.bankCsvPreview(path, accountId)
       setFormat(preview.format)
       setRows(preview.rows)
@@ -65,12 +71,14 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
       setStep('categorize')
     } finally {
       setLoading(false)
+      setLoadingStage('')
     }
   }
 
   async function handleImport() {
     if (!filePath || !accountId) return
     setLoading(true)
+    setLoadingStage('Saving transactions in batches…')
     try {
       const selected = Object.fromEntries(rows.map(row => [row.index, included.has(row.index) ? assignments[row.index] ?? null : '__skip__']))
       const res = await api.import.bankCsv(filePath, accountId, selected)
@@ -78,6 +86,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
       setStep('done')
     } finally {
       setLoading(false)
+      setLoadingStage('')
     }
   }
 
@@ -138,9 +147,10 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
               disabled={loading || !accountId}
               className="mt-5 flex items-center gap-2 px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
             >
-              {loading ? 'Loading…' : 'Choose File'}
+              {loading ? 'Analysing…' : 'Choose File'}
             </button>
           </div>
+          {loading && <div className="w-full max-w-sm"><div className="h-1 overflow-hidden rounded-full bg-slate-100"><div className="h-full w-2/3 animate-pulse rounded-full bg-blue-500" /></div><p className="mt-2 text-center text-xs text-slate-400">{loadingStage}</p></div>}
         </div>
       )}
 
@@ -180,7 +190,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
                   </div>
                   {!collapsedGroups.has(group.key) && group.rows.map(row => {
                     const i = rows.indexOf(row)
-                    return <ImportRow key={row.index} row={row} categories={categories} included={included.has(row.index)} onIncluded={() => setIncluded(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} assignedCategoryId={assignments[row.index] ?? null} focused={focusRow === i} catOpen={catOpen === i} catSearch={catSearch[i] ?? ''} onFocus={() => setFocusRow(i)} onOpenCat={() => setCatOpen(i)} onCloseCat={() => setCatOpen(null)} onCatSearch={s => setCatSearch(c => ({ ...c, [i]: s }))} onAssign={catId => setAssignment(row.index, catId)} />
+                    return <ImportRow key={row.index} row={row} categories={categories} mappings={mappings} included={included.has(row.index)} onIncluded={() => setIncluded(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} assignedCategoryId={assignments[row.index] ?? null} focused={focusRow === i} catOpen={catOpen === i} catSearch={catSearch[i] ?? ''} onFocus={() => setFocusRow(i)} onOpenCat={() => setCatOpen(i)} onCloseCat={() => setCatOpen(null)} onCatSearch={s => setCatSearch(c => ({ ...c, [i]: s }))} onAssign={catId => setAssignment(row.index, catId)} />
                   })}
                 </div>
               ))}
@@ -228,9 +238,10 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   )
 }
 
-function ImportRow({ row, categories, included, onIncluded, assignedCategoryId, focused, catOpen, catSearch, onFocus, onOpenCat, onCloseCat, onCatSearch, onAssign }: {
+function ImportRow({ row, categories, mappings, included, onIncluded, assignedCategoryId, focused, catOpen, catSearch, onFocus, onOpenCat, onCloseCat, onCatSearch, onAssign }: {
   row: PreviewRow
   categories: Category[]
+  mappings: LegacyCategoryMapping[]
   assignedCategoryId: string | null
   included: boolean
   onIncluded: () => void
@@ -245,6 +256,7 @@ function ImportRow({ row, categories, included, onIncluded, assignedCategoryId, 
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const assignedCat = categories.find(c => c.id === assignedCategoryId)
+  const classification = mappings.find(mapping => mapping.categoryId === assignedCategoryId)
   const manuallySelected = assignedCat && !row.suggestions.some(suggestion => suggestion.categoryId === assignedCat.id)
   const visibleSuggestions = manuallySelected
     ? [
@@ -294,6 +306,11 @@ function ImportRow({ row, categories, included, onIncluded, assignedCategoryId, 
             <Pencil size={13} />
           </button>
         </div>
+        {classification && (
+          <p className={`mt-1 truncate text-[9px] ${classification.status === 'mapped' ? 'text-emerald-600' : classification.status === 'preserved' ? 'text-violet-600' : 'text-amber-600'}`}>
+            {classification.status === 'preserved' ? 'Preserved for manual review' : [classification.contextName, classification.canonicalCategoryName, classification.bucketName].filter(Boolean).join(' · ') || 'V0.3 classification requires review'}
+          </p>
+        )}
 
         {catOpen && (
           <div className="absolute top-full right-0 mt-1 w-[420px] bg-white border border-gray-200 rounded-lg shadow-xl z-40">

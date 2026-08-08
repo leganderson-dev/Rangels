@@ -110,3 +110,46 @@ export function suggestCategories(
     .sort((left, right) => right.confidence - left.confidence)
     .slice(0, 3)
 }
+
+export function createCategoryMatcher(history: HistoricalTransaction[]) {
+  const normalizedHistory = history.map(transaction => ({
+    ...transaction,
+    normalized: normalizeDescription(transaction.description),
+  })).filter(transaction => transaction.normalized)
+  const exact = new Map<string, typeof normalizedHistory>()
+  const byToken = new Map<string, Set<number>>()
+
+  normalizedHistory.forEach((transaction, index) => {
+    exact.set(transaction.normalized, [...(exact.get(transaction.normalized) ?? []), transaction])
+    new Set(transaction.normalized.split(' ')).forEach(token => {
+      const matches = byToken.get(token) ?? new Set<number>()
+      matches.add(index)
+      byToken.set(token, matches)
+    })
+  })
+
+  return (description: string, minimumConfidence = 0.35): CategorySuggestion[] => {
+    const normalized = normalizeDescription(description)
+    const exactMatches = exact.get(normalized)
+    if (exactMatches?.length) {
+      const counts = new Map<string, { count: number; description: string }>()
+      exactMatches.forEach(transaction => {
+        const current = counts.get(transaction.category) ?? { count: 0, description: transaction.description }
+        current.count += 1
+        counts.set(transaction.category, current)
+      })
+      return [...counts.entries()]
+        .sort((left, right) => right[1].count - left[1].count)
+        .slice(0, 3)
+        .map(([category, match]) => ({ category, confidence: 1, matchedDescription: match.description }))
+    }
+
+    const candidateIndexes = new Set<number>()
+    new Set(normalized.split(' ')).forEach(token => byToken.get(token)?.forEach(index => candidateIndexes.add(index)))
+    return suggestCategories(
+      description,
+      [...candidateIndexes].map(index => normalizedHistory[index]),
+      minimumConfidence,
+    )
+  }
+}
