@@ -11,6 +11,7 @@ interface Props {
 }
 
 type MerchantFilter = 'all' | 'learned' | 'review' | 'unclassified'
+type VolumeFilter = 'all' | 'over100' | 'over50' | 'over10' | 'under10'
 
 function merchantState(merchant: MerchantInsight): Exclude<MerchantFilter, 'all'> {
   if (!merchant.categoryId) return 'unclassified'
@@ -23,6 +24,7 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<MerchantFilter>('all')
+  const [volumeFilter, setVolumeFilter] = useState<VolumeFilter>('all')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [applying, setApplying] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(100)
@@ -54,9 +56,13 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
     const query = search.trim().toLocaleLowerCase()
     return merchants.filter(merchant => {
       if (filter !== 'all' && merchantState(merchant) !== filter) return false
+      if (volumeFilter === 'over100' && merchant.transactionCount <= 100) return false
+      if (volumeFilter === 'over50' && merchant.transactionCount <= 50) return false
+      if (volumeFilter === 'over10' && merchant.transactionCount <= 10) return false
+      if (volumeFilter === 'under10' && merchant.transactionCount >= 10) return false
       return !query || merchant.name.toLocaleLowerCase().includes(query) || merchant.aliases.some(alias => alias.toLocaleLowerCase().includes(query))
     })
-  }, [merchants, search, filter])
+  }, [merchants, search, filter, volumeFilter])
 
   const categoryOptions = [...categories]
     .filter(category => !/^\?+$/.test(category.fullName.trim()))
@@ -105,8 +111,20 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input value={search} onChange={event => { setSearch(event.target.value); setVisibleCount(100) }} placeholder="Search merchant names or source descriptions…" className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100" />
           </div>
-          {(filter !== 'all' || search) && (
-            <button onClick={() => { setFilter('all'); setSearch(''); setVisibleCount(100) }} className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Clear filters</button>
+          <select
+            value={volumeFilter}
+            onChange={event => { setVolumeFilter(event.target.value as VolumeFilter); setVisibleCount(100) }}
+            aria-label="Filter merchants by transaction volume"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-medium text-slate-600 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+          >
+            <option value="all">All Merchants</option>
+            <option value="over100">More than 100 transactions</option>
+            <option value="over50">More than 50 transactions</option>
+            <option value="over10">More than 10 transactions</option>
+            <option value="under10">Less than 10 transactions</option>
+          </select>
+          {(filter !== 'all' || volumeFilter !== 'all' || search) && (
+            <button onClick={() => { setFilter('all'); setVolumeFilter('all'); setSearch(''); setVisibleCount(100) }} className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Clear filters</button>
           )}
           <div className="flex-1" />
           <p className="whitespace-nowrap text-xs text-slate-400">Showing {Math.min(filtered.length, visibleCount)} of {filtered.length}</p>
