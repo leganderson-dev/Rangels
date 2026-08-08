@@ -60,7 +60,7 @@ async function importAlzex(): Promise<ImportResult | null> {
   const required = ['Description', 'Date', 'Amount', 'Account', 'Category']
   if (required.some(name => at(name) < 0)) throw new Error('This is not a supported Alzex export.')
   const owner = await ownerId()
-  const dataRows = rows.slice(1).filter(row => row[at('Description')]?.trim())
+  const dataRows = rows.slice(1).filter(row => row[at('Date')]?.trim())
   const accountColumns = [at('Withdraw account'), at('Target account')].filter(index => index >= 0)
   const accountNames = [...new Set(dataRows.flatMap(row => accountColumns.map(index => row[index]?.trim()).filter(Boolean)))]
   const openingBalances = new Map<string, number>()
@@ -127,8 +127,10 @@ async function importAlzex(): Promise<ImportResult | null> {
   const knownExternalIds = new Set((existingExternalIds.data ?? []).map(row => row.external_id).filter(Boolean))
   const payloads: Row[] = []
   for (const row of dataRows) {
-    const description = row[at('Description')].trim()
+    const description = row[at('Description')]?.trim() || (row[at('Category')]?.trim() === 'Bank:Interest' ? 'Bank Interest' : 'Unlabelled transaction')
     if (description === 'Opening balance') continue
+    const status = at('Status') >= 0 ? row[at('Status')]?.trim() : ''
+    if (status !== 'C') { skipped += 1; continue }
     const uniqueId = at('Unique ID') >= 0 ? row[at('Unique ID')]?.trim() : ''
     const externalId = uniqueId ? `alzex:${uniqueId}` : null
     if (externalId && knownExternalIds.has(externalId)) { skipped += 1; continue }
@@ -137,11 +139,16 @@ async function importAlzex(): Promise<ImportResult | null> {
     const sourceName = withdrawName || row[at('Account')]?.split(':')[0]?.trim()
     const isTransfer = Boolean(withdrawName && targetName && withdrawName !== targetName)
     const withdrawAmount = at('Withdraw amount') >= 0 ? Number(row[at('Withdraw amount')]) : 0
+    const targetAmount = at('Target Amount') >= 0 ? Number(row[at('Target Amount')]) : 0
     const rawAmount = Number(row[at('Amount')])
-    const transactionAmount = isTransfer ? Math.abs(withdrawAmount || rawAmount) : rawAmount
+    const transactionAmount = isTransfer
+      ? Math.abs(withdrawAmount || rawAmount)
+      : withdrawName
+        ? -Math.abs(withdrawAmount || rawAmount)
+        : Math.abs(targetAmount || rawAmount)
     const accountId = accounts.get(sourceName)
     if (!accountId) { errors.push(`Unknown account for “${description}”.`); continue }
-    payloads.push({ owner_id: owner, account_id: accountId, target_account_id: isTransfer ? accounts.get(targetName) ?? null : null, category_id: categories.get(row[at('Category')]?.trim()) ?? null, occurred_on: alzexDate(row[at('Date')]), description, normalized_description: normalizeDescription(description), amount: transactionAmount, comment: at('Comment') >= 0 ? row[at('Comment')] ?? '' : '', status: at('Status') >= 0 ? row[at('Status')]?.trim() || 'P' : 'P', is_transfer: isTransfer, external_id: externalId })
+    payloads.push({ owner_id: owner, account_id: accountId, target_account_id: isTransfer ? accounts.get(targetName) ?? null : null, category_id: categories.get(row[at('Category')]?.trim()) ?? null, occurred_on: alzexDate(row[at('Date')]), description, normalized_description: normalizeDescription(description), amount: transactionAmount, comment: at('Comment') >= 0 ? row[at('Comment')] ?? '' : '', status, is_transfer: isTransfer, external_id: externalId })
     if (externalId) knownExternalIds.add(externalId)
   }
   for (let index = 0; index < payloads.length; index += 500) {
@@ -285,6 +292,19 @@ async function importBank(token: string, accountId: string, assignments: Record<
 
 type Row = Record<string, any>
 
+const DATABASE_PAGE_SIZE = 1000
+
+async function fetchAllRows(makeQuery: () => any): Promise<Row[]> {
+  const rows: Row[] = []
+  for (let from = 0; ; from += DATABASE_PAGE_SIZE) {
+    const { data, error } = await makeQuery().range(from, from + DATABASE_PAGE_SIZE - 1)
+    fail(error)
+    const page = data ?? []
+    rows.push(...page)
+    if (page.length < DATABASE_PAGE_SIZE) return rows
+  }
+}
+
 async function ownerId(): Promise<string> {
   const { data, error } = await supabase.auth.getUser()
   if (error || !data.user) throw new Error('Sign in to use Rangels.')
@@ -313,18 +333,17 @@ async function rawAccounts(): Promise<Row[]> {
 }
 
 async function listAccounts(): Promise<Account[]> {
-  const [accounts, transactionResult] = await Promise.all([
+  const [accounts, transactions] = await Promise.all([
     rawAccounts(),
-    supabase
+    fetchAllRows(() => supabase
       .from('transactions')
-      .select('account_id,target_account_id,amount,is_transfer,status'),
+      .select('account_id,target_account_id,amount,is_transfer,status')
+      .eq('status', 'C')),
   ])
-  fail(transactionResult.error)
 
   return accounts.map((account) => {
     let balance = Number(account.initial_balance)
-    for (const transaction of transactionResult.data ?? []) {
-      if (transaction.status !== 'C') continue
+    for (const transaction of transactions) {
       const amount = Number(transaction.amount)
       if (!transaction.is_transfer && transaction.account_id === account.id) {
         balance += amount
@@ -348,16 +367,15 @@ async function listAccounts(): Promise<Account[]> {
 }
 
 async function listCategories(): Promise<Category[]> {
-  const [categoryResult, transactionResult] = await Promise.all([
+  const [categoryResult, transactions] = await Promise.all([
     supabase.from('categories').select('*').order('path'),
-    supabase.from('transactions').select('category_id'),
+    fetchAllRows(() => supabase.from('transactions').select('category_id')),
   ])
   fail(categoryResult.error)
-  fail(transactionResult.error)
   const rows = categoryResult.data ?? []
   const byId = new Map(rows.map((row) => [row.id, row]))
   const counts = new Map<string, number>()
-  for (const transaction of transactionResult.data ?? []) {
+  for (const transaction of transactions) {
     if (transaction.category_id) {
       counts.set(
         transaction.category_id,
@@ -379,31 +397,33 @@ async function listCategories(): Promise<Category[]> {
 }
 
 async function listTransactions(filter: TransactionFilter = {}): Promise<Transaction[]> {
-  let query = supabase.from('transactions').select('*')
-  if (filter.dateFrom) query = query.gte('occurred_on', filter.dateFrom)
-  if (filter.dateTo) query = query.lte('occurred_on', filter.dateTo)
-  if (!filter.dateFrom && filter.month && filter.year) {
-    const [start, end] = monthRange(filter.month, filter.year)
-    query = query.gte('occurred_on', start).lte('occurred_on', end)
+  const makeQuery = () => {
+    let query = supabase.from('transactions').select('*')
+    if (filter.dateFrom) query = query.gte('occurred_on', filter.dateFrom)
+    if (filter.dateTo) query = query.lte('occurred_on', filter.dateTo)
+    if (!filter.dateFrom && filter.month && filter.year) {
+      const [start, end] = monthRange(filter.month, filter.year)
+      query = query.gte('occurred_on', start).lte('occurred_on', end)
+    }
+    if (filter.accountId) {
+      query = query.or(
+        `account_id.eq.${filter.accountId},target_account_id.eq.${filter.accountId}`,
+      )
+    }
+    if (filter.categoryId) query = query.eq('category_id', filter.categoryId)
+    if (filter.search) query = query.ilike('description', `%${filter.search}%`)
+    return query.order('occurred_on', { ascending: false }).order('created_at', { ascending: false })
   }
-  if (filter.accountId) {
-    query = query.or(
-      `account_id.eq.${filter.accountId},target_account_id.eq.${filter.accountId}`,
-    )
-  }
-  if (filter.categoryId) query = query.eq('category_id', filter.categoryId)
-  if (filter.search) query = query.ilike('description', `%${filter.search}%`)
 
-  const [transactionResult, accounts, categories] = await Promise.all([
-    query.order('occurred_on', { ascending: false }).order('created_at', { ascending: false }),
+  const [transactionRows, accounts, categories] = await Promise.all([
+    fetchAllRows(makeQuery),
     listAccounts(),
     listCategories(),
   ])
-  fail(transactionResult.error)
   const accountMap = new Map(accounts.map((account) => [account.id, account]))
   const categoryMap = new Map(categories.map((category) => [category.id, category]))
 
-  return (transactionResult.data ?? []).map((row) => {
+  return transactionRows.map((row) => {
     const category = row.category_id ? categoryMap.get(row.category_id) : undefined
     return {
       id: row.id,
