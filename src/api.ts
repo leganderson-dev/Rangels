@@ -1,6 +1,7 @@
 import { supabase } from './lib/supabase'
 import type {
   Account,
+  AllocationPlanSummary,
   Budget,
   Category,
   ClassificationOptions,
@@ -11,6 +12,7 @@ import type {
   ScheduledTransaction,
   Transaction,
   TransactionFilter,
+  HouseholdMember,
 } from './types/finance'
 import { parseBankExport } from './lib/importers'
 import { createCategoryMatcher, normalizeDescription, relevantCategorySuggestions, transactionDuplicateKey } from './lib/matching'
@@ -83,6 +85,9 @@ async function importAlzex(): Promise<ImportResult | null> {
   const required = ['Description', 'Date', 'Amount', 'Account', 'Category']
   if (required.some(name => at(name) < 0)) throw new Error('This is not a supported Alzex export.')
   const owner = await ownerId()
+  const { data: accountMember, error: accountMemberError } = await supabase.from('household_members').select('id').eq('workspace_owner_id', owner).eq('name', 'Anderson').single()
+  fail(accountMemberError)
+  if (!accountMember) throw new Error('The Anderson household member is not configured.')
   const dataRows = rows.slice(1).filter(row => row[at('Date')]?.trim())
   const accountColumns = [at('Withdraw account'), at('Target account')].filter(index => index >= 0)
   const accountNames = [...new Set(dataRows.flatMap(row => accountColumns.map(index => row[index]?.trim()).filter(Boolean)))]
@@ -104,6 +109,7 @@ async function importAlzex(): Promise<ImportResult | null> {
     group_name: name.startsWith('ING ') ? 'ING' : name.startsWith('NAB') ? 'NAB' : ['Leg CW', 'Smile - YL 700', 'Julia CW'].includes(name) ? 'CW Accounts' : null,
     is_active: !['Julia CW', 'Staging - Hub'].includes(name),
     display_order: accountOrder.indexOf(name) >= 0 ? accountOrder.indexOf(name) : accountOrder.length + index,
+    member_id: accountMember.id,
   })
   const existingAccounts = await supabase.from('accounts').select('id,name')
   fail(existingAccounts.error)
@@ -183,7 +189,7 @@ async function importAlzex(): Promise<ImportResult | null> {
   return { imported, skipped, errors: errors.slice(0, 20) }
 }
 
-const backupTables = ['accounts', 'categories', 'contexts', 'buckets', 'canonical_categories', 'category_classifications', 'merchants', 'merchant_aliases', 'imports', 'transactions', 'scheduled_transactions', 'budgets', 'budget_groups', 'budget_group_members'] as const
+const backupTables = ['household_members', 'accounts', 'categories', 'contexts', 'buckets', 'canonical_categories', 'category_classifications', 'allocation_plans', 'allocation_targets', 'merchants', 'merchant_aliases', 'imports', 'transactions', 'scheduled_transactions', 'budgets', 'budget_groups', 'budget_group_members'] as const
 
 async function downloadBackup(): Promise<{ ok: boolean; filePath?: string }> {
   const payload: Record<string, unknown[]> = {}
@@ -438,13 +444,15 @@ async function rawAccounts(): Promise<Row[]> {
 }
 
 async function listAccounts(): Promise<Account[]> {
-  const [accounts, transactions] = await Promise.all([
+  const [accounts, transactions, members] = await Promise.all([
     rawAccounts(),
     fetchAllRows(() => supabase
       .from('transactions')
       .select('account_id,target_account_id,amount,is_transfer,status')
       .eq('status', 'C')),
+    listHouseholdMembers(),
   ])
+  const memberMap = new Map(members.map(member => [member.id, member.name]))
 
   return accounts.map((account) => {
     let balance = Number(account.initial_balance)
@@ -467,6 +475,8 @@ async function listAccounts(): Promise<Account[]> {
       displayOrder: account.display_order,
       groupName: account.group_name,
       lastUpdatedOn: account.last_updated_on,
+      memberId: account.member_id,
+      memberName: memberMap.get(account.member_id) ?? 'Unknown',
       balance,
     }
   })
@@ -543,6 +553,8 @@ async function listTransactions(filter: TransactionFilter = {}): Promise<Transac
       amount: Number(row.amount),
       accountId: row.account_id,
       accountName: accountMap.get(row.account_id)?.name ?? '',
+      memberId: accountMap.get(row.account_id)?.memberId ?? '',
+      memberName: accountMap.get(row.account_id)?.memberName ?? 'Unknown',
       targetAccountId: row.target_account_id,
       targetAccountName: row.target_account_id
         ? accountMap.get(row.target_account_id)?.name ?? null
@@ -567,6 +579,42 @@ async function listTransactions(filter: TransactionFilter = {}): Promise<Transac
       taxTreatment: row.tax_treatment ?? 'none',
     }
   })
+}
+
+async function listHouseholdMembers(): Promise<HouseholdMember[]> {
+  const { data, error } = await supabase.from('household_members').select('id,name').order('display_order')
+  fail(error)
+  return data ?? []
+}
+
+async function getAllocationPlan(): Promise<AllocationPlanSummary | null> {
+  const { data: plans, error: planError } = await supabase
+    .from('allocation_plans')
+    .select('id,name,context_id')
+    .eq('is_active', true)
+    .order('effective_from', { ascending: false })
+    .limit(1)
+  fail(planError)
+  const plan = plans?.[0]
+  if (!plan) return null
+  const [contextResult, targetResult, bucketResult] = await Promise.all([
+    supabase.from('contexts').select('name').eq('id', plan.context_id).single(),
+    supabase.from('allocation_targets').select('id,bucket_id,target_percentage,display_order').eq('allocation_plan_id', plan.id).order('display_order'),
+    supabase.from('buckets').select('id,name'),
+  ])
+  fail(contextResult.error); fail(targetResult.error); fail(bucketResult.error)
+  const bucketNames = new Map((bucketResult.data ?? []).map(bucket => [bucket.id, bucket.name]))
+  return {
+    id: plan.id,
+    name: plan.name,
+    contextName: contextResult.data?.name ?? 'Household',
+    targets: (targetResult.data ?? []).map(target => ({
+      id: target.id,
+      bucketId: target.bucket_id,
+      name: bucketNames.get(target.bucket_id) ?? 'Unknown',
+      targetPercentage: Number(target.target_percentage),
+    })),
+  }
 }
 
 async function listClassificationOptions(): Promise<ClassificationOptions> {
@@ -1087,11 +1135,18 @@ async function saveMerchantRule(data: {
 }
 
 export const api = {
+  members: {
+    list: listHouseholdMembers,
+  },
+  allocation: {
+    plan: getAllocationPlan,
+  },
   accounts: {
     list: listAccounts,
     add: async (
       data: Pick<Account, 'name' | 'type' | 'color' | 'initialBalance'> & {
         groupName?: string | null
+        memberId: string
       },
     ): Promise<Account> => {
       const owner = await ownerId()
@@ -1105,6 +1160,7 @@ export const api = {
           color: data.color,
           initial_balance: data.initialBalance,
           group_name: data.groupName ?? null,
+          member_id: data.memberId,
         })
         .select('id')
         .single()
@@ -1120,6 +1176,7 @@ export const api = {
       if (data.initialBalance !== undefined) payload.initial_balance = data.initialBalance
       if (data.groupName !== undefined) payload.group_name = data.groupName
       if (data.lastUpdatedOn !== undefined) payload.last_updated_on = data.lastUpdatedOn
+      if (data.memberId !== undefined) payload.member_id = data.memberId
       const { error } = await supabase.from('accounts').update(payload).eq('id', id)
       fail(error)
     },

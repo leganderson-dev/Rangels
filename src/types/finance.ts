@@ -8,7 +8,14 @@ export interface Account {
   displayOrder: number
   groupName: string | null
   lastUpdatedOn: string | null
+  memberId: string
+  memberName: string
   balance?: number
+}
+
+export interface HouseholdMember {
+  id: string
+  name: string
 }
 
 export interface Category {
@@ -32,6 +39,8 @@ export interface Transaction {
   amount: number
   accountId: string
   accountName: string
+  memberId: string
+  memberName: string
   targetAccountId: string | null
   targetAccountName: string | null
   categoryId: string | null
@@ -68,6 +77,20 @@ export interface ClassificationOptions {
   contexts: ClassificationOption[]
   buckets: ClassificationOption[]
   categories: CanonicalCategory[]
+}
+
+export interface AllocationTargetSummary {
+  id: string
+  bucketId: string
+  name: string
+  targetPercentage: number
+}
+
+export interface AllocationPlanSummary {
+  id: string
+  name: string
+  contextName: string
+  targets: AllocationTargetSummary[]
 }
 
 export interface LegacyCategoryMapping {

@@ -1,13 +1,14 @@
 import { useState, useMemo } from 'react'
 import { PlusCircle, ChevronRight, Download, Upload, Pencil, GripVertical, LogOut } from 'lucide-react'
 import { api } from '../api'
-import type { Account } from '../types/finance'
+import type { Account, HouseholdMember } from '../types/finance'
 import { AccountFormModal } from './AccountFormModal'
 import { fmt } from '../utils'
 import { supabase } from '../lib/supabase'
 
 interface Props {
   accounts: Account[]
+  members: HouseholdMember[]
   selectedAccountId: string | null
   onSelectAccount: (id: string | null) => void
   onRefresh: () => void
@@ -19,7 +20,7 @@ type DropZone =
   | { kind: 'group'; name: string }
   | { kind: 'ungrouped-end' }
 
-export function Sidebar({ accounts, selectedAccountId, onSelectAccount, onRefresh }: Props) {
+export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount, onRefresh }: Props) {
   const [showAdd, setShowAdd] = useState(false)
   const [editAccount, setEditAccount] = useState<Account | null>(null)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
@@ -364,6 +365,7 @@ export function Sidebar({ accounts, selectedAccountId, onSelectAccount, onRefres
 
       {showAdd && (
         <AccountFormModal
+          members={members}
           onClose={() => setShowAdd(false)}
           onSave={async (data) => {
             await api.accounts.add(data)
@@ -375,6 +377,7 @@ export function Sidebar({ accounts, selectedAccountId, onSelectAccount, onRefres
 
       {editAccount && (
         <AccountFormModal
+          members={members}
           account={editAccount}
           onClose={() => setEditAccount(null)}
           onSave={async (data) => {
@@ -437,6 +440,7 @@ function DraggableRow({ account, selected, isDragging, isDropBefore, isDropOnto,
           <p className={`text-xs font-semibold ${balance < 0 ? 'text-red-400' : 'text-slate-400'}`}>
             {fmt(balance)}
           </p>
+          <p className="text-[10px] leading-tight text-slate-500">{account.memberName}</p>
           {editingDate ? (
             <input
               autoFocus

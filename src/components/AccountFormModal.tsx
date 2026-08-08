@@ -1,21 +1,23 @@
 import { useState } from 'react'
 import { Modal } from './Modal'
 import { ACCOUNT_TYPES, ACCOUNT_COLORS } from '../utils'
-import type { Account } from '../types/finance'
+import type { Account, HouseholdMember } from '../types/finance'
 
 interface Props {
   account?: Account
+  members: HouseholdMember[]
   onClose: () => void
-  onSave: (data: Pick<Account, 'name' | 'type' | 'color' | 'initialBalance'> & { groupName: string | null }) => Promise<void>
+  onSave: (data: Pick<Account, 'name' | 'type' | 'color' | 'initialBalance' | 'memberId'> & { groupName: string | null }) => Promise<void>
   onDelete?: () => Promise<void>
 }
 
-export function AccountFormModal({ account, onClose, onSave, onDelete }: Props) {
+export function AccountFormModal({ account, members, onClose, onSave, onDelete }: Props) {
   const [name, setName] = useState(account?.name ?? '')
   const [type, setType] = useState<Account['type']>(account?.type ?? 'checking')
   const [color, setColor] = useState(account?.color ?? ACCOUNT_COLORS[0])
   const [initialBalance, setInitialBalance] = useState(String(account?.initialBalance ?? '0'))
   const [groupName, setGroupName] = useState(account?.groupName ?? '')
+  const [memberId, setMemberId] = useState(account?.memberId ?? members[0]?.id ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -30,6 +32,7 @@ export function AccountFormModal({ account, onClose, onSave, onDelete }: Props) 
         color,
         initialBalance: parseFloat(initialBalance) || 0,
         groupName: groupName.trim() || null,
+        memberId,
       })
     } catch (e: any) {
       const msg: string = e?.message ?? String(e)
@@ -43,6 +46,17 @@ export function AccountFormModal({ account, onClose, onSave, onDelete }: Props) 
   return (
     <Modal title={account ? 'Edit Account' : 'New Account'} onClose={onClose}>
       <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Owner</label>
+          <select
+            value={memberId}
+            onChange={e => setMemberId(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {members.map(member => <option key={member.id} value={member.id}>{member.name}</option>)}
+          </select>
+          <p className="mt-1 text-xs text-gray-400">Imports use the account owner as the member attribution.</p>
+        </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Account Name</label>
           <input
@@ -114,7 +128,7 @@ export function AccountFormModal({ account, onClose, onSave, onDelete }: Props) 
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !name.trim()}
+            disabled={saving || !name.trim() || !memberId}
             className="flex-1 bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Save'}
@@ -124,4 +138,3 @@ export function AccountFormModal({ account, onClose, onSave, onDelete }: Props) 
     </Modal>
   )
 }
-

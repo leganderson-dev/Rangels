@@ -817,7 +817,10 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
       </div>
 
       <span className="text-xs text-gray-400 shrink-0" style={{ width: colWidths.date }}>{formatDate(tx.date)}</span>
-      <span className="text-xs text-gray-400 truncate shrink-0" style={{ width: colWidths.account }}>{tx.accountName}</span>
+      <span className="text-xs text-gray-400 truncate shrink-0" style={{ width: colWidths.account }} title={`${tx.accountName} · ${tx.memberName}`}>
+        <span className="block truncate">{tx.accountName}</span>
+        <span className="block text-[10px] text-slate-300">{tx.memberName}</span>
+      </span>
       <div className="w-16 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
         <button onClick={onEdit} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700"><Edit2 size={12} /></button>
         <button onClick={onDelete} className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-600"><Trash2 size={12} /></button>
