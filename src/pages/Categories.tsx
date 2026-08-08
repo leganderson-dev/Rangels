@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Plus, Pencil, Trash2, ChevronRight, ChevronDown, Tag, Search, ChevronsUpDown, ChevronsDownUp, Wand2, TrendingUp, TrendingDown, ArrowLeftRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { Plus, Pencil, Trash2, ChevronRight, ChevronDown, Tag, Search, ChevronsUpDown, ChevronsDownUp, Wand2, TrendingUp, TrendingDown, ArrowLeftRight, ArrowUpDown, ArrowUp, ArrowDown, Download } from 'lucide-react'
 import { Modal } from '../components/Modal'
 import { api } from '../api'
 import type { Category } from '../types/finance'
@@ -165,6 +165,35 @@ export function CategoriesPage({ categories, onRefreshCategories: onRefresh }: P
     }
   }
 
+  function exportHierarchy() {
+    const byId = new Map(categories.map(category => [category.id, category]))
+    const escapeCsv = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`
+    const rows = [...categories]
+      .sort((left, right) => left.fullName.localeCompare(right.fullName))
+      .map(category => {
+        const parent = category.parentId ? byId.get(category.parentId) : null
+        return [
+          category.type,
+          parent ? 'Category' : 'Group',
+          parent?.name ?? '',
+          category.name,
+          category.fullName,
+          category.txCount ?? 0,
+          category.color,
+        ].map(escapeCsv).join(',')
+      })
+    const csv = [
+      ['Type', 'Level', 'Parent', 'Category', 'Full path', 'Transaction count', 'Color'].map(escapeCsv).join(','),
+      ...rows,
+    ].join('\r\n')
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `rangels-categories-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   const totalSubcats = categories.length - parents.length
 
   return (
@@ -208,6 +237,13 @@ export function CategoriesPage({ categories, onRefreshCategories: onRefresh }: P
         >
           {allCollapsed ? <ChevronsDownUp size={13} /> : <ChevronsUpDown size={13} />}
           {allCollapsed ? 'Expand all' : 'Collapse all'}
+        </button>
+        <button
+          onClick={exportHierarchy}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
+          title="Export the complete category hierarchy as CSV"
+        >
+          <Download size={13} /> Export CSV
         </button>
         <button
           onClick={() => openAdd(null, 'expense')}
