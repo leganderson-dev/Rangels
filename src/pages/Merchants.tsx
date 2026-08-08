@@ -82,13 +82,6 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
     }
   }
 
-  const filters: Array<{ key: MerchantFilter; label: string }> = [
-    { key: 'all', label: 'All' },
-    { key: 'learned', label: 'Learned' },
-    { key: 'review', label: 'Needs review' },
-    { key: 'unclassified', label: 'Unclassified' },
-  ]
-
   return (
     <div className="flex h-full flex-col bg-slate-50/60">
       <div className="shrink-0 border-b border-slate-200 bg-white px-6 py-4">
@@ -97,28 +90,25 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
             <h1 className="text-lg font-bold text-slate-900">Merchants</h1>
             <p className="mt-0.5 text-sm text-slate-500">Turn transaction history into reliable classification rules.</p>
           </div>
-          <div className="flex-1" />
-          <div className="relative w-72">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input value={search} onChange={event => { setSearch(event.target.value); setVisibleCount(100) }} placeholder="Search merchants or aliases…" className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
-          </div>
         </div>
 
         <div className="mt-4 grid grid-cols-4 gap-3">
-          <Stat label="Merchants learned" value={counts.all} tone="slate" />
-          <Stat label="High confidence" value={counts.learned} tone="green" />
-          <Stat label="Needs review" value={counts.review} tone="amber" />
-          <Stat label="Unclassified" value={counts.unclassified} tone="rose" />
+          <Stat label="All merchants" value={counts.all} tone="slate" active={filter === 'all'} onClick={() => { setFilter('all'); setVisibleCount(100) }} />
+          <Stat label="High confidence" value={counts.learned} tone="green" active={filter === 'learned'} onClick={() => { setFilter('learned'); setVisibleCount(100) }} />
+          <Stat label="Needs review" value={counts.review} tone="amber" active={filter === 'review'} onClick={() => { setFilter('review'); setVisibleCount(100) }} />
+          <Stat label="Unclassified" value={counts.unclassified} tone="rose" active={filter === 'unclassified'} onClick={() => { setFilter('unclassified'); setVisibleCount(100) }} />
         </div>
 
-        <div className="mt-4 flex items-center gap-2">
-          {filters.map(item => (
-            <button key={item.key} onClick={() => { setFilter(item.key); setVisibleCount(100) }} className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${filter === item.key ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>
-              {item.label} <span className={filter === item.key ? 'text-slate-300' : 'text-slate-400'}>{counts[item.key]}</span>
-            </button>
-          ))}
+        <div className="mt-4 flex items-center gap-3">
+          <div className="relative w-full max-w-xl">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={search} onChange={event => { setSearch(event.target.value); setVisibleCount(100) }} placeholder="Search merchant names or source descriptions…" className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100" />
+          </div>
+          {(filter !== 'all' || search) && (
+            <button onClick={() => { setFilter('all'); setSearch(''); setVisibleCount(100) }} className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Clear filters</button>
+          )}
           <div className="flex-1" />
-          <p className="text-xs text-slate-400">Confirming a merchant updates its history and future matches.</p>
+          <p className="whitespace-nowrap text-xs text-slate-400">Showing {Math.min(filtered.length, visibleCount)} of {filtered.length}</p>
         </div>
         {message && <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{message}</div>}
       </div>
@@ -173,7 +163,7 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
   )
 }
 
-function Stat({ label, value, tone }: { label: string; value: number; tone: 'slate' | 'green' | 'amber' | 'rose' }) {
+function Stat({ label, value, tone, active, onClick }: { label: string; value: number; tone: 'slate' | 'green' | 'amber' | 'rose'; active: boolean; onClick: () => void }) {
   const styles = {
     slate: 'border-slate-200 bg-slate-50 text-slate-700',
     green: 'border-emerald-200 bg-emerald-50 text-emerald-700',
@@ -181,10 +171,13 @@ function Stat({ label, value, tone }: { label: string; value: number; tone: 'sla
     rose: 'border-rose-200 bg-rose-50 text-rose-700',
   }
   return (
-    <div className={`rounded-xl border px-4 py-3 ${styles[tone]}`}>
+    <button onClick={onClick} aria-pressed={active} className={`rounded-xl border px-4 py-3 text-left transition-all hover:-translate-y-0.5 hover:shadow-sm ${styles[tone]} ${active ? 'ring-2 ring-slate-700 ring-offset-2' : ''}`}>
       <p className="text-2xl font-bold tabular-nums">{value}</p>
-      <p className="mt-0.5 text-xs font-medium opacity-70">{label}</p>
-    </div>
+      <div className="mt-0.5 flex items-center justify-between gap-2">
+        <p className="text-xs font-medium opacity-70">{label}</p>
+        <span className="text-[10px] font-semibold uppercase tracking-wide opacity-50">Filter</span>
+      </div>
+    </button>
   )
 }
 
