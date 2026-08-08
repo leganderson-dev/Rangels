@@ -255,17 +255,26 @@ export function Sidebar({ accounts, selectedAccountId, onSelectAccount, onRefres
           const isGroupTarget = dropZone?.kind === 'group' && dropZone.name === group.name
 
           return (
-            <div key={group.name}>
+            <div
+              key={group.name}
+              className={`mb-2 rounded-xl border bg-slate-800/40 p-1 shadow-sm transition-colors ${
+                isGroupTarget
+                  ? 'border-blue-400 ring-1 ring-blue-500/60'
+                  : groupSelected
+                    ? 'border-slate-500 shadow-black/20'
+                    : 'border-slate-700/80 shadow-black/10'
+              }`}
+            >
               <button
                 onClick={() => toggleGroup(group.name)}
                 onDragOver={e => handleZoneDragOver({ kind: 'group', name: group.name }, e)}
                 onDrop={e => handleZoneDrop({ kind: 'group', name: group.name }, e)}
                 className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left transition-colors ${
                   isGroupTarget
-                    ? 'bg-blue-500/30 ring-1 ring-blue-500'
+                    ? 'bg-blue-500/20'
                     : groupSelected && collapsed
                       ? 'bg-slate-700'
-                      : 'hover:bg-slate-800'
+                      : 'hover:bg-slate-700/60'
                 }`}
               >
                 <ChevronRight
@@ -281,23 +290,26 @@ export function Sidebar({ accounts, selectedAccountId, onSelectAccount, onRefres
                 </div>
               </button>
 
-              {!collapsed && group.children.map(account => (
-                <div key={account.id} className="pl-3">
-                  <DraggableRow
-                    account={account}
-                    selected={selectedAccountId === account.id}
-                    isDragging={dragId === account.id}
-                    isDropBefore={dropZone?.kind === 'before' && dropZone.id === account.id}
-                    isDropOnto={dropZone?.kind === 'onto' && dropZone.id === account.id}
-                    onClick={() => onSelectAccount(account.id === selectedAccountId ? null : account.id)}
-                    onEdit={() => setEditAccount(account)}
-                    onDragStart={() => { setDragId(account.id); setDropZone(null) }}
-                    onDragEnd={() => { setDragId(null); setDropZone(null) }}
-                    onDragOver={e => handleAccountDragOver(account.id, e)}
-                    onDrop={e => handleAccountDrop(account.id, e)}
-                  />
+              {!collapsed && (
+                <div className="mt-1 space-y-0.5 border-t border-slate-700/70 pt-1 pl-2">
+                  {group.children.map(account => (
+                    <DraggableRow
+                      key={account.id}
+                      account={account}
+                      selected={selectedAccountId === account.id}
+                      isDragging={dragId === account.id}
+                      isDropBefore={dropZone?.kind === 'before' && dropZone.id === account.id}
+                      isDropOnto={dropZone?.kind === 'onto' && dropZone.id === account.id}
+                      onClick={() => onSelectAccount(account.id === selectedAccountId ? null : account.id)}
+                      onEdit={() => setEditAccount(account)}
+                      onDragStart={() => { setDragId(account.id); setDropZone(null) }}
+                      onDragEnd={() => { setDragId(null); setDropZone(null) }}
+                      onDragOver={e => handleAccountDragOver(account.id, e)}
+                      onDrop={e => handleAccountDrop(account.id, e)}
+                    />
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
           )
         })}
