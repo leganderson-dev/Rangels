@@ -268,10 +268,13 @@ function matchMerchantRule(description: string, rules: Awaited<ReturnType<typeof
   )?.rule ?? null
 }
 
-async function bankPreview(token: string, accountId: string) {
+type ImportPreviewProgress = (event: { stage: 'found' | 'duplicates' | 'categorizing' | 'done'; count?: number }) => void
+
+async function bankPreview(token: string, accountId: string, onProgress?: ImportPreviewProgress) {
   const file = pickedFiles.get(token)
   if (!file) throw new Error('Please choose the CSV again.')
   const parsed = parseBankExport(file.text)
+  onProgress?.({ stage: 'found', count: parsed.rows.length })
   const [transactionRows, categoryResult, merchantRules] = await Promise.all([
     fetchAllRows(() => supabase.from('transactions')
       .select('account_id,occurred_on,amount,description,category_id,is_transfer')),
@@ -293,15 +296,20 @@ async function bankPreview(token: string, accountId: string) {
       .map(transaction => transactionDuplicateKey(accountId, transaction.occurred_on, Number(transaction.amount), transaction.description)),
   )
   const fileKeys = new Set<string>()
-  return {
-    format: parsed.format,
-    rows: parsed.rows.map((row, index) => {
-      const duplicateKey = transactionDuplicateKey(accountId, row.date, row.amount, row.description)
-      const duplicate = existingKeys.has(duplicateKey) || fileKeys.has(duplicateKey)
-      const duplicateReason = existingKeys.has(duplicateKey)
-        ? 'Already exists in this account'
-        : fileKeys.has(duplicateKey) ? 'Repeated in this CSV' : null
-      fileKeys.add(duplicateKey)
+  const duplicateMetadata = parsed.rows.map(row => {
+    const duplicateKey = transactionDuplicateKey(accountId, row.date, row.amount, row.description)
+    const duplicate = existingKeys.has(duplicateKey) || fileKeys.has(duplicateKey)
+    const duplicateReason = existingKeys.has(duplicateKey)
+      ? 'Already exists in this account'
+      : fileKeys.has(duplicateKey) ? 'Repeated in this CSV' : null
+    fileKeys.add(duplicateKey)
+    return { duplicate, duplicateReason }
+  })
+  onProgress?.({ stage: 'duplicates', count: duplicateMetadata.filter(item => item.duplicate).length })
+  onProgress?.({ stage: 'categorizing' })
+  await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()))
+  const rows = parsed.rows.map((row, index) => {
+      const { duplicate, duplicateReason } = duplicateMetadata[index]
       // Rank every non-zero match. Even low-confidence analysis rows should
       // begin with their highest score selected and remain editable.
       const ruleCategoryId = matchMerchantRule(row.description, merchantRules)?.categoryId
@@ -337,8 +345,9 @@ async function bankPreview(token: string, accountId: string) {
         duplicate,
         duplicateReason,
       }
-    }),
-  }
+    })
+  onProgress?.({ stage: 'done' })
+  return { format: parsed.format, rows }
 }
 
 async function importBank(token: string, accountId: string, assignments: Record<number, string | null>): Promise<ImportResult> {
@@ -1427,8 +1436,8 @@ export const api = {
     bankCsvPick: async (): Promise<string | null> => {
       return pickCsv()
     },
-    bankCsvPreview: async (_path: string, _accountId: string): Promise<{ format: string; rows: any[] }> => {
-      return bankPreview(_path, _accountId)
+    bankCsvPreview: async (_path: string, _accountId: string, onProgress?: ImportPreviewProgress): Promise<{ format: string; rows: any[] }> => {
+      return bankPreview(_path, _accountId, onProgress)
     },
     bankCsv: async (
       _path: string,

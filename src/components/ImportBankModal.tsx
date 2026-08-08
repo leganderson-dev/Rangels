@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Upload, Check, AlertCircle, Pencil, ChevronDown, ChevronRight } from 'lucide-react'
+import { Upload, Check, AlertCircle, Pencil, ChevronDown, ChevronRight, LoaderCircle, Circle } from 'lucide-react'
 import { Modal } from './Modal'
 import { api } from '../api'
 import { fmt, formatDate } from '../utils'
@@ -48,21 +48,26 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   const [included, setIncluded] = useState<Set<number>>(new Set())
   const [collapsedGroups, setCollapsedGroups] = useState<Set<ConfidenceGroup>>(new Set())
   const [mappings, setMappings] = useState<LegacyCategoryMapping[]>([])
-  const [loadingStage, setLoadingStage] = useState('')
   const [loadError, setLoadError] = useState('')
+  const [analysis, setAnalysis] = useState({ reading: false, found: null as number | null, duplicates: null as number | null, categorizing: false, done: false })
 
   useEffect(() => { api.classification.mappings().then(setMappings).catch(console.error) }, [])
 
   async function pickFile() {
     setLoading(true)
     setLoadError('')
-    setLoadingStage('Reading CSV and checking duplicates…')
+    setAnalysis({ reading: false, found: null, duplicates: null, categorizing: false, done: false })
     try {
       const path = await api.import.bankCsvPick()
       if (!path) { setLoading(false); return }
+      setAnalysis(current => ({ ...current, reading: true }))
       setFilePath(path)
-      setLoadingStage('Matching merchants and building suggestions…')
-      const preview = await api.import.bankCsvPreview(path, accountId)
+      const preview = await api.import.bankCsvPreview(path, accountId, event => {
+        if (event.stage === 'found') setAnalysis(current => ({ ...current, found: event.count ?? 0 }))
+        if (event.stage === 'duplicates') setAnalysis(current => ({ ...current, duplicates: event.count ?? 0 }))
+        if (event.stage === 'categorizing') setAnalysis(current => ({ ...current, categorizing: true }))
+        if (event.stage === 'done') setAnalysis(current => ({ ...current, categorizing: true, done: true }))
+      })
       setFormat(preview.format)
       setRows(preview.rows)
       // Pre-fill assignments from suggestions
@@ -75,14 +80,12 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
       setLoadError(error instanceof Error ? error.message : 'The CSV could not be analysed.')
     } finally {
       setLoading(false)
-      setLoadingStage('')
     }
   }
 
   async function handleImport() {
     if (!filePath || !accountId) return
     setLoading(true)
-    setLoadingStage('Saving transactions in batches…')
     try {
       const selected = Object.fromEntries(rows.map(row => [row.index, included.has(row.index) ? assignments[row.index] ?? null : '__skip__']))
       const res = await api.import.bankCsv(filePath, accountId, selected)
@@ -90,7 +93,6 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
       setStep('done')
     } finally {
       setLoading(false)
-      setLoadingStage('')
     }
   }
 
@@ -154,13 +156,14 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
               {loading ? 'Analysing…' : 'Choose File'}
             </button>
           </div>
-          {loading && <div className="w-full max-w-sm"><div className="h-1 overflow-hidden rounded-full bg-slate-100"><div className="h-full w-2/3 animate-pulse rounded-full bg-blue-500" /></div><p className="mt-2 text-center text-xs text-slate-400">{loadingStage}</p></div>}
+          {loading && <AnalysisProgress analysis={analysis} />}
           {loadError && <div className="max-w-md rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-center text-xs text-red-700">{loadError}</div>}
         </div>
       )}
 
       {step === 'categorize' && (
         <div className="flex flex-col gap-3">
+          <AnalysisProgress analysis={analysis} compact />
           {/* Stats bar */}
           <div className="flex items-center gap-4 text-sm">
             <span className="text-gray-500">{rows.length} transactions from <strong>{format}</strong></span>
@@ -241,6 +244,24 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
       )}
     </Modal>
   )
+}
+
+function AnalysisProgress({ analysis, compact = false }: { analysis: { reading: boolean; found: number | null; duplicates: number | null; categorizing: boolean; done: boolean }; compact?: boolean }) {
+  const steps = [
+    { label: 'Reading file', detail: analysis.reading ? 'File read successfully' : 'Reading the selected CSV', done: analysis.reading, active: !analysis.reading },
+    { label: 'Transactions found', detail: analysis.found === null ? 'Waiting for file parsing' : `${analysis.found} transactions found`, done: analysis.found !== null, active: analysis.reading && analysis.found === null },
+    { label: 'Identifying duplicates', detail: analysis.duplicates === null ? 'Waiting for transactions' : `${analysis.duplicates} duplicate${analysis.duplicates === 1 ? '' : 's'} identified`, done: analysis.duplicates !== null, active: analysis.found !== null && analysis.duplicates === null },
+    { label: 'Categorizing', detail: analysis.done ? 'Suggestions and confidence scores ready' : 'Matching merchants and category history', done: analysis.done, active: analysis.categorizing && !analysis.done },
+    { label: 'Done', detail: analysis.done ? 'Ready for your review' : 'Preparing review', done: analysis.done, active: false },
+  ]
+  return <div className={`w-full rounded-xl border border-slate-200 bg-slate-50 ${compact ? 'px-3 py-2' : 'max-w-lg px-4 py-3'}`}>
+    <div className={compact ? 'grid grid-cols-5 gap-2' : 'space-y-2'}>
+      {steps.map(step => <div key={step.label} className={`flex items-center gap-2 ${compact ? 'min-w-0' : ''}`}>
+        {step.done ? <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white"><Check size={12} strokeWidth={3} /></span> : step.active ? <LoaderCircle size={20} className="shrink-0 animate-spin text-blue-500" /> : <Circle size={20} className="shrink-0 text-slate-300" />}
+        <div className="min-w-0"><p className={`truncate text-xs font-semibold ${step.done ? 'text-emerald-700' : step.active ? 'text-blue-700' : 'text-slate-400'}`}>{step.label}</p>{!compact && <p className="text-[10px] text-slate-400">{step.detail}</p>}</div>
+      </div>)}
+    </div>
+  </div>
 }
 
 function ImportRow({ row, categories, mappings, included, onIncluded, assignedCategoryId, focused, catOpen, catSearch, onFocus, onOpenCat, onCloseCat, onCatSearch, onAssign }: {
