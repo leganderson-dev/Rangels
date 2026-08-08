@@ -117,6 +117,7 @@ export interface MerchantCategoryCandidate {
 }
 
 export interface MerchantInsight {
+  merchantId: string | null
   key: string
   name: string
   aliases: string[]
@@ -128,5 +129,6 @@ export interface MerchantInsight {
   confidence: number
   categoryId: string | null
   remembered: boolean
+  rulePhrases: string[]
   candidates: MerchantCategoryCandidate[]
 }

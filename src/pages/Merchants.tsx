@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle2, Search, Sparkles, Store } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Pencil, Search, Sparkles, Store } from 'lucide-react'
 import { api } from '../api'
+import { Modal } from '../components/Modal'
 import { fmt, formatDate } from '../utils'
 import type { Category, MerchantInsight } from '../types/finance'
 
@@ -26,6 +27,7 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
   const [applying, setApplying] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(100)
   const [message, setMessage] = useState<string | null>(null)
+  const [editingRule, setEditingRule] = useState<MerchantInsight | null>(null)
 
   async function load() {
     setLoading(true)
@@ -137,6 +139,7 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
                 applying={applying === merchant.key}
                 onCategoryChange={categoryId => setDrafts(current => ({ ...current, [merchant.key]: categoryId }))}
                 onApply={() => apply(merchant)}
+                onEditRule={() => setEditingRule(merchant)}
               />
             ))}
             {visibleCount < filtered.length && (
@@ -147,6 +150,25 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
           </div>
         )}
       </div>
+      {editingRule && (
+        <MerchantRuleModal
+          merchant={editingRule}
+          categories={categoryOptions}
+          onClose={() => setEditingRule(null)}
+          onSave={async data => {
+            await api.merchants.saveRule({
+              merchantId: editingRule.merchantId,
+              key: editingRule.key,
+              transactionIds: editingRule.transactionIds,
+              ...data,
+            })
+            setEditingRule(null)
+            setMessage(`${data.name} rule saved. Future imports will use its matching phrases.`)
+            await load()
+            onRefreshCategories()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -166,13 +188,14 @@ function Stat({ label, value, tone }: { label: string; value: number; tone: 'sla
   )
 }
 
-function MerchantRow({ merchant, categories, selectedCategoryId, applying, onCategoryChange, onApply }: {
+function MerchantRow({ merchant, categories, selectedCategoryId, applying, onCategoryChange, onApply, onEditRule }: {
   merchant: MerchantInsight
   categories: Category[]
   selectedCategoryId: string
   applying: boolean
   onCategoryChange: (categoryId: string) => void
   onApply: () => void
+  onEditRule: () => void
 }) {
   const state = merchantState(merchant)
   const badge = state === 'learned'
@@ -227,8 +250,64 @@ function MerchantRow({ merchant, categories, selectedCategoryId, applying, onCat
         <button onClick={onApply} disabled={!selectedCategoryId || applying} className="mt-3 w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-40">
           {applying ? 'Applying…' : `Apply to ${merchant.transactionCount} & remember`}
         </button>
+        <button onClick={onEditRule} className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50">
+          <Pencil size={11} /> Edit import rule
+        </button>
         <p className="mt-2 text-center text-[10px] text-slate-400">Used for future matching imports</p>
       </div>
     </article>
+  )
+}
+
+function MerchantRuleModal({ merchant, categories, onClose, onSave }: {
+  merchant: MerchantInsight
+  categories: Category[]
+  onClose: () => void
+  onSave: (data: { name: string; categoryId: string; phrases: string[] }) => Promise<void>
+}) {
+  const [name, setName] = useState(merchant.name)
+  const [categoryId, setCategoryId] = useState(merchant.categoryId ?? '')
+  const [phrases, setPhrases] = useState((merchant.rulePhrases.length ? merchant.rulePhrases : [merchant.name]).join('\n'))
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    const rulePhrases = phrases.split('\n').map(phrase => phrase.trim()).filter(Boolean)
+    if (!name.trim() || !categoryId || rulePhrases.length === 0) return
+    setSaving(true)
+    try {
+      await onSave({ name: name.trim(), categoryId, phrases: rulePhrases })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal title="Edit merchant import rule" onClose={onClose}>
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-600">Merchant name</label>
+          <input autoFocus value={name} onChange={event => setName(event.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-600">Default category</label>
+          <select value={categoryId} onChange={event => setCategoryId(event.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400">
+            <option value="">Choose category…</option>
+            {categories.map(category => <option key={category.id} value={category.id}>{category.fullName}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-600">Matching phrases</label>
+          <textarea value={phrases} onChange={event => setPhrases(event.target.value)} rows={7} className="w-full resize-none rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs leading-5 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" placeholder={'NETFLIX\nNETFLIX.COM'} />
+          <p className="mt-1.5 text-[11px] leading-4 text-slate-400">One phrase per line. Matching ignores case, punctuation, card numbers and common bank wording. More specific phrases are checked first.</p>
+        </div>
+        <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+          This rule will classify matching transactions during import and update this merchant’s existing history.
+        </div>
+        <div className="flex gap-2 pt-1">
+          <button onClick={onClose} className="flex-1 rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+          <button onClick={save} disabled={saving || !name.trim() || !categoryId || !phrases.trim()} className="flex-1 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-40">{saving ? 'Saving…' : 'Save rule'}</button>
+        </div>
+      </div>
+    </Modal>
   )
 }
