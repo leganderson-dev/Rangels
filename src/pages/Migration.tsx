@@ -21,6 +21,56 @@ function draftFor(mapping: LegacyCategoryMapping): Draft {
   }
 }
 
+function suggestedDraftFor(mapping: LegacyCategoryMapping, options: ClassificationOptions): Draft {
+  const draft = draftFor(mapping)
+  if (mapping.status === 'preserved' || mapping.legacyCategoryType === 'transfer') return draft
+  const path = mapping.categoryPath.toLocaleLowerCase()
+  const findContext = (name: string) => options.contexts.find(item => item.name === name)?.id ?? ''
+  const findPurpose = (name: string, family?: string) => options.categories.find(item => item.name === name && item.type === mapping.legacyCategoryType && (!family || item.family === family))?.id ?? ''
+  const findBucket = (name: string) => options.buckets.find(item => item.name === name)?.id ?? ''
+
+  if (!draft.contextId) {
+    if (path.startsWith('asa:')) draft.contextId = findContext('Business — ASA')
+    else if (path.startsWith('house - currumundi')) draft.contextId = findContext('Property — Currumundi')
+    else if (path.startsWith('house - evertonpark')) draft.contextId = findContext('Property — Everton Park')
+    else if (path.startsWith('house - toogoom')) draft.contextId = findContext('Property — Toogoom')
+    else draft.contextId = findContext('Household')
+  }
+
+  if (!draft.canonicalCategoryId) {
+    const suggestions: Array<[RegExp, string, string?]> = mapping.legacyCategoryType === 'income'
+      ? [
+          [/^salario.*extra|additional/, 'Additional earnings'], [/^salario|salary/, 'Salary'],
+          [/interest/, 'Interest'], [/rent/, 'Rental income'], [/refund|rebate/, 'Refund / rebate'],
+          [/^asa:/, 'Business income'],
+        ]
+      : [
+          [/supermarket|grocer/, 'Groceries'], [/restaurant|restaurante/, 'Restaurants'], [/cafe/, 'Cafes'],
+          [/gasolina|petrol|fuel/, 'Fuel'], [/public transport|opal/, 'Public transport'], [/uber|taxi/, 'Rideshare and taxi'],
+          [/kids:activities/, 'Activities'], [/kids:childcare/, 'Childcare'], [/kids:.*allowance/, 'Allowance'],
+          [/kids:.*clothing/, 'Clothing', 'Children'], [/kids:.*entertainment/, 'Entertainment', 'Children'], [/kids:.*toys?/, 'Toys'],
+          [/subscriptions?/, 'Subscriptions'], [/trips?|holidays?/, 'Travel'], [/alcohol/, 'Alcohol'],
+          [/gifts?/, 'Gifts'], [/gadgets?|electronics?/, 'Electronics and gadgets'], [/selfcare|personal care/, 'Personal care'],
+          [/entertainment & recreation:.*clothing/, 'Clothing', 'Lifestyle'], [/entertainment & recreation:/, 'Entertainment', 'Lifestyle'],
+          [/transportation:.*parking/, 'Parking'], [/transportation:.*toll/, 'Tolls'],
+          [/bank:.*fees?/, 'Bank fees'], [/insurance.*excess|excess/, 'Insurance excess'],
+          [/^asa:academy/, 'Program / team costs'], [/^asa:.*uniform/, 'Uniforms'], [/^asa:.*staff/, 'Staff costs'],
+          [/^asa:/, 'General operating costs'],
+        ]
+    const match = suggestions.find(([pattern]) => pattern.test(path))
+    if (match) draft.canonicalCategoryId = findPurpose(match[1], match[2])
+  }
+
+  const context = options.contexts.find(item => item.id === draft.contextId)
+  const purpose = options.categories.find(item => item.id === draft.canonicalCategoryId)
+  if (!draft.bucketId && context?.name === 'Household' && purpose?.type === 'expense') {
+    const daily = ['Groceries', 'Fuel', 'Public transport', 'Childcare', 'School care', 'School fees', 'School supplies', 'Books and learning', 'Activities', 'Medical care', 'Pharmacy', 'Electricity', 'Gas', 'Water', 'Internet', 'Mobile phone']
+    const smile = ['Travel', 'Gifts', 'Donations']
+    draft.bucketId = findBucket(smile.includes(purpose.name) ? 'Smile' : daily.includes(purpose.name) ? 'Daily Expenses' : 'Splurge')
+  }
+  return draft
+}
+
 function issuesFor(mapping: LegacyCategoryMapping, draft: Draft, options: ClassificationOptions): string[] {
   if (mapping.legacyCategoryType === 'transfer') return []
   const issues: string[] = []
@@ -51,7 +101,7 @@ export function MigrationPage() {
       const [nextMappings, nextOptions] = await Promise.all([api.classification.mappings(), api.classification.options()])
       setMappings(nextMappings)
       setOptions(nextOptions)
-      setDrafts(Object.fromEntries(nextMappings.map(mapping => [mapping.categoryId, draftFor(mapping)])))
+      setDrafts(Object.fromEntries(nextMappings.map(mapping => [mapping.categoryId, suggestedDraftFor(mapping, nextOptions)])))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -138,7 +188,7 @@ export function MigrationPage() {
 
         <div className="space-y-2">
           {visible.map(mapping => {
-            const { draft, issues, persistedIssues, dirty } = stateFor(mapping)
+            const { draft, persistedIssues, dirty } = stateFor(mapping)
             const context = options.contexts.find(item => item.id === draft.contextId)
             const purpose = options.categories.find(item => item.id === draft.canonicalCategoryId)
             const income = purpose?.type === 'income' || mapping.legacyCategoryType === 'income'
@@ -153,7 +203,7 @@ export function MigrationPage() {
                       <p className="truncate text-sm font-semibold text-slate-800" title={mapping.categoryPath}>{mapping.categoryPath}</p>
                     </div>
                     <p className="mt-1 pl-6 text-[11px] text-slate-400">{mapping.transactionCount} transaction{mapping.transactionCount === 1 ? '' : 's'} · {mapping.notes || 'No migration note'}</p>
-                    {!complete && <div className="mt-2 flex flex-wrap gap-1 pl-6">{issues.map(issue => <span key={issue} className="rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-700">Needs {issue}</span>)}</div>}
+                    {!complete && <div className="mt-2 flex flex-wrap gap-1 pl-6">{persistedIssues.map(issue => <span key={issue} className="rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-700">Needs {issue}</span>)}{dirty && <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-medium text-blue-700">Suggested · review and save</span>}</div>}
                   </div>
 
                   {transfer ? <>
