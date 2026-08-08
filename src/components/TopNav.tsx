@@ -10,6 +10,7 @@ const TABS: { id: Page; label: string }[] = [
   { id: 'categories', label: 'Categories' },
   { id: 'reports', label: 'Reports' },
   { id: 'plan', label: 'Plan' },
+  { id: 'migration', label: 'Migration' },
   { id: 'budget', label: 'Budget' },
   { id: 'scheduled', label: 'Scheduled' },
 ]

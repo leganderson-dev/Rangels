@@ -632,10 +632,11 @@ async function listClassificationOptions(): Promise<ClassificationOptions> {
 }
 
 async function listCategoryMappings(): Promise<LegacyCategoryMapping[]> {
-  const [mappingResult, categoryResult, options] = await Promise.all([
+  const [mappingResult, categoryResult, options, transactionRows] = await Promise.all([
     supabase.from('category_classifications').select('*'),
     supabase.from('categories').select('id,path').order('path'),
     listClassificationOptions(),
+    fetchAllRows(() => supabase.from('transactions').select('category_id')),
   ])
   fail(mappingResult.error)
   fail(categoryResult.error)
@@ -644,6 +645,10 @@ async function listCategoryMappings(): Promise<LegacyCategoryMapping[]> {
   const canonical = new Map(options.categories.map(item => [item.id, item.name]))
   const contexts = new Map(options.contexts.map(item => [item.id, item.name]))
   const buckets = new Map(options.buckets.map(item => [item.id, item.name]))
+  const transactionCounts = new Map<string, number>()
+  transactionRows.forEach(transaction => {
+    if (transaction.category_id) transactionCounts.set(transaction.category_id, (transactionCounts.get(transaction.category_id) ?? 0) + 1)
+  })
   return categories.map(category => {
     const row = rows.get(category.id)
     const preserved = ['ToBeRefunded', 'Reibursment'].includes(category.path)
@@ -659,6 +664,7 @@ async function listCategoryMappings(): Promise<LegacyCategoryMapping[]> {
       taxTreatment: row?.tax_treatment ?? 'none',
       status: preserved && !row ? 'preserved' : row?.migration_status ?? 'review',
       notes: preserved && !row ? 'Reserved for manual owner review' : row?.notes ?? '',
+      transactionCount: transactionCounts.get(category.id) ?? 0,
     }
   })
 }

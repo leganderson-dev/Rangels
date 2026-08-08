@@ -105,6 +105,7 @@ export interface LegacyCategoryMapping {
   taxTreatment: 'none' | 'deductible' | 'review'
   status: 'mapped' | 'review' | 'preserved'
   notes: string
+  transactionCount: number
 }
 
 export interface ScheduledTransaction {
