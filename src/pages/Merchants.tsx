@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle2, Pencil, Search, Sparkles, Store } from 'lucide-react'
 import { api } from '../api'
 import { Modal } from '../components/Modal'
+import { merchantLogo } from '../lib/merchantLogos'
 import { fmt, formatDate } from '../utils'
 import type { Category, ClassificationOptions, MerchantInsight } from '../types/finance'
 
@@ -12,6 +13,7 @@ interface Props {
 
 type MerchantFilter = 'all' | 'learned' | 'review' | 'unclassified'
 type VolumeFilter = 'all' | 'over100' | 'over50' | 'over10' | 'under10'
+type MerchantSort = 'name-asc' | 'name-desc' | 'transactions-desc' | 'transactions-asc'
 
 function merchantState(merchant: MerchantInsight): Exclude<MerchantFilter, 'all'> {
   if (!merchant.categoryId) return 'unclassified'
@@ -25,6 +27,7 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<MerchantFilter>('all')
   const [volumeFilter, setVolumeFilter] = useState<VolumeFilter>('all')
+  const [sort, setSort] = useState<MerchantSort>('transactions-desc')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [applying, setApplying] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(100)
@@ -54,7 +57,7 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
 
   const filtered = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()
-    return merchants.filter(merchant => {
+    const matches = merchants.filter(merchant => {
       if (filter !== 'all' && merchantState(merchant) !== filter) return false
       if (volumeFilter === 'over100' && merchant.transactionCount <= 100) return false
       if (volumeFilter === 'over50' && merchant.transactionCount <= 50) return false
@@ -62,7 +65,14 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
       if (volumeFilter === 'under10' && merchant.transactionCount >= 10) return false
       return !query || merchant.name.toLocaleLowerCase().includes(query) || merchant.aliases.some(alias => alias.toLocaleLowerCase().includes(query))
     })
-  }, [merchants, search, filter, volumeFilter])
+
+    return matches.sort((left, right) => {
+      if (sort === 'name-asc') return left.name.localeCompare(right.name)
+      if (sort === 'name-desc') return right.name.localeCompare(left.name)
+      if (sort === 'transactions-asc') return left.transactionCount - right.transactionCount || left.name.localeCompare(right.name)
+      return right.transactionCount - left.transactionCount || left.name.localeCompare(right.name)
+    })
+  }, [merchants, search, filter, volumeFilter, sort])
 
   const categoryOptions = [...categories]
     .filter(category => !/^\?+$/.test(category.fullName.trim()))
@@ -122,6 +132,17 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
             <option value="over50">More than 50 transactions</option>
             <option value="over10">More than 10 transactions</option>
             <option value="under10">Less than 10 transactions</option>
+          </select>
+          <select
+            value={sort}
+            onChange={event => { setSort(event.target.value as MerchantSort); setVisibleCount(100) }}
+            aria-label="Sort merchants"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-medium text-slate-600 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+          >
+            <option value="transactions-desc">Transactions: most first</option>
+            <option value="transactions-asc">Transactions: fewest first</option>
+            <option value="name-asc">Merchant name: A–Z</option>
+            <option value="name-desc">Merchant name: Z–A</option>
           </select>
           {(filter !== 'all' || volumeFilter !== 'all' || search) && (
             <button onClick={() => { setFilter('all'); setVolumeFilter('all'); setSearch(''); setVisibleCount(100) }} className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Clear filters</button>
@@ -210,6 +231,8 @@ function MerchantRow({ merchant, categories, selectedCategoryId, applying, onCat
   onApply: () => void
   onEditRule: () => void
 }) {
+  const logo = merchantLogo(merchant.key, merchant.name)
+  const [logoFailed, setLogoFailed] = useState(false)
   const state = merchantState(merchant)
   const badge = state === 'learned'
     ? { label: merchant.remembered ? 'Remembered' : 'High confidence', classes: 'bg-emerald-50 text-emerald-700 border-emerald-200', Icon: CheckCircle2 }
@@ -221,7 +244,11 @@ function MerchantRow({ merchant, categories, selectedCategoryId, applying, onCat
     <article className="grid grid-cols-[minmax(240px,1.2fr)_minmax(300px,1.5fr)_150px_220px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="border-r border-slate-100 p-4">
         <div className="flex gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500"><Store size={17} /></div>
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-100 bg-white text-slate-500 shadow-sm">
+            {logo && !logoFailed
+              ? <img src={logo.path} alt={`${logo.name} logo`} className="h-7 w-7 object-contain" onError={() => setLogoFailed(true)} />
+              : <Store size={17} />}
+          </div>
           <div className="min-w-0">
             <h2 className="truncate text-sm font-bold text-slate-900" title={merchant.name}>{merchant.name}</h2>
             <span className={`mt-1 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${badge.classes}`}><badge.Icon size={10} />{badge.label}</span>
