@@ -109,6 +109,13 @@ export interface LegacyCategoryMapping {
   legacyCategoryType: 'income' | 'expense' | 'transfer'
 }
 
+export interface LegacyTransactionSample {
+  id: string
+  date: string
+  description: string
+  amount: number
+}
+
 export interface ScheduledTransaction {
   id: string
   description: string

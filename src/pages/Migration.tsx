@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Check, ChevronDown, ChevronRight, Search, ShieldAlert } from 'lucide-react'
 import { api } from '../api'
-import type { ClassificationOptions, LegacyCategoryMapping } from '../types/finance'
+import { fmt, formatDate } from '../utils'
+import type { ClassificationOptions, LegacyCategoryMapping, LegacyTransactionSample } from '../types/finance'
 
 type Draft = {
   canonicalCategoryId: string
@@ -92,6 +93,9 @@ export function MigrationPage() {
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState<string | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [sampleRows, setSampleRows] = useState<Record<string, LegacyTransactionSample[]>>({})
+  const [loadingSamplesId, setLoadingSamplesId] = useState<string | null>(null)
   const [error, setError] = useState('')
 
   async function load() {
@@ -156,6 +160,24 @@ export function MigrationPage() {
     }
   }
 
+  async function toggleSamples(mapping: LegacyCategoryMapping) {
+    if (expandedId === mapping.categoryId) {
+      setExpandedId(null)
+      return
+    }
+    setExpandedId(mapping.categoryId)
+    if (sampleRows[mapping.categoryId]) return
+    setLoadingSamplesId(mapping.categoryId)
+    try {
+      const samples = await api.classification.samples(mapping.categoryId)
+      setSampleRows(current => ({ ...current, [mapping.categoryId]: samples }))
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setLoadingSamplesId(null)
+    }
+  }
+
   if (loading && mappings.length === 0) return <div className="h-full overflow-auto p-6 text-sm text-slate-500">Loading every legacy mapping…</div>
 
   return (
@@ -197,14 +219,16 @@ export function MigrationPage() {
             return (
               <div key={mapping.categoryId} className={`rounded-xl border bg-white shadow-sm ${complete ? 'border-emerald-200' : mapping.status === 'preserved' ? 'border-violet-200' : 'border-slate-200'}`}>
                 <div className="grid grid-cols-[minmax(220px,1.15fr)_minmax(220px,1.3fr)_210px_180px_150px_110px] items-end gap-3 p-4">
-                  <div className="self-center min-w-0">
+                  <button type="button" onClick={() => toggleSamples(mapping)} aria-expanded={expandedId === mapping.categoryId} className="self-center min-w-0 text-left">
                     <div className="flex items-center gap-2">
                       {complete ? <Check size={16} className="shrink-0 text-emerald-500" /> : mapping.status === 'preserved' ? <ShieldAlert size={16} className="shrink-0 text-violet-500" /> : <AlertTriangle size={16} className="shrink-0 text-amber-500" />}
                       <p className="truncate text-sm font-semibold text-slate-800" title={mapping.categoryPath}>{mapping.categoryPath}</p>
+                      <ChevronDown size={14} className={`shrink-0 text-slate-400 transition-transform ${expandedId === mapping.categoryId ? 'rotate-180' : ''}`} />
                     </div>
                     <p className="mt-1 pl-6 text-[11px] text-slate-400">{mapping.transactionCount} transaction{mapping.transactionCount === 1 ? '' : 's'} · {mapping.notes || 'No migration note'}</p>
                     {!complete && <div className="mt-2 flex flex-wrap gap-1 pl-6">{persistedIssues.map(issue => <span key={issue} className="rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-700">Needs {issue}</span>)}{dirty && <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-medium text-blue-700">Suggested · review and save</span>}</div>}
-                  </div>
+                    <p className="mt-2 pl-6 text-[10px] font-medium text-blue-500">{expandedId === mapping.categoryId ? 'Hide samples' : 'View 3 transaction samples'}</p>
+                  </button>
 
                   {transfer ? <>
                     <div className="col-span-4 rounded-lg border border-sky-100 bg-sky-50 px-4 py-2.5 text-xs text-sky-700"><strong>Ledger transfer:</strong> classification comes from its source and target accounts. It creates no income or expense and consumes no Household Bucket.</div>
@@ -219,6 +243,16 @@ export function MigrationPage() {
                     </button>
                   </>}
                 </div>
+                {expandedId === mapping.categoryId && (
+                  <div className="border-t border-slate-100 bg-slate-50/70 px-4 py-3">
+                    <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Recent transaction samples</p>
+                    {loadingSamplesId === mapping.categoryId ? <p className="py-3 text-xs text-slate-400">Loading samples…</p> : (sampleRows[mapping.categoryId]?.length ?? 0) > 0 ? (
+                      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                        {sampleRows[mapping.categoryId].map(sample => <div key={sample.id} className="grid grid-cols-[90px_minmax(0,1fr)_120px] gap-3 border-b border-slate-100 px-3 py-2 text-xs last:border-b-0"><span className="text-slate-400">{formatDate(sample.date)}</span><span className="truncate text-slate-700" title={sample.description}>{sample.description}</span><span className={`text-right font-semibold tabular-nums ${sample.amount >= 0 ? 'text-emerald-600' : 'text-slate-700'}`}>{sample.amount >= 0 ? '+' : '-'}{fmt(Math.abs(sample.amount))}</span></div>)}
+                      </div>
+                    ) : <p className="py-3 text-xs text-slate-400">No transactions are available for this category.</p>}
+                  </div>
+                )}
               </div>
             )
           })}

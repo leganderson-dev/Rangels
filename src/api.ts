@@ -6,6 +6,7 @@ import type {
   Category,
   ClassificationOptions,
   LegacyCategoryMapping,
+  LegacyTransactionSample,
   ImportResult,
   MerchantInsight,
   MonthSummary,
@@ -670,6 +671,21 @@ async function listCategoryMappings(): Promise<LegacyCategoryMapping[]> {
   })
 }
 
+async function listCategoryTransactionSamples(categoryId: string): Promise<LegacyTransactionSample[]> {
+  const { data, error } = await supabase.from('transactions')
+    .select('id,occurred_on,description,amount')
+    .eq('category_id', categoryId)
+    .order('occurred_on', { ascending: false })
+    .limit(3)
+  fail(error)
+  return (data ?? []).map(row => ({
+    id: row.id,
+    date: row.occurred_on,
+    description: row.description,
+    amount: Number(row.amount),
+  }))
+}
+
 async function saveCategoryMapping(categoryId: string, data: {
   canonicalCategoryId: string | null
   contextId: string | null
@@ -1219,6 +1235,7 @@ export const api = {
   classification: {
     options: listClassificationOptions,
     mappings: listCategoryMappings,
+    samples: listCategoryTransactionSamples,
     saveMapping: saveCategoryMapping,
   },
   categories: {
