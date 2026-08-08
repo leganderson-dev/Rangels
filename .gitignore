@@ -4,6 +4,9 @@ node_modules/
 # Build output
 dist/
 
+# Private database backups
+backups/
+
 # Local environment files
 .env
 .env.local

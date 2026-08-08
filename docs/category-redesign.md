@@ -212,8 +212,8 @@ The following are deliberately not personal spending buckets:
 | `PgtoCartaodeCredito` | No spending category | Derived from source/destination accounts | None | Transfer |
 | `Transfers` | No spending category | Derived from source/destination accounts | None | Transfer |
 | `TaxDeductable:Donation` | Donations | Personal | Smile | Tax treatment: deductible |
-| `ToBeRefunded` | Recover original expense category | Usually Personal | Derived from recovered category | Reimbursement status: expected |
-| `Reibursment` | Refund/reimbursement linked to original expense | Usually Personal | None | Reimbursement status: received |
+| `ToBeRefunded` | Preserve legacy category unchanged | Existing classification | None | Owner will review and change manually later |
+| `Reibursment` | Preserve legacy category unchanged | Existing classification | None | Owner will review and change manually later |
 | `?????` | Unclassified | Review required | None | Human or merchant-rule review |
 | `DEBIT` | Unclassified import artefact | Review required | None | Reclassify from merchant and amount direction |
 | `Sydney` | Not yet known | Review required | None | Likely context, location, or project |
@@ -226,8 +226,8 @@ The following are deliberately not personal spending buckets:
 
 These paths should be reviewed before any migration because they represent substantial history or ambiguous semantics:
 
-1. `ToBeRefunded` — 724 transactions: recover original categories from merchant/history.
-2. `Reibursment` — 413 transactions: link receipts to prior expenses where possible.
+1. `ToBeRefunded` — 724 transactions: preserve unchanged for later manual review.
+2. `Reibursment` — 413 transactions: preserve unchanged for later manual review.
 3. `ASA:Academy` — 415 transactions: confirm whether Academy is a program, team, customer, or cost type.
 4. `Contas diversas:Subscriptions` — 473 transactions: decide default bucket, probably Splurge.
 5. `Entertainment & Recreation:Trips/Holidays` — 456 transactions: proposed Smile.
@@ -250,7 +250,7 @@ These paths should be reviewed before any migration because they represent subst
 | `House - EvertonPark:Construction Extras:Solar` | Capital improvements | Property — Everton Park | None | Project: Solar |
 | `ASA:Tax:Marketing` | Marketing | Business — ASA | None | Likely tax deductible |
 | `TaxDeductable:Donation` | Donations | Personal | Smile | Tax deductible |
-| `ToBeRefunded` | Original category to recover | Original context | Derived | Reimbursement expected |
+| `ToBeRefunded` | Preserve legacy category | Preserve existing | None | Manual review later |
 
 ## Migration rules
 
@@ -271,7 +271,7 @@ These paths should be reviewed before any migration because they represent subst
 - Meaning of Sydney and direct catch-all/root entries.
 - Liability and principal/interest treatment for MG loan, Gov:Divida, mortgages, land loan, and pool loan.
 - Whether property capital improvements require a dedicated capital/revenue treatment field.
-- How to recover original categories for `ToBeRefunded` and link received reimbursements.
+- `ToBeRefunded` and `Reibursment` are explicitly excluded from automatic redesign and remain available for later manual changes.
 
 ## Next step
 
