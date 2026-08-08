@@ -5,7 +5,8 @@ Status: V0.5 foundation. This document records only decisions explicitly made wi
 ## Agreed decisions
 
 - Anderson and Julia share one Household allocation plan.
-- Existing accounts belong to Anderson. Future accounts can be assigned to Julia.
+- Existing accounts belong to Anderson. Future accounts can be assigned to Julia or Joint.
+- Joint is intended for target/shared accounts; contributions are still attributed from the source account owner.
 - The account owner identifies who contributed or effectuated its transactions.
 - The joint account is a target account. Transfers into it are internal movements, not income or expenses.
 - Julia's business is Folium Studio. Business — ASA and Business — Folium Studio remain separate from Household.
