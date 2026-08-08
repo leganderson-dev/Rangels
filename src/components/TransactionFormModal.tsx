@@ -5,6 +5,8 @@ import type { Transaction, Account, Category } from '../types/finance'
 import type { ClassificationOptions } from '../types/finance'
 import { api } from '../api'
 import { canUseHouseholdBucket, emptyBucketLabel } from '../lib/classification'
+import { transferReasonNeedsContext, transferReasons } from '../lib/transfers'
+import type { TransferReason } from '../types/finance'
 
 interface Props {
   transaction?: Transaction
@@ -35,6 +37,7 @@ export function TransactionFormModal({ transaction, accounts, categories, defaul
   const [reimbursementStatus, setReimbursementStatus] = useState(transaction?.reimbursementStatus ?? 'none')
   const [taxTreatment, setTaxTreatment] = useState(transaction?.taxTreatment ?? 'none')
   const [tags, setTags] = useState(transaction?.tags ?? '')
+  const [transferReason, setTransferReason] = useState<TransferReason | ''>(transaction?.transferReason ?? (transaction?.isTransfer ? 'account_movement' : ''))
 
   const descRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -49,7 +52,7 @@ export function TransactionFormModal({ transaction, accounts, categories, defaul
   const selectedCat = categories.find(c => c.id === categoryId)
 
   async function handleSave() {
-    if (!description.trim() || !amount || !accountId) return
+    if (!description.trim() || !amount || !accountId || (isTransfer && (!targetAccountId || !transferReason || (transferReasonNeedsContext(transferReason) && !contextId)))) return
     setSaving(true)
     try {
       const sign = isTransfer ? -1 : (isExpense ? -1 : 1)
@@ -64,10 +67,11 @@ export function TransactionFormModal({ transaction, accounts, categories, defaul
         isTransfer,
         status: 'C'
         ,canonicalCategoryId: isTransfer ? null : canonicalCategoryId || null
-        ,contextId: isTransfer ? null : contextId || null
+        ,contextId: contextId || null
         ,bucketId: isTransfer ? null : bucketId || null
         ,reimbursementStatus: isTransfer ? 'none' : reimbursementStatus
         ,taxTreatment: isTransfer ? 'none' : taxTreatment
+        ,transferReason: isTransfer ? transferReason : null
         ,tags
       })
     } finally {
@@ -223,6 +227,16 @@ export function TransactionFormModal({ transaction, accounts, categories, defaul
           </div>
         </div>
 
+        {isTransfer && (
+          <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-3 space-y-3">
+            <div><p className="text-xs font-semibold text-slate-700">Transfer classification</p><p className="text-[11px] text-slate-500">Ledger-neutral: never counted as income, expense, tax or a Household Bucket.</p></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="block text-xs font-medium text-gray-500 mb-1">Transfer reason</label><select value={transferReason} onChange={event => setTransferReason(event.target.value as TransferReason)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"><option value="">Choose reason…</option>{transferReasons.map(reason => <option key={reason.value} value={reason.value}>{reason.label}</option>)}</select></div>
+              <div><label className="block text-xs font-medium text-gray-500 mb-1">Funding context {transferReasonNeedsContext(transferReason || null) ? '' : '(optional)'}</label><select value={contextId} onChange={event => setContextId(event.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"><option value="">None</option>{options.contexts.filter(item => item.name !== 'Review required' && item.name !== 'Household').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
+            </div>
+          </div>
+        )}
+
         {!isTransfer && (
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
             <div>
@@ -293,7 +307,7 @@ export function TransactionFormModal({ transaction, accounts, categories, defaul
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !description.trim() || !amount}
+            disabled={saving || !description.trim() || !amount || (isTransfer && (!targetAccountId || !transferReason || (transferReasonNeedsContext(transferReason) && !contextId)))}
             className="flex-1 bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? 'Saving…' : (transaction ? 'Update' : 'Add')}

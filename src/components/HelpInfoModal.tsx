@@ -59,7 +59,7 @@ export function HelpInfoModal({ onClose }: { onClose: () => void }) {
 
           <div className="space-y-4">
             <InfoBox title="Transfers are not spending">
-              <p>Anderson account → Joint account is an internal transfer. It changes where money sits and records Anderson as contributor, but creates neither income nor expense and consumes no Bucket.</p>
+              <p>A transfer changes where money sits but creates neither income nor expense and consumes no Bucket. Its reason distinguishes an ordinary account movement from a joint contribution, property funding, business funding, saving, debt reduction or investment contribution. Funding transfers may also identify the destination Context.</p>
             </InfoBox>
             <InfoBox title="Joint is a target owner">
               <p>Joint is intended for shared target accounts. If purchases are imported directly from a Joint account, they remain attributed as Joint unless explicitly corrected.</p>
@@ -148,7 +148,7 @@ export function HelpInfoModal({ onClose }: { onClose: () => void }) {
           </div>
         </section>
 
-        <div className="flex items-center justify-between border-t border-slate-200 pt-4 text-[11px] text-slate-400"><span>Rangels V0.7.5 · This guide reflects the current agreed model.</span><span>Ledger first · Import first · No destructive legacy conversion</span></div>
+        <div className="flex items-center justify-between border-t border-slate-200 pt-4 text-[11px] text-slate-400"><span>Rangels V0.8 · This guide reflects the current agreed model.</span><span>Ledger first · Import first · No destructive legacy conversion</span></div>
       </div>
     </Modal>
   )

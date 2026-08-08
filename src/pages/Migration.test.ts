@@ -18,7 +18,7 @@ const options: ClassificationOptions = {
 }
 
 function mapping(categoryPath: string): LegacyCategoryMapping {
-  return { categoryId: categoryPath, categoryPath, canonicalCategoryId: null, canonicalCategoryName: null, contextId: null, contextName: null, bucketId: null, bucketName: null, taxTreatment: 'none', status: 'review', notes: '', transactionCount: 1, legacyCategoryType: 'expense' }
+  return { categoryId: categoryPath, categoryPath, canonicalCategoryId: null, canonicalCategoryName: null, contextId: null, contextName: null, bucketId: null, bucketName: null, taxTreatment: 'none', status: 'review', notes: '', transactionCount: 1, legacyCategoryType: 'expense', transferReason: null }
 }
 
 describe('migration suggestions', () => {

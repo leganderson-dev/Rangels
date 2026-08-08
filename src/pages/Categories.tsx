@@ -3,7 +3,8 @@ import { Plus, Pencil, Trash2, ChevronRight, ChevronDown, Tag, Search, ChevronsU
 import { Modal } from '../components/Modal'
 import { api } from '../api'
 import { canUseHouseholdBucket, emptyBucketLabel } from '../lib/classification'
-import type { Category, ClassificationOptions, LegacyCategoryMapping } from '../types/finance'
+import { transferReasons } from '../lib/transfers'
+import type { Category, ClassificationOptions, LegacyCategoryMapping, TransferReason } from '../types/finance'
 
 interface Props {
   categories: Category[]
@@ -489,23 +490,24 @@ function ClassificationSummary({ mapping, onEdit }: { mapping?: LegacyCategoryMa
   )
 }
 
-function ClassificationMappingModal({ mapping, options, onClose, onSave }: { mapping: LegacyCategoryMapping; options: ClassificationOptions; onClose: () => void; onSave: (data: { canonicalCategoryId: string | null; contextId: string | null; bucketId: string | null; taxTreatment: 'none' | 'deductible' | 'review' }) => Promise<void> }) {
+function ClassificationMappingModal({ mapping, options, onClose, onSave }: { mapping: LegacyCategoryMapping; options: ClassificationOptions; onClose: () => void; onSave: (data: { canonicalCategoryId: string | null; contextId: string | null; bucketId: string | null; taxTreatment: 'none' | 'deductible' | 'review'; transferReason: TransferReason | null }) => Promise<void> }) {
   const [canonicalCategoryId, setCanonicalCategoryId] = useState(mapping.canonicalCategoryId ?? '')
   const [contextId, setContextId] = useState(mapping.contextId ?? '')
   const [bucketId, setBucketId] = useState(mapping.bucketId ?? '')
   const [taxTreatment, setTaxTreatment] = useState(mapping.taxTreatment)
+  const [transferReason, setTransferReason] = useState<TransferReason | ''>(mapping.transferReason ?? '')
   const [saving, setSaving] = useState(false)
   const context = options.contexts.find(item => item.id === contextId)
   const purpose = options.categories.find(item => item.id === canonicalCategoryId)
   const householdExpense = canUseHouseholdBucket(context?.name, purpose?.type)
   async function save() {
     setSaving(true)
-    try { await onSave({ canonicalCategoryId: canonicalCategoryId || null, contextId: contextId || null, bucketId: bucketId || null, taxTreatment }) } finally { setSaving(false) }
+    try { await onSave({ canonicalCategoryId: mapping.legacyCategoryType === 'transfer' ? null : canonicalCategoryId || null, contextId: contextId || null, bucketId: mapping.legacyCategoryType === 'transfer' ? null : bucketId || null, taxTreatment: mapping.legacyCategoryType === 'transfer' ? 'none' : taxTreatment, transferReason: mapping.legacyCategoryType === 'transfer' ? transferReason || null : null }) } finally { setSaving(false) }
   }
   return <Modal title="Map legacy category" onClose={onClose}>
     <div className="space-y-4">
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><p className="text-[10px] uppercase tracking-wide text-slate-400">Legacy category</p><p className="mt-1 text-sm font-semibold text-slate-800">{mapping.categoryPath}</p>{mapping.status === 'preserved' && <p className="mt-1 text-xs text-violet-600">Preserved for your manual decision. Saving here is an explicit owner change.</p>}</div>
-      <div><label className="mb-1 block text-xs text-slate-500">Purpose</label><select value={canonicalCategoryId} onChange={e => { setCanonicalCategoryId(e.target.value); if (options.categories.find(item => item.id === e.target.value)?.type === 'income') setBucketId('') }} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"><option value="">Requires review</option>{[...new Set(options.categories.map(item => item.family))].map(family => <optgroup key={family} label={family}>{options.categories.filter(item => item.family === family).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>)}</select></div>
+      {mapping.legacyCategoryType === 'transfer' ? <div><label className="mb-1 block text-xs text-slate-500">Transfer reason</label><select value={transferReason} onChange={e => setTransferReason(e.target.value as TransferReason)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"><option value="">Requires review</option>{transferReasons.map(reason => <option key={reason.value} value={reason.value}>{reason.label}</option>)}</select></div> : <div><label className="mb-1 block text-xs text-slate-500">Purpose</label><select value={canonicalCategoryId} onChange={e => { setCanonicalCategoryId(e.target.value); if (options.categories.find(item => item.id === e.target.value)?.type === 'income') setBucketId('') }} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"><option value="">Requires review</option>{[...new Set(options.categories.map(item => item.family))].map(family => <optgroup key={family} label={family}>{options.categories.filter(item => item.family === family).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>)}</select></div>}
       <div className="grid grid-cols-2 gap-3"><div><label className="mb-1 block text-xs text-slate-500">Context</label><select value={contextId} onChange={e => { const nextContext = options.contexts.find(item => item.id === e.target.value); setContextId(e.target.value); if (!canUseHouseholdBucket(nextContext?.name, purpose?.type)) setBucketId('') }} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"><option value="">Requires review</option>{options.contexts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div><div><label className="mb-1 block text-xs text-slate-500">Household bucket</label><select value={bucketId} onChange={e => setBucketId(e.target.value)} disabled={!householdExpense} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"><option value="">{emptyBucketLabel(context?.name, purpose?.type)}</option>{householdExpense && options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div></div>
       <div><label className="mb-1 block text-xs text-slate-500">Tax treatment</label><select value={taxTreatment} onChange={e => setTaxTreatment(e.target.value as typeof taxTreatment)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"><option value="none">None</option><option value="deductible">Deductible</option><option value="review">Needs review</option></select></div>
       <p className="text-[11px] text-slate-400">Saving updates this default and applies it to existing transactions in the legacy category. Ledger amounts, dates and accounts are not changed.</p>

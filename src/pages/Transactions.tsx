@@ -8,6 +8,7 @@ import { ImportBankModal } from '../components/ImportBankModal'
 import { ImportAlzexButton } from '../components/ImportAlzexButton'
 import type { Transaction, Account, Category, ScheduledTransaction } from '../types/finance'
 import { merchantDisplayName } from '../lib/merchants'
+import { transferReasonLabel } from '../lib/transfers'
 
 interface Props {
   accounts: Account[]
@@ -775,6 +776,11 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
         {!tx.isTransfer && (tx.contextName || tx.canonicalCategoryName || tx.bucketName) && (
           <p className="mt-0.5 text-[10px] leading-tight text-slate-400 truncate">
             {[tx.contextName, tx.canonicalCategoryName && `${tx.canonicalCategoryFamily}: ${tx.canonicalCategoryName}`, tx.bucketName].filter(Boolean).join(' · ')}
+          </p>
+        )}
+        {tx.isTransfer && (
+          <p className="mt-0.5 text-[10px] leading-tight text-sky-600 truncate">
+            {[transferReasonLabel(tx.transferReason), tx.contextName].filter(Boolean).join(' · ')}
           </p>
         )}
       </div>

@@ -2,14 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Check, ChevronDown, ChevronRight, Search, ShieldAlert } from 'lucide-react'
 import { api } from '../api'
 import { canUseHouseholdBucket, emptyBucketLabel } from '../lib/classification'
+import { transferReasonNeedsContext, transferReasons } from '../lib/transfers'
 import { fmt, formatDate } from '../utils'
-import type { ClassificationOptions, LegacyCategoryMapping, LegacyTransactionSample } from '../types/finance'
+import type { ClassificationOptions, LegacyCategoryMapping, LegacyTransactionSample, TransferReason } from '../types/finance'
 
 type Draft = {
   canonicalCategoryId: string
   contextId: string
   bucketId: string
   taxTreatment: 'none' | 'deductible' | 'review'
+  transferReason: TransferReason | null
 }
 
 type QueueFilter = 'unresolved' | 'protected' | 'resolved' | 'all'
@@ -20,6 +22,7 @@ function draftFor(mapping: LegacyCategoryMapping): Draft {
     contextId: mapping.contextId ?? '',
     bucketId: mapping.bucketId ?? '',
     taxTreatment: mapping.taxTreatment,
+    transferReason: mapping.transferReason,
   }
 }
 
@@ -107,8 +110,13 @@ export function suggestedDraftFor(mapping: LegacyCategoryMapping, options: Class
 }
 
 function issuesFor(mapping: LegacyCategoryMapping, draft: Draft, options: ClassificationOptions): string[] {
-  if (mapping.legacyCategoryType === 'transfer') return []
   const issues: string[] = []
+  if (mapping.legacyCategoryType === 'transfer') {
+    if (!draft.transferReason) issues.push('Transfer reason')
+    const context = options.contexts.find(item => item.id === draft.contextId)
+    if (transferReasonNeedsContext(draft.transferReason) && (!context || context.name === 'Review required')) issues.push('Funding context')
+    return issues
+  }
   const purpose = options.categories.find(item => item.id === draft.canonicalCategoryId)
   const context = options.contexts.find(item => item.id === draft.contextId)
   if (!purpose) issues.push('Purpose')
@@ -181,10 +189,11 @@ export function MigrationPage() {
     setError('')
     try {
       await api.classification.saveMapping(mapping.categoryId, {
-        canonicalCategoryId: draft.canonicalCategoryId || null,
+        canonicalCategoryId: mapping.legacyCategoryType === 'transfer' ? null : draft.canonicalCategoryId || null,
         contextId: draft.contextId || null,
-        bucketId: draft.bucketId || null,
-        taxTreatment: draft.taxTreatment,
+        bucketId: mapping.legacyCategoryType === 'transfer' ? null : draft.bucketId || null,
+        taxTreatment: mapping.legacyCategoryType === 'transfer' ? 'none' : draft.taxTreatment,
+        transferReason: mapping.legacyCategoryType === 'transfer' ? draft.transferReason : null,
       })
       await load()
     } catch (reason) {
@@ -264,8 +273,10 @@ export function MigrationPage() {
                   </button>
 
                   {transfer ? <>
-                    <div className="col-span-4 rounded-lg border border-sky-100 bg-sky-50 px-4 py-2.5 text-xs text-sky-700"><strong>Ledger transfer:</strong> classification comes from its source and target accounts. It creates no income or expense and consumes no Household Bucket.</div>
-                    <div className="flex h-[34px] items-center justify-center gap-1 rounded-lg bg-emerald-50 px-3 text-xs font-semibold text-emerald-700"><Check size={13} /> Exempt</div>
+                    <Field label="Transfer reason"><select value={draft.transferReason ?? ''} onChange={event => setDrafts(current => ({ ...current, [mapping.categoryId]: { ...draft, transferReason: (event.target.value || null) as TransferReason | null } }))} className="field-select"><option value="">Choose reason…</option>{transferReasons.map(reason => <option key={reason.value} value={reason.value}>{reason.label}</option>)}</select></Field>
+                    <Field label="Funding context"><select value={draft.contextId} onChange={event => setDrafts(current => ({ ...current, [mapping.categoryId]: { ...draft, contextId: event.target.value } }))} className="field-select"><option value="">None</option>{options.contexts.filter(item => item.name !== 'Review required' && item.name !== 'Household').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+                    <div className="col-span-2 flex h-[34px] items-center rounded-lg border border-sky-100 bg-sky-50 px-3 text-[10px] leading-4 text-sky-700">Ledger-neutral: excluded from income, expenses, tax and Household Buckets.</div>
+                    <button onClick={() => save(mapping)} disabled={savingId === mapping.categoryId || !dirty} className={`flex h-[34px] items-center justify-center gap-1 rounded-lg px-3 text-xs font-semibold ${complete && !dirty ? 'bg-emerald-50 text-emerald-700' : dirty ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-100 text-slate-400'} disabled:cursor-default`}>{complete && !dirty ? <><Check size={13} /> Resolved</> : savingId === mapping.categoryId ? 'Applying…' : dirty ? <>Save <ChevronRight size={13} /></> : 'No changes'}</button>
                   </> : <>
                     <Field label="Purpose"><SearchablePurposeSelect options={options.categories} value={draft.canonicalCategoryId} onChange={canonicalCategoryId => { const nextPurpose = options.categories.find(item => item.id === canonicalCategoryId); setDrafts(current => ({ ...current, [mapping.categoryId]: { ...draft, canonicalCategoryId, bucketId: nextPurpose?.type === 'income' ? '' : draft.bucketId } })) }} /></Field>
                     <Field label="Context"><select value={draft.contextId} onChange={event => { const contextId = event.target.value; const nextContext = options.contexts.find(item => item.id === contextId); setDrafts(current => ({ ...current, [mapping.categoryId]: { ...draft, contextId, bucketId: canUseHouseholdBucket(nextContext?.name, purpose?.type) ? draft.bucketId : '' } })) }} className="field-select"><option value="">Choose context…</option>{options.contexts.filter(item => item.name !== 'Review required').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>

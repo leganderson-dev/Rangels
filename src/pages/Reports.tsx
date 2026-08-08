@@ -6,7 +6,8 @@ import {
 import { api } from '../api'
 import { fmt, fmtShort, monthShort, monthName } from '../utils'
 import type { Account, Category, Transaction } from '../types/finance'
-import { TrendingUp, TrendingDown, DollarSign, ChevronRight, ArrowLeft, BarChart2, PieChart as PieIcon, TrendingUp as TrendIcon, Layers } from 'lucide-react'
+import { TrendingUp, TrendingDown, DollarSign, ChevronRight, ArrowLeft, ArrowLeftRight, BarChart2, PieChart as PieIcon, TrendingUp as TrendIcon, Layers } from 'lucide-react'
+import { transferReasonLabel } from '../lib/transfers'
 
 interface Props {
   accounts: Account[]
@@ -23,7 +24,7 @@ interface Props {
   customTo?: string
 }
 
-type View = 'cashflow' | 'spending' | 'trends'
+type View = 'cashflow' | 'spending' | 'trends' | 'funding'
 
 interface DrillState {
   type: 'month' | 'category'
@@ -41,11 +42,16 @@ export function ReportsPage({ categories, month, year, selectedAccountId, dateMo
   const [drillTxns, setDrillTxns] = useState<Transaction[]>([])
   const [trendCats, setTrendCats] = useState<string[]>([])
   const [trendData, setTrendData] = useState<any[]>([])
+  const [fundingTransfers, setFundingTransfers] = useState<Transaction[]>([])
 
   const isCustom = dateMode === 'custom' && !!customFrom && !!customTo
 
   useEffect(() => {
     api.transactions.yearlySummary(year, selectedAccountId).then(setYearly)
+    api.transactions.list(isCustom
+      ? { dateFrom: customFrom!, dateTo: customTo!, accountId: selectedAccountId ?? undefined }
+      : { dateFrom: `${year}-01-01`, dateTo: `${year}-12-31`, accountId: selectedAccountId ?? undefined })
+      .then(rows => setFundingTransfers(rows.filter(row => row.isTransfer && Boolean(row.transferReason) && row.transferReason !== 'account_movement')))
     if (isCustom) {
       api.transactions.list({ dateFrom: customFrom!, dateTo: customTo!, accountId: selectedAccountId ?? undefined }).then(txs => {
         const byCat = new Map<string, any>()
@@ -198,6 +204,7 @@ export function ReportsPage({ categories, month, year, selectedAccountId, dateMo
               { key: 'cashflow' as View, icon: BarChart2, label: 'Cash Flow' },
               { key: 'spending' as View, icon: PieIcon, label: 'Spending' },
               { key: 'trends' as View, icon: TrendIcon, label: 'Trends' },
+              { key: 'funding' as View, icon: ArrowLeftRight, label: 'Funding' },
             ].map(v => (
               <button
                 key={v.key}
@@ -526,6 +533,20 @@ export function ReportsPage({ categories, month, year, selectedAccountId, dateMo
                 {trendCats.length === 0 ? 'Select categories above to see trends' : 'Loading…'}
               </div>
             )}
+          </div>
+        )}
+
+        {view === 'funding' && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <KpiCard label={`Funding transfers · ${isCustom ? periodLabel : year}`} value={fmt(fundingTransfers.reduce((sum, transfer) => sum + Math.abs(transfer.amount), 0))} color="indigo" icon={ArrowLeftRight} />
+              <KpiCard label="Classified transfers" value={String(fundingTransfers.length)} color="emerald" icon={Layers} />
+              <KpiCard label="Property funding" value={fmt(fundingTransfers.filter(transfer => transfer.transferReason === 'property_funding').reduce((sum, transfer) => sum + Math.abs(transfer.amount), 0))} color="amber" icon={DollarSign} />
+            </div>
+            <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+              <div className="border-b border-gray-100 px-5 py-4"><h3 className="text-sm font-semibold text-gray-700">Funding movements</h3><p className="mt-1 text-xs text-gray-400">Shown separately from income and expenses. Ordinary account movements are excluded.</p></div>
+              {fundingTransfers.length ? <table className="w-full text-sm"><thead><tr className="border-b border-gray-100 bg-gray-50/80 text-[10px] uppercase tracking-widest text-gray-400"><th className="px-5 py-3 text-left font-semibold">Date</th><th className="px-5 py-3 text-left font-semibold">Reason</th><th className="px-5 py-3 text-left font-semibold">Funding context</th><th className="px-5 py-3 text-left font-semibold">Movement</th><th className="px-5 py-3 text-right font-semibold">Amount</th></tr></thead><tbody className="divide-y divide-gray-50">{fundingTransfers.map(transfer => <tr key={transfer.id} className="hover:bg-sky-50/40"><td className="px-5 py-3 text-xs text-gray-400">{transfer.date}</td><td className="px-5 py-3 font-medium text-gray-700">{transferReasonLabel(transfer.transferReason)}</td><td className="px-5 py-3 text-gray-500">{transfer.contextName ?? '—'}</td><td className="px-5 py-3 text-xs text-gray-500">{transfer.accountName} → {transfer.targetAccountName ?? 'Unknown account'}</td><td className="px-5 py-3 text-right font-semibold text-sky-600">{fmt(Math.abs(transfer.amount))}</td></tr>)}</tbody></table> : <div className="py-14 text-center text-sm text-gray-400">No classified funding transfers in this period.</div>}
+            </div>
           </div>
         )}
       </div>

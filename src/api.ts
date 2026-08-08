@@ -14,6 +14,7 @@ import type {
   Transaction,
   TransactionFilter,
   HouseholdMember,
+  TransferReason,
 } from './types/finance'
 import { parseBankExport } from './lib/importers'
 import { createCategoryMatcher, normalizeDescription, relevantCategorySuggestions, transactionDuplicateKey } from './lib/matching'
@@ -178,7 +179,7 @@ async function importAlzex(): Promise<ImportResult | null> {
         : Math.abs(targetAmount || rawAmount)
     const accountId = accounts.get(sourceName)
     if (!accountId) { errors.push(`Unknown account for “${description}”.`); continue }
-    payloads.push({ owner_id: owner, account_id: accountId, target_account_id: isTransfer ? accounts.get(targetName) ?? null : null, category_id: categories.get(row[at('Category')]?.trim()) ?? null, occurred_on: alzexDate(row[at('Date')]), description, normalized_description: normalizeDescription(description), amount: transactionAmount, comment: at('Comment') >= 0 ? row[at('Comment')] ?? '' : '', status, is_transfer: isTransfer, external_id: externalId })
+    payloads.push({ owner_id: owner, account_id: accountId, target_account_id: isTransfer ? accounts.get(targetName) ?? null : null, category_id: categories.get(row[at('Category')]?.trim()) ?? null, occurred_on: alzexDate(row[at('Date')]), description, normalized_description: normalizeDescription(description), amount: transactionAmount, comment: at('Comment') >= 0 ? row[at('Comment')] ?? '' : '', status, is_transfer: isTransfer, transfer_reason: isTransfer ? 'account_movement' : null, external_id: externalId })
     if (externalId) knownExternalIds.add(externalId)
   }
   for (let index = 0; index < payloads.length; index += 500) {
@@ -565,6 +566,7 @@ async function listTransactions(filter: TransactionFilter = {}): Promise<Transac
       categoryFullName: category?.fullName ?? null,
       categoryColor: category?.color ?? null,
       isTransfer: row.is_transfer,
+      transferReason: row.transfer_reason ?? null,
       status: row.status,
       payee: row.payee ?? '',
       tags: Array.isArray(row.tags) ? row.tags.join(', ') : row.tags ?? '',
@@ -667,6 +669,7 @@ async function listCategoryMappings(): Promise<LegacyCategoryMapping[]> {
       notes: preserved && !row ? 'Reserved for manual owner review' : row?.notes ?? '',
       transactionCount: transactionCounts.get(category.id) ?? 0,
       legacyCategoryType: category.type,
+      transferReason: row?.transfer_reason ?? null,
     }
   })
 }
@@ -691,9 +694,10 @@ async function saveCategoryMapping(categoryId: string, data: {
   contextId: string | null
   bucketId: string | null
   taxTreatment: 'none' | 'deductible' | 'review'
+  transferReason: TransferReason | null
 }): Promise<void> {
   const owner = await ownerId()
-  const status = data.canonicalCategoryId && data.contextId ? 'mapped' : 'review'
+  const status = data.transferReason || (data.canonicalCategoryId && data.contextId) ? 'mapped' : 'review'
   const { error } = await supabase.from('category_classifications').upsert({
     owner_id: owner,
     legacy_category_id: categoryId,
@@ -701,6 +705,7 @@ async function saveCategoryMapping(categoryId: string, data: {
     context_id: data.contextId,
     bucket_id: data.bucketId,
     tax_treatment: data.taxTreatment,
+    transfer_reason: data.transferReason,
     migration_status: status,
     notes: 'Owner-reviewed mapping',
   }, { onConflict: 'legacy_category_id' })
@@ -710,6 +715,7 @@ async function saveCategoryMapping(categoryId: string, data: {
     context_id: data.contextId,
     bucket_id: data.bucketId,
     tax_treatment: data.taxTreatment,
+    transfer_reason: data.transferReason,
     updated_at: new Date().toISOString(),
   }).eq('category_id', categoryId)
   fail(transactionError)
@@ -725,6 +731,7 @@ function transactionPayload(data: Record<string, any>): Row {
     targetAccountId: 'target_account_id',
     categoryId: 'category_id',
     isTransfer: 'is_transfer',
+    transferReason: 'transfer_reason',
     status: 'status',
     payee: 'payee',
     externalId: 'external_id',
@@ -738,6 +745,7 @@ function transactionPayload(data: Record<string, any>): Row {
   for (const [source, target] of Object.entries(map)) {
     if (source in data) payload[target] = data[source]
   }
+  if (data.isTransfer && !('transferReason' in data)) payload.transfer_reason = 'account_movement'
   if ('tags' in data) {
     payload.tags = Array.isArray(data.tags)
       ? data.tags

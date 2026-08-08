@@ -48,6 +48,7 @@ export interface Transaction {
   categoryFullName: string | null
   categoryColor: string | null
   isTransfer: boolean
+  transferReason: TransferReason | null
   status: string
   payee: string
   tags: string
@@ -107,7 +108,10 @@ export interface LegacyCategoryMapping {
   notes: string
   transactionCount: number
   legacyCategoryType: 'income' | 'expense' | 'transfer'
+  transferReason: TransferReason | null
 }
+
+export type TransferReason = 'account_movement' | 'joint_contribution' | 'property_funding' | 'business_funding' | 'savings' | 'debt_reduction' | 'investment_contribution' | 'other'
 
 export interface LegacyTransactionSample {
   id: string
