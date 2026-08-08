@@ -6,24 +6,26 @@ interface Props {
   onClose: () => void
   children: React.ReactNode
   wide?: boolean
+  closeOnBackdrop?: boolean
+  closeOnEscape?: boolean
 }
 
-export function Modal({ title, onClose, children, wide }: Props) {
+export function Modal({ title, onClose, children, wide, closeOnBackdrop = true, closeOnEscape = true }: Props) {
   const overlayRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && closeOnEscape) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, closeOnEscape])
 
   return (
     <div
       ref={overlayRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      onClick={e => { if (e.target === overlayRef.current) onClose() }}
+      onClick={e => { if (closeOnBackdrop && e.target === overlayRef.current) onClose() }}
     >
       <div className={`bg-white rounded-xl shadow-2xl flex flex-col max-h-[94vh] ${wide ? 'w-[min(96vw,1500px)]' : 'w-[420px]'}`}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Upload, Check, AlertCircle, Pencil, ChevronDown, ChevronRight, LoaderCircle, Circle } from 'lucide-react'
+import { Upload, Check, AlertCircle, Pencil, ChevronDown, ChevronRight, LoaderCircle, Circle, Eye, EyeOff } from 'lucide-react'
 import { Modal } from './Modal'
 import { api } from '../api'
 import { fmt, formatDate } from '../utils'
@@ -50,6 +50,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   const [mappings, setMappings] = useState<LegacyCategoryMapping[]>([])
   const [loadError, setLoadError] = useState('')
   const [analysis, setAnalysis] = useState({ reading: false, found: null as number | null, duplicates: null as number | null, categorizing: false, done: false })
+  const [hideDuplicates, setHideDuplicates] = useState(true)
 
   useEffect(() => { api.classification.mappings().then(setMappings).catch(console.error) }, [])
 
@@ -106,10 +107,11 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   const uncategorisedCount = rows.filter(row => !row.duplicate && assignments[row.index] == null).length
   const duplicateCount = rows.filter(row => row.duplicate).length
   const totalAmount = rows.reduce((s, r) => s + r.amount, 0)
+  const visibleRows = hideDuplicates ? rows.filter(row => !row.duplicate) : rows
   const confidenceGroups: Array<{ key: ConfidenceGroup; label: string; range: string; rows: PreviewRow[] }> = [
-    { key: 'confident', label: 'Confident', range: '70–100%', rows: rows.filter(row => classifyConfidence(row.confidence) === 'confident') },
-    { key: 'likely', label: 'Likely', range: '50–70%', rows: rows.filter(row => classifyConfidence(row.confidence) === 'likely') },
-    { key: 'analysis', label: 'Requires analysis', range: 'Below 50%', rows: rows.filter(row => classifyConfidence(row.confidence) === 'analysis') },
+    { key: 'confident', label: 'Confident', range: '70–100%', rows: visibleRows.filter(row => classifyConfidence(row.confidence) === 'confident') },
+    { key: 'likely', label: 'Likely', range: '50–70%', rows: visibleRows.filter(row => classifyConfidence(row.confidence) === 'likely') },
+    { key: 'analysis', label: 'Requires analysis', range: 'Below 50%', rows: visibleRows.filter(row => classifyConfidence(row.confidence) === 'analysis') },
   ]
 
   function toggleGroup(groupRows: PreviewRow[]) {
@@ -131,7 +133,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   }
 
   return (
-    <Modal title="Import Bank CSV" onClose={onClose} wide>
+    <Modal title="Import Bank CSV" onClose={onClose} wide closeOnBackdrop={false} closeOnEscape={false}>
       {step === 'pick' && (
         <div className="flex flex-col items-center justify-center py-10 gap-4">
           <Upload size={40} className="text-gray-300" />
@@ -173,6 +175,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
               </span>
             )}
             {duplicateCount > 0 && <span className="text-slate-500">{duplicateCount} duplicates excluded</span>}
+            {duplicateCount > 0 && <button onClick={() => setHideDuplicates(value => !value)} className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">{hideDuplicates ? <Eye size={13} /> : <EyeOff size={13} />}{hideDuplicates ? `Show ${duplicateCount} duplicates` : 'Hide duplicates'}</button>}
             <span className="ml-auto font-semibold text-gray-700">{fmt(totalAmount, true)}</span>
           </div>
 
@@ -210,9 +213,6 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
               Back
             </button>
             <div className="flex-1" />
-            <button onClick={onClose} className="border border-gray-300 rounded-lg px-4 py-2 text-sm hover:bg-gray-50">
-              Cancel
-            </button>
             <button
               onClick={handleImport}
               disabled={loading}
