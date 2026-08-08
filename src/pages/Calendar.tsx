@@ -98,23 +98,20 @@ export function CalendarPage({ accounts, categories, selectedAccountId, month, y
   const monthIncome = calData?.days.reduce((s, d) => s + d.income, 0) ?? 0
   const monthExpenses = calData?.days.reduce((s, d) => s + d.expenses, 0) ?? 0
   const net = monthIncome + monthExpenses
-  const endBalance = calData?.days[calData.days.length - 1]?.balance ?? calData?.startBalance ?? null
-
   function refreshCalendar() { setCalKey(k => k + 1) }
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-gray-50">
       {/* Summary strip */}
       <div className="flex items-stretch border-b border-gray-100 bg-white shrink-0">
-        <SummaryCell label="Opening balance" value={calData ? fmt(calData.startBalance) : '—'} />
         <SummaryCell label="Income" value={fmt(monthIncome)} valueClass="text-emerald-600" />
         <SummaryCell label="Expenses" value={fmt(Math.abs(monthExpenses))} valueClass="text-rose-500" />
         <SummaryCell
           label="Net"
           value={calData ? fmt(net, true) : '—'}
           valueClass={net >= 0 ? 'text-emerald-600' : 'text-rose-500'}
+          last
         />
-        <SummaryCell label="Closing balance" value={endBalance !== null ? fmt(endBalance) : '—'} last />
       </div>
 
       {/* Weekday headers */}
@@ -182,7 +179,6 @@ export function CalendarPage({ accounts, categories, selectedAccountId, month, y
                       }`}>
                         {fmt(cell.data.total, true)}
                       </p>
-                      <p className="text-[11px] text-gray-400 text-right tabular-nums">{fmt(cell.data.balance)}</p>
                     </div>
                   )}
                   {cell.isCurrentMonth && !cell.data && (
