@@ -63,7 +63,7 @@ function SignIn() {
   return (
     <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
       <form onSubmit={submit} className="w-full max-w-sm rounded-2xl bg-white border border-slate-200 shadow-sm p-7">
-        <p className="text-xs font-bold tracking-[0.18em] text-blue-700 uppercase">Rangels V0.7</p>
+        <p className="text-xs font-bold tracking-[0.18em] text-blue-700 uppercase">Rangels V0.7.1</p>
         <h1 className="mt-2 text-2xl font-bold text-slate-900">Your finances, clearly.</h1>
         <p className="mt-2 text-sm text-slate-500">Sign in with your email. We’ll send you a secure link.</p>
         <label className="block mt-6 text-xs font-semibold text-slate-600">Email</label>

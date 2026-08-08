@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Check, ChevronRight, Search, ShieldAlert } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { AlertTriangle, Check, ChevronDown, ChevronRight, Search, ShieldAlert } from 'lucide-react'
 import { api } from '../api'
 import type { ClassificationOptions, LegacyCategoryMapping } from '../types/finance'
 
@@ -160,7 +160,7 @@ export function MigrationPage() {
                     <div className="col-span-4 rounded-lg border border-sky-100 bg-sky-50 px-4 py-2.5 text-xs text-sky-700"><strong>Ledger transfer:</strong> classification comes from its source and target accounts. It creates no income or expense and consumes no Household Bucket.</div>
                     <div className="flex h-[34px] items-center justify-center gap-1 rounded-lg bg-emerald-50 px-3 text-xs font-semibold text-emerald-700"><Check size={13} /> Exempt</div>
                   </> : <>
-                    <Field label="Purpose"><select value={draft.canonicalCategoryId} onChange={event => { const canonicalCategoryId = event.target.value; const nextPurpose = options.categories.find(item => item.id === canonicalCategoryId); setDrafts(current => ({ ...current, [mapping.categoryId]: { ...draft, canonicalCategoryId, bucketId: nextPurpose?.type === 'income' ? '' : draft.bucketId } })) }} className="field-select"><option value="">Choose purpose…</option>{[...new Set(options.categories.map(item => item.family))].map(family => <optgroup key={family} label={family}>{options.categories.filter(item => item.family === family).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>)}</select></Field>
+                    <Field label="Purpose"><SearchablePurposeSelect options={options.categories} value={draft.canonicalCategoryId} onChange={canonicalCategoryId => { const nextPurpose = options.categories.find(item => item.id === canonicalCategoryId); setDrafts(current => ({ ...current, [mapping.categoryId]: { ...draft, canonicalCategoryId, bucketId: nextPurpose?.type === 'income' ? '' : draft.bucketId } })) }} /></Field>
                     <Field label="Context"><select value={draft.contextId} onChange={event => { const contextId = event.target.value; const household = options.contexts.find(item => item.id === contextId)?.name === 'Household'; setDrafts(current => ({ ...current, [mapping.categoryId]: { ...draft, contextId, bucketId: household && !income ? draft.bucketId : '' } })) }} className="field-select"><option value="">Choose context…</option>{options.contexts.filter(item => item.name !== 'Review required').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
                     <Field label="Household bucket"><select value={draft.bucketId} disabled={context?.name !== 'Household' || income} onChange={event => setDrafts(current => ({ ...current, [mapping.categoryId]: { ...draft, bucketId: event.target.value } }))} className="field-select disabled:bg-slate-100 disabled:text-slate-400"><option value="">{income ? 'Allocation source' : context?.name === 'Household' ? 'Choose bucket…' : 'Not applicable'}</option>{!income && options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
                     <Field label="Tax"><select value={draft.taxTreatment} onChange={event => setDrafts(current => ({ ...current, [mapping.categoryId]: { ...draft, taxTreatment: event.target.value as Draft['taxTreatment'] } }))} className="field-select"><option value="none">None</option><option value="deductible">Deductible</option><option value="review">Needs review</option></select></Field>
@@ -182,4 +182,66 @@ export function MigrationPage() {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</span>{children}</label>
+}
+
+function SearchablePurposeSelect({ options, value, onChange }: {
+  options: ClassificationOptions['categories']
+  value: string
+  onChange: (value: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const rootRef = useRef<HTMLDivElement>(null)
+  const selected = options.find(option => option.id === value)
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const filtered = options.filter(option => !normalizedQuery || option.name.toLocaleLowerCase().includes(normalizedQuery) || option.family.toLocaleLowerCase().includes(normalizedQuery))
+  const families = [...new Set(filtered.map(option => option.family))]
+
+  useEffect(() => {
+    if (!open) return
+    function closeOnOutsideClick(event: MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick)
+  }, [open])
+
+  function choose(nextValue: string) {
+    onChange(nextValue)
+    setQuery('')
+    setOpen(false)
+  }
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button type="button" onClick={() => setOpen(current => !current)} aria-haspopup="listbox" aria-expanded={open} className="field-select flex items-center justify-between gap-2 text-left">
+        <span className={selected ? 'truncate' : 'truncate text-slate-400'}>{selected?.name ?? 'Choose purpose…'}</span>
+        <ChevronDown size={14} className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-full min-w-[280px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+          <div className="border-b border-slate-100 p-2">
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input autoFocus value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') setOpen(false); if (event.key === 'Enter' && filtered[0]) choose(filtered[0].id) }} placeholder="Search purposes…" className="w-full rounded-lg border border-slate-200 py-2 pl-8 pr-2 text-xs outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+            </div>
+          </div>
+          <div role="listbox" className="max-h-72 overflow-y-auto p-1.5">
+            <button type="button" onClick={() => choose('')} className="flex w-full items-center rounded-md px-2.5 py-2 text-left text-xs text-slate-500 hover:bg-slate-50">Choose purpose…</button>
+            {families.map(family => (
+              <div key={family}>
+                <p className="px-2.5 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">{family}</p>
+                {filtered.filter(option => option.family === family).map(option => (
+                  <button key={option.id} type="button" role="option" aria-selected={option.id === value} onClick={() => choose(option.id)} className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-blue-50 ${option.id === value ? 'bg-blue-50 font-semibold text-blue-700' : 'text-slate-700'}`}>
+                    <span>{option.name}</span>{option.id === value && <Check size={13} />}
+                  </button>
+                ))}
+              </div>
+            ))}
+            {!filtered.length && <p className="px-3 py-6 text-center text-xs text-slate-400">No purposes match “{query}”.</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
