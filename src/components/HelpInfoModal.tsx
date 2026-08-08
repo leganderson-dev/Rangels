@@ -148,7 +148,7 @@ export function HelpInfoModal({ onClose }: { onClose: () => void }) {
           </div>
         </section>
 
-        <div className="flex items-center justify-between border-t border-slate-200 pt-4 text-[11px] text-slate-400"><span>Rangels V0.7.3 · This guide reflects the current agreed model.</span><span>Ledger first · Import first · No destructive legacy conversion</span></div>
+        <div className="flex items-center justify-between border-t border-slate-200 pt-4 text-[11px] text-slate-400"><span>Rangels V0.7.4 · This guide reflects the current agreed model.</span><span>Ledger first · Import first · No destructive legacy conversion</span></div>
       </div>
     </Modal>
   )

@@ -22,7 +22,9 @@ function draftFor(mapping: LegacyCategoryMapping): Draft {
   }
 }
 
-function suggestedDraftFor(mapping: LegacyCategoryMapping, options: ClassificationOptions): Draft {
+// Exported for deterministic mapping regression tests.
+// eslint-disable-next-line react-refresh/only-export-components
+export function suggestedDraftFor(mapping: LegacyCategoryMapping, options: ClassificationOptions): Draft {
   const draft = draftFor(mapping)
   if (mapping.status === 'preserved' || mapping.legacyCategoryType === 'transfer') return draft
   const path = mapping.categoryPath.toLocaleLowerCase()
@@ -42,21 +44,51 @@ function suggestedDraftFor(mapping: LegacyCategoryMapping, options: Classificati
     const suggestions: Array<[RegExp, string, string?]> = mapping.legacyCategoryType === 'income'
       ? [
           [/^salario.*extra|additional/, 'Additional earnings'], [/^salario|salary/, 'Salary'],
-          [/interest/, 'Interest'], [/rent/, 'Rental income'], [/refund|rebate/, 'Refund / rebate'],
+          [/interest/, 'Interest'], [/rent/, 'Rental income'], [/^asa:refund/, 'Business refund'], [/refund|rebate/, 'Refund / rebate'],
           [/^asa:/, 'Business income'],
         ]
       : [
-          [/supermarket|grocer/, 'Groceries'], [/restaurant|restaurante/, 'Restaurants'], [/cafe/, 'Cafes'],
+          [/^food:supermarket|grocer/, 'Groceries'], [/^food:restaurant|^food:restaurante/, 'Restaurants'],
+          [/^food:cafe/, 'Cafes'], [/^food:work lunch/, 'Work meals'], [/^food:tuckshop/, 'Tuckshop meals'], [/^food$/, 'Other food'],
+          [/^contas diversas:phone/, 'Mobile phone'], [/^contas diversas:internet/, 'Internet'],
+          [/^contas diversas:home\/content insurance/, 'Home insurance'], [/^contas diversas:school care/, 'School care'],
+          [/^contas diversas:kindy/, 'Childcare'], [/^contas diversas:school fees/, 'School fees'],
+          [/^contas diversas:energy bill/, 'Electricity'], [/^contas diversas:gas bill/, 'Gas'],
+          [/^contas diversas:water bill/, 'Water'], [/^contas diversas:rent$/, 'Rent'],
+          [/^contas diversas:seguro de saude/, 'Health insurance'], [/^contas diversas:subscriptions?/, 'Subscriptions'],
+          [/^contas diversas:mg loan/, 'Debt repayment'], [/^contas diversas:tax office/, 'Tax payment'],
           [/gasolina|petrol|fuel/, 'Fuel'], [/public transport|opal/, 'Public transport'], [/uber|taxi/, 'Rideshare and taxi'],
-          [/kids:activities/, 'Activities'], [/kids:childcare/, 'Childcare'], [/kids:.*allowance/, 'Allowance'],
-          [/kids:.*clothing/, 'Clothing', 'Children'], [/kids:.*entertainment/, 'Entertainment', 'Children'], [/kids:.*toys?/, 'Toys'],
-          [/subscriptions?/, 'Subscriptions'], [/trips?|holidays?/, 'Travel'], [/alcohol/, 'Alcohol'],
-          [/gifts?/, 'Gifts'], [/gadgets?|electronics?/, 'Electronics and gadgets'], [/selfcare|personal care/, 'Personal care'],
-          [/entertainment & recreation:.*clothing/, 'Clothing', 'Lifestyle'], [/entertainment & recreation:/, 'Entertainment', 'Lifestyle'],
-          [/transportation:.*parking/, 'Parking'], [/transportation:.*toll/, 'Tolls'],
-          [/bank:.*fees?/, 'Bank fees'], [/insurance.*excess|excess/, 'Insurance excess'],
-          [/^asa:academy/, 'Program / team costs'], [/^asa:.*uniform/, 'Uniforms'], [/^asa:.*staff/, 'Staff costs'],
-          [/^asa:/, 'General operating costs'],
+          [/transportation:.*lime|scooter/, 'Micromobility'], [/transportation:.*parking/, 'Parking'],
+          [/transportation:.*pedagio|transportation:.*toll/, 'Tolls'], [/transportation:.*rego/, 'Registration'],
+          [/transportation:.*insurance/, 'Vehicle insurance'], [/transportation:.*manutencao|transportation:.*maintenance/, 'Vehicle maintenance'],
+          [/transportation:.*multa|transportation:.*fine/, 'Fines'], [/transportation:.*newcar|transportation:.*new car/, 'Vehicle purchase'],
+          [/kids:activities/, 'Activities'], [/kids:adhoc care|kids:childcare/, 'Childcare'], [/kids:.*allowance/, 'Allowance'],
+          [/kids:schoolstuff/, 'School supplies'], [/kids:books/, 'Books and learning'],
+          [/kids:clothes/, 'Clothing', 'Children'], [/kids:entertainment/, 'Entertainment', 'Children'], [/kids:toys?/, 'Toys'],
+          [/kids:birthday/, 'Gifts'],
+          [/^health:doctor/, 'Medical care'], [/^health:chemist/, 'Pharmacy'],
+          [/^pet:comida/, 'Food', 'Pets'], [/^pet:vet/, 'Veterinary care'], [/^pet:seguro/, 'Insurance', 'Pets'], [/^pet:outros|^pet$/, 'Other', 'Pets'],
+          [/subscriptions?|subcriptions?/, 'Subscriptions'], [/trips?|holidays?/, 'Travel'], [/alcohol/, 'Alcohol'],
+          [/gifts?/, 'Gifts'], [/googleplay|digital purchase/, 'Digital purchases'], [/gadjets?|gadgets?|electronics?/, 'Electronics and gadgets'],
+          [/selfcare|personal care/, 'Personal care'], [/entertainment & recreation:.*clothing/, 'Clothing', 'Lifestyle'],
+          [/entertainment & recreation:.*cafe/, 'Cafes'], [/entertainment & recreation:.*couples night out/, 'Entertainment', 'Lifestyle'],
+          [/entertainment & recreation:/, 'Entertainment', 'Lifestyle'],
+          [/^bank:cardmonthlyfee|^bank:fees/, 'Bank fees'], [/^bank:excess|insurance.*excess/, 'Insurance excess'],
+          [/^gov:divida/, 'Debt repayment'], [/^gov:tax|^tax$/, 'Tax payment'], [/taxdeductable:donation/, 'Donations'],
+          [/^variados:cleaning/, 'Cleaning'], [/^variados:home furniture|appliance|aplience/, 'Furniture and appliances'],
+          [/^besteira:figurinha/, 'Hobbies and collectibles'], [/^besteira:gadjets?/, 'Electronics and gadgets'],
+          [/house - .*:.*council|coucil/, 'Council rates'], [/house - .*:.*insurance/, 'Insurance', 'Property'],
+          [/house - .*:.*water bill/, 'Water'],
+          [/house - .*:.*mortgage/, 'Mortgage payment'], [/house - evertonpark:land loan/, 'Land loan payment'],
+          [/house - evertonpark:pool loan/, 'Pool loan payment'], [/house - .*:.*pool maintenance/, 'Pool maintenance'],
+          [/house - .*:.*garden|house - evertonpark:plants/, 'Garden and landscaping'],
+          [/house - .*:construction extras/, 'Capital improvements'], [/house - toogoom:deposit/, 'Acquisition / deposit'],
+          [/house - .*:.*bunnings|house - .*:.*maintenance|house - .*:.*manutencao/, 'Repairs and maintenance'],
+          [/house - .*:.*furniture|applicances/, 'Furniture and appliances'], [/house - .*:general costs/, 'Other property cost'],
+          [/^asa:.*uniform/, 'Uniforms'], [/^asa:.*staff|^asa:julia's salary/, 'Staff costs'],
+          [/^asa:tax:it/, 'IT'], [/^asa:tax:licences/, 'Licences'], [/^asa:tax:marketing/, 'Marketing'],
+          [/^asa:tax:medal|trophy/, 'Awards and trophies'], [/^asa:tax:training equipment/, 'Training equipment'],
+          [/^asa:refund/, 'Business refund'], [/^asa:costs/, 'General operating costs'],
         ]
     const match = suggestions.find(([pattern]) => pattern.test(path))
     if (match) draft.canonicalCategoryId = findPurpose(match[1], match[2])
@@ -65,9 +97,10 @@ function suggestedDraftFor(mapping: LegacyCategoryMapping, options: Classificati
   const context = options.contexts.find(item => item.id === draft.contextId)
   const purpose = options.categories.find(item => item.id === draft.canonicalCategoryId)
   if (!draft.bucketId && context?.name === 'Household' && purpose?.type === 'expense') {
-    const daily = ['Groceries', 'Fuel', 'Public transport', 'Childcare', 'School care', 'School fees', 'School supplies', 'Books and learning', 'Activities', 'Medical care', 'Pharmacy', 'Electricity', 'Gas', 'Water', 'Internet', 'Mobile phone']
-    const smile = ['Travel', 'Gifts', 'Donations']
-    draft.bucketId = findBucket(smile.includes(purpose.name) ? 'Smile' : daily.includes(purpose.name) ? 'Daily Expenses' : 'Splurge')
+    const daily = ['Mortgage payment', 'Rent', 'Council rates', 'Electricity', 'Gas', 'Water', 'Internet', 'Mobile phone', 'Home insurance', 'Groceries', 'Fuel', 'Public transport', 'Parking', 'Tolls', 'Registration', 'Vehicle insurance', 'Vehicle maintenance', 'Childcare', 'School care', 'School fees', 'School supplies', 'Books and learning', 'Activities', 'Clothing', 'Allowance', 'Medical care', 'Pharmacy', 'Health insurance', 'Pet food', 'Veterinary care', 'Bank fees', 'Debt repayment', 'Tax payment']
+    const smile = ['Travel', 'Gifts', 'Donations', 'Hobbies and collectibles']
+    const dailyByFamily = purpose.family === 'Pets' || (purpose.family === 'Children' && !['Entertainment', 'Toys'].includes(purpose.name))
+    draft.bucketId = findBucket(smile.includes(purpose.name) ? 'Smile' : daily.includes(purpose.name) || dailyByFamily ? 'Daily Expenses' : 'Splurge')
   }
   return draft
 }
