@@ -11,6 +11,7 @@ import { CalendarPage } from './pages/Calendar'
 import { MerchantsPage } from './pages/Merchants'
 import { PlanPage } from './pages/Plan'
 import { MigrationPage } from './pages/Migration'
+import { HelpInfoModal } from './components/HelpInfoModal'
 import { api } from './api'
 import type { Account, Category, HouseholdMember } from './types/finance'
 import type { Session } from '@supabase/supabase-js'
@@ -80,6 +81,7 @@ function FinanceApp() {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [members, setMembers] = useState<HouseholdMember[]>([])
+  const [showHelp, setShowHelp] = useState(false)
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
   const [now] = useState(() => new Date())
   const [month, setMonth] = useState(now.getMonth() + 1)
@@ -142,6 +144,7 @@ function FinanceApp() {
           dateMode={dateMode} onDateModeChange={setDateMode}
           customFrom={customFrom} onCustomFromChange={setCustomFrom}
           customTo={customTo} onCustomToChange={setCustomTo}
+          onHelp={() => setShowHelp(true)}
         />
         <main className="flex-1 overflow-hidden">
           {page === 'overview' && <OverviewPage {...pageProps} />}
@@ -156,6 +159,7 @@ function FinanceApp() {
           {page === 'calendar' && <CalendarPage {...pageProps} />}
         </main>
       </div>
+      {showHelp && <HelpInfoModal onClose={() => setShowHelp(false)} />}
     </div>
   )
 }

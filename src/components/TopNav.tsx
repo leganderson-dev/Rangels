@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CircleHelp } from 'lucide-react'
 import type { Page } from '../App'
 import { monthName } from '../utils'
 
@@ -28,6 +28,7 @@ interface Props {
   onCustomFromChange: (v: string) => void
   customTo: string
   onCustomToChange: (v: string) => void
+  onHelp: () => void
 }
 
 export function TopNav({
@@ -36,6 +37,7 @@ export function TopNav({
   dateMode, onDateModeChange,
   customFrom, onCustomFromChange,
   customTo, onCustomToChange,
+  onHelp,
 }: Props) {
   const showDateNav = ['overview', 'transactions', 'calendar', 'reports', 'budget'].includes(page)
 
@@ -113,6 +115,9 @@ export function TopNav({
           )}
         </div>
       )}
+      <button onClick={onHelp} className="titlebar-nodrag flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700" title="How Rangels works">
+        <CircleHelp size={14} /> Help
+      </button>
     </header>
   )
 }
