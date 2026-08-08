@@ -4,9 +4,10 @@ import { api } from '../api'
 
 interface Props {
   onDone: () => void
+  joined?: boolean
 }
 
-export function ImportAlzexButton({ onDone }: Props) {
+export function ImportAlzexButton({ onDone, joined = false }: Props) {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<{ imported: number; skipped: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -33,7 +34,7 @@ export function ImportAlzexButton({ onDone }: Props) {
       <button
         onClick={handleImport}
         disabled={loading}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+        className={`flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 ${joined ? '' : 'rounded-lg border border-gray-200'}`}
         title="Import from Alzex CSV export"
       >
         <Database size={14} />

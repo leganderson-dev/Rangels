@@ -6,9 +6,10 @@ interface Props {
 }
 
 export function CategoryPill({ name, color, size = 'sm', maxWidth }: Props) {
-  if (!name) return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-400 max-w-full truncate">
-      Uncategorised
+  if (!name || /^\?+$/.test(name.trim())) return (
+    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 max-w-full truncate">
+      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+      Needs category
     </span>
   )
 
@@ -33,4 +34,3 @@ function hexToRgba(hex: string, alpha: number): string {
   const b = parseInt(hex.slice(5, 7), 16)
   return `rgba(${r},${g},${b},${alpha})`
 }
-

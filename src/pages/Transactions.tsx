@@ -27,6 +27,10 @@ const TYPE_CONFIG = {
   transfer: { label: 'Transfers', Icon: ArrowLeftRight, color: 'text-sky-600', bg: 'bg-sky-50', border: 'border-sky-100', dot: '#0ea5e9' },
 } as const
 
+function needsCategory(transaction: Transaction): boolean {
+  return transaction.categoryId === null || /^\?+$/.test(transaction.categoryFullName?.trim() ?? '')
+}
+
 export function TransactionsPage({ accounts, categories, selectedAccountId, month, year, dateMode, customFrom, customTo, onRefreshAccounts, onRefreshCategories }: Props) {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [scheduledTxns, setScheduledTxns] = useState<ScheduledTransaction[]>([])
@@ -34,6 +38,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   const [groupBy, setGroupBy] = useState<'category' | 'date' | 'none'>('category')
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense' | 'transfer'>('all')
   const [filterCatIds, setFilterCatIds] = useState<Set<string>>(new Set())
+  const [needsCategoryOnly, setNeedsCategoryOnly] = useState(false)
 
   // Collapse state: 3 levels
   const [collapsedTypes, setCollapsedTypes] = useState<Set<string>>(new Set())
@@ -190,8 +195,11 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
     else if (filterType === 'expense') result = result.filter(t => t.amount < 0 && !t.isTransfer)
     else if (filterType === 'transfer') result = result.filter(t => t.isTransfer)
     if (filterCatIds.size > 0) result = result.filter(t => t.categoryId != null && filterCatIds.has(t.categoryId))
+    if (needsCategoryOnly) result = result.filter(needsCategory)
     return result
-  }, [sorted, filterType, filterCatIds])
+  }, [sorted, filterType, filterCatIds, needsCategoryOnly])
+
+  const needsCategoryCount = transactions.filter(t => needsCategory(t) && !t.isTransfer).length
 
   const catMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories])
 
@@ -303,7 +311,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200 bg-white shrink-0">
+      <div className="flex items-center gap-2 px-4 py-2 bg-white shrink-0">
         <div className="relative flex-1 max-w-xs">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search transactions…"
@@ -318,8 +326,17 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
         <CategoryFilterButton
           categories={categories}
           selected={filterCatIds}
-          onChange={setFilterCatIds}
+          onChange={value => { setFilterCatIds(value); setNeedsCategoryOnly(false) }}
         />
+        {needsCategoryCount > 0 && (
+          <button
+            onClick={() => { setNeedsCategoryOnly(value => !value); setFilterCatIds(new Set()) }}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors ${needsCategoryOnly ? 'border-amber-300 bg-amber-100 text-amber-800' : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'}`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+            Needs category <span className="text-amber-500">{needsCategoryCount}</span>
+          </button>
+        )}
         {groupBy === 'category' && (
           <button onClick={toggleCollapseAll}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50">
@@ -335,7 +352,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
             <button onClick={handleBulkDelete} className="text-red-500 px-2 py-1 text-xs rounded hover:bg-red-50">Delete</button>
           </div>
         )}
-        <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs bg-gray-50">
           {TYPE_FILTERS.map(f => (
             <button key={f.key} onClick={() => setFilterType(f.key)}
               className={`px-3 py-1.5 transition-colors ${filterType === f.key
@@ -348,11 +365,14 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
             </button>
           ))}
         </div>
-        <ImportAlzexButton onDone={() => { refresh(); onRefreshAccounts(); onRefreshCategories() }} />
-        <button onClick={() => setShowImport(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
-          <Upload size={14} /> Import CSV
-        </button>
+        <div className="h-6 w-px bg-gray-200 mx-1" />
+        <div className="flex items-center rounded-lg border border-gray-200 overflow-hidden">
+          <ImportAlzexButton joined onDone={() => { refresh(); onRefreshAccounts(); onRefreshCategories() }} />
+          <button onClick={() => setShowImport(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 border-l border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
+            <Upload size={14} /> Import CSV
+          </button>
+        </div>
         <button onClick={() => setShowAdd(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">
           <Plus size={14} /> Add
@@ -360,7 +380,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
       </div>
 
       {/* Summary bar */}
-      <div className="flex items-center px-4 bg-white border-b border-gray-100 shrink-0">
+      <div className="flex items-center px-4 bg-slate-50/70 border-y border-gray-200 shrink-0">
         <div className="flex flex-col py-2.5 px-4 border-r border-gray-100">
           <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Income</span>
           <span className="text-sm font-bold text-emerald-600 mt-0.5">{fmt(income)}</span>
@@ -434,8 +454,8 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
                       onDragOver={e => { e.preventDefault(); setDragOverKey(group.key) }}
                       onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverKey(null) }}
                       onDrop={e => { e.preventDefault(); setDragOverKey(null); if (dragTxId.current !== null && group.catId !== null) { handleInlineCategory(dragTxId.current, group.catId); dragTxId.current = null } }}
-                      className={`w-full flex items-center gap-2 pl-8 pr-4 py-2 transition-colors border-b border-gray-100 ${dragOverKey === group.key ? 'bg-blue-50 ring-2 ring-inset ring-blue-400' : 'hover:bg-gray-100/60'}`}
-                      style={{ borderLeft: group.color ? `3px solid ${group.color}` : '3px solid #e5e7eb', background: dragOverKey === group.key ? undefined : 'rgba(249,250,251,0.95)' }}
+                      className={`w-full flex items-center gap-2 pl-8 pr-4 py-2.5 transition-colors border-b ${group.key === '__none' ? 'border-amber-100 bg-amber-50/70 hover:bg-amber-50' : 'border-gray-100 bg-slate-50 hover:bg-slate-100'} ${dragOverKey === group.key ? 'ring-2 ring-inset ring-blue-400' : ''}`}
+                      style={{ borderLeft: group.color ? `3px solid ${group.color}` : '3px solid #e5e7eb' }}
                     >
                       {parentCollapsed ? <ChevronRight size={12} className="text-gray-400 shrink-0" /> : <ChevronDown size={12} className="text-gray-400 shrink-0" />}
                       {group.color && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: group.color }} />}
@@ -456,8 +476,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
                           {!group.isSingleLevel && (
                             <button
                               onClick={() => toggleSub(group.key, child.key)}
-                              className="w-full flex items-center gap-2 pl-14 pr-4 py-1.5 hover:bg-gray-50 transition-colors border-b border-gray-50"
-                              style={{ background: 'rgba(255,255,255,0.97)' }}
+                              className="w-full flex items-center gap-2 pl-14 pr-4 py-2 bg-white hover:bg-slate-50 transition-colors border-b border-gray-100"
                             >
                               {subCollapsed ? <ChevronRight size={11} className="text-gray-300 shrink-0" /> : <ChevronDown size={11} className="text-gray-300 shrink-0" />}
                               {child.color && <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: child.color }} />}
@@ -611,10 +630,10 @@ function buildHierarchyGroups(transactions: Transaction[], catMap: Map<string, C
   }
 
   function getParentChild(tx: Transaction): { parentKey: string; parentLabel: string; parentColor: string | null; parentCatId: string | null; childKey: string; childLabel: string; childColor: string | null; childCatId: string | null; isSingleLevel: boolean } {
-    if (!tx.categoryId) return { parentKey: '__none', parentLabel: 'Uncategorised', parentColor: null, parentCatId: null, childKey: '__none', childLabel: 'Uncategorised', childColor: null, childCatId: null, isSingleLevel: true }
+    if (!tx.categoryId || needsCategory(tx)) return { parentKey: '__none', parentLabel: 'Needs category', parentColor: '#f59e0b', parentCatId: null, childKey: '__none', childLabel: 'Needs category', childColor: '#f59e0b', childCatId: null, isSingleLevel: true }
 
     const cat = catMap.get(tx.categoryId)
-    if (!cat) return { parentKey: '__none', parentLabel: 'Uncategorised', parentColor: null, parentCatId: null, childKey: '__none', childLabel: 'Uncategorised', childColor: null, childCatId: null, isSingleLevel: true }
+    if (!cat) return { parentKey: '__none', parentLabel: 'Needs category', parentColor: '#f59e0b', parentCatId: null, childKey: '__none', childLabel: 'Needs category', childColor: '#f59e0b', childCatId: null, isSingleLevel: true }
 
     // Proper DB hierarchy
     if (cat.parentId) {
@@ -668,6 +687,22 @@ function buildHierarchyGroups(transactions: Transaction[], catMap: Map<string, C
 
 type ColWidths = { amount: number; category: number; date: number; account: number }
 
+function merchantFirstDescription(description: string): string {
+  const cleaned = description
+    .replace(/\bvalue\s+date:\s*\d{1,2}\/\d{1,2}\/\d{2,4}.*$/i, '')
+    .replace(/\b(?:aus\s+)?card\s+x{1,2}\d+.*$/i, '')
+    .replace(/\bnetbank\s+(?:bpay|transfer).*$/i, '')
+    .replace(/\b(?:ref|reference)[:\s-]*[a-z0-9-]{6,}.*$/i, '')
+    .replace(/\b\d{8,}\b/g, '')
+    .replace(/^([a-z][a-z&'*.-]+)\s+\d{3,6}\s+/i, '$1 ')
+    .replace(/\s+(?:AU|AUS)$/i, '')
+    .replace(/^\s*(?:EFTPOS|DEBIT CARD PURCHASE|CARD PURCHASE)\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  return cleaned || description.trim()
+}
+
 function TransactionRow({ tx, selected, selectedCount, categories, colWidths, indent = 'single', onSelect, onEdit, onDelete, onCategoryChange, onRightClick, onDragStart, onDragEnd }: {
   tx: Transaction; selected: boolean; selectedCount: number; categories: Category[]
   colWidths: ColWidths; indent?: 'none' | 'single' | 'double'
@@ -683,6 +718,8 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
   const dropRef = useRef<HTMLDivElement>(null)
   const [dropPos, setDropPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
   const applyingToMany = selected && selectedCount > 1
+  const displayDescription = merchantFirstDescription(tx.description)
+  const showSourceDescription = displayDescription.toLocaleLowerCase() !== tx.description.trim().toLocaleLowerCase()
   // No slice limit — show all categories; filter as user types
   const filteredCats = categories.filter(c => !q || c.fullName.toLowerCase().includes(q.toLowerCase()))
 
@@ -745,7 +782,12 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
       <input type="checkbox" checked={selected} onChange={() => {}}
         onClick={e => { e.stopPropagation(); onSelect(e.shiftKey, e.metaKey) }}
         className="rounded shrink-0 cursor-pointer" />
-      <span className="flex-1 text-sm text-gray-700 truncate min-w-0">{tx.description}</span>
+      <div className="flex-1 min-w-0 py-0.5">
+        <p className="text-sm font-medium text-slate-700 truncate">{displayDescription}</p>
+        {showSourceDescription && (
+          <p className="mt-0.5 text-[10px] leading-tight text-slate-400 truncate" title={tx.description}>{tx.description}</p>
+        )}
+      </div>
       <span className={`text-sm font-bold text-right shrink-0 ${tx.amount > 0 && !tx.isTransfer ? 'text-emerald-600' : tx.isTransfer ? 'text-sky-600' : 'text-slate-700'}`}
         style={{ width: colWidths.amount }}>
         {tx.isTransfer ? `→ ${tx.targetAccountName ?? ''}` : fmt(tx.amount)}
