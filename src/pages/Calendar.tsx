@@ -253,8 +253,11 @@ function DayPanel({ date, accounts, categories, selectedAccountId, onClose, onCh
     refresh()
   }
 
-  const income = txs.filter(t => t.amount > 0 && !t.isTransfer).reduce((s, t) => s + t.amount, 0)
-  const expenses = txs.filter(t => t.amount < 0 && !t.isTransfer).reduce((s, t) => s + t.amount, 0)
+  const incomeTxs = txs.filter(t => t.amount > 0 && !t.isTransfer)
+  const expenseTxs = txs.filter(t => t.amount < 0 && !t.isTransfer)
+  const transferTxs = txs.filter(t => t.isTransfer)
+  const income = incomeTxs.reduce((s, t) => s + t.amount, 0)
+  const expenses = expenseTxs.reduce((s, t) => s + t.amount, 0)
 
   const [y, m, d] = date.split('-').map(Number)
   const displayDate = new Date(y, m - 1, d).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
@@ -308,14 +311,35 @@ function DayPanel({ date, accounts, categories, selectedAccountId, onClose, onCh
               </button>
             </div>
           )}
-          {!loading && txs.map(tx => (
-            <DayTxRow
-              key={tx.id}
-              tx={tx}
-              onEdit={() => setEditTx(tx)}
-              onDelete={() => handleDelete(tx.id)}
+          {!loading && incomeTxs.length > 0 && (
+            <DayTxGroup
+              label="Income"
+              transactions={incomeTxs}
+              total={income}
+              tone="income"
+              onEdit={setEditTx}
+              onDelete={handleDelete}
             />
-          ))}
+          )}
+          {!loading && expenseTxs.length > 0 && (
+            <DayTxGroup
+              label="Expenses"
+              transactions={expenseTxs}
+              total={expenses}
+              tone="expense"
+              onEdit={setEditTx}
+              onDelete={handleDelete}
+            />
+          )}
+          {!loading && transferTxs.length > 0 && (
+            <DayTxGroup
+              label="Transfers"
+              transactions={transferTxs}
+              tone="transfer"
+              onEdit={setEditTx}
+              onDelete={handleDelete}
+            />
+          )}
         </div>
       </div>
 
@@ -335,6 +359,40 @@ function DayPanel({ date, accounts, categories, selectedAccountId, onClose, onCh
         />
       )}
     </>
+  )
+}
+
+function DayTxGroup({ label, transactions, total, tone, onEdit, onDelete }: {
+  label: string
+  transactions: Transaction[]
+  total?: number
+  tone: 'income' | 'expense' | 'transfer'
+  onEdit: (transaction: Transaction) => void
+  onDelete: (id: string) => void
+}) {
+  const tones = {
+    income: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+    expense: 'bg-rose-50 text-rose-600 border-rose-100',
+    transfer: 'bg-sky-50 text-sky-600 border-sky-100',
+  }
+
+  return (
+    <section>
+      <div className={`flex items-center justify-between px-5 py-2 border-y ${tones[tone]}`}>
+        <span className="text-[11px] font-bold uppercase tracking-widest">
+          {label} <span className="font-medium opacity-60">{transactions.length}</span>
+        </span>
+        {total !== undefined && <span className="text-xs font-bold tabular-nums">{fmt(total)}</span>}
+      </div>
+      {transactions.map(tx => (
+        <DayTxRow
+          key={tx.id}
+          tx={tx}
+          onEdit={() => onEdit(tx)}
+          onDelete={() => onDelete(tx.id)}
+        />
+      ))}
+    </section>
   )
 }
 
@@ -377,4 +435,3 @@ function SummaryCell({ label, value, valueClass = 'text-gray-700', last = false 
     </div>
   )
 }
-
