@@ -772,6 +772,11 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
         {showSourceDescription && (
           <p className="mt-0.5 text-[10px] leading-tight text-slate-400 truncate" title={tx.description}>{tx.description}</p>
         )}
+        {!tx.isTransfer && (tx.contextName || tx.canonicalCategoryName || tx.bucketName) && (
+          <p className="mt-0.5 text-[10px] leading-tight text-slate-400 truncate">
+            {[tx.contextName, tx.canonicalCategoryName && `${tx.canonicalCategoryFamily}: ${tx.canonicalCategoryName}`, tx.bucketName].filter(Boolean).join(' · ')}
+          </p>
+        )}
       </div>
       <span className={`text-sm font-bold text-right shrink-0 ${tx.amount > 0 && !tx.isTransfer ? 'text-emerald-600' : tx.isTransfer ? 'text-sky-600' : 'text-slate-700'}`}
         style={{ width: colWidths.amount }}>

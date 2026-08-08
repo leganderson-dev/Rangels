@@ -3,6 +3,7 @@ import type {
   Account,
   Budget,
   Category,
+  ClassificationOptions,
   ImportResult,
   MerchantInsight,
   MonthSummary,
@@ -162,7 +163,7 @@ async function importAlzex(): Promise<ImportResult | null> {
   return { imported, skipped, errors: errors.slice(0, 20) }
 }
 
-const backupTables = ['accounts', 'categories', 'merchants', 'merchant_aliases', 'imports', 'transactions', 'scheduled_transactions', 'budgets', 'budget_groups', 'budget_group_members'] as const
+const backupTables = ['accounts', 'categories', 'contexts', 'buckets', 'canonical_categories', 'category_classifications', 'merchants', 'merchant_aliases', 'imports', 'transactions', 'scheduled_transactions', 'budgets', 'budget_groups', 'budget_group_members'] as const
 
 async function downloadBackup(): Promise<{ ok: boolean; filePath?: string }> {
   const payload: Record<string, unknown[]> = {}
@@ -465,13 +466,17 @@ async function listTransactions(filter: TransactionFilter = {}): Promise<Transac
     return query.order('occurred_on', { ascending: false }).order('created_at', { ascending: false })
   }
 
-  const [transactionRows, accounts, categories] = await Promise.all([
+  const [transactionRows, accounts, categories, classification] = await Promise.all([
     fetchAllRows(makeQuery),
     listAccounts(),
     listCategories(),
+    listClassificationOptions(),
   ])
   const accountMap = new Map(accounts.map((account) => [account.id, account]))
   const categoryMap = new Map(categories.map((category) => [category.id, category]))
+  const contextMap = new Map(classification.contexts.map(item => [item.id, item.name]))
+  const bucketMap = new Map(classification.buckets.map(item => [item.id, item.name]))
+  const canonicalMap = new Map(classification.categories.map(item => [item.id, item]))
 
   return transactionRows.map((row) => {
     const category = row.category_id ? categoryMap.get(row.category_id) : undefined
@@ -496,8 +501,31 @@ async function listTransactions(filter: TransactionFilter = {}): Promise<Transac
       payee: row.payee ?? '',
       tags: Array.isArray(row.tags) ? row.tags.join(', ') : row.tags ?? '',
       externalId: row.external_id ?? '',
+      canonicalCategoryId: row.canonical_category_id,
+      canonicalCategoryName: row.canonical_category_id ? canonicalMap.get(row.canonical_category_id)?.name ?? null : null,
+      canonicalCategoryFamily: row.canonical_category_id ? canonicalMap.get(row.canonical_category_id)?.family ?? null : null,
+      contextId: row.context_id,
+      contextName: row.context_id ? contextMap.get(row.context_id) ?? null : null,
+      bucketId: row.bucket_id,
+      bucketName: row.bucket_id ? bucketMap.get(row.bucket_id) ?? null : null,
+      reimbursementStatus: row.reimbursement_status ?? 'none',
+      taxTreatment: row.tax_treatment ?? 'none',
     }
   })
+}
+
+async function listClassificationOptions(): Promise<ClassificationOptions> {
+  const [contexts, buckets, categories] = await Promise.all([
+    supabase.from('contexts').select('id,name').order('display_order'),
+    supabase.from('buckets').select('id,name').order('display_order'),
+    supabase.from('canonical_categories').select('id,name,family,type').order('display_order'),
+  ])
+  fail(contexts.error); fail(buckets.error); fail(categories.error)
+  return {
+    contexts: contexts.data ?? [],
+    buckets: buckets.data ?? [],
+    categories: (categories.data ?? []) as ClassificationOptions['categories'],
+  }
 }
 
 function transactionPayload(data: Record<string, any>): Row {
@@ -513,6 +541,11 @@ function transactionPayload(data: Record<string, any>): Row {
     status: 'status',
     payee: 'payee',
     externalId: 'external_id',
+    canonicalCategoryId: 'canonical_category_id',
+    contextId: 'context_id',
+    bucketId: 'bucket_id',
+    reimbursementStatus: 'reimbursement_status',
+    taxTreatment: 'tax_treatment',
   }
   const payload: Row = {}
   for (const [source, target] of Object.entries(map)) {
@@ -984,6 +1017,9 @@ export const api = {
     list: listMerchantInsights,
     applyCategory: applyMerchantCategory,
     saveRule: saveMerchantRule,
+  },
+  classification: {
+    options: listClassificationOptions,
   },
   categories: {
     list: listCategories,

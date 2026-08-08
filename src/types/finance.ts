@@ -43,6 +43,31 @@ export interface Transaction {
   payee: string
   tags: string
   externalId: string
+  canonicalCategoryId: string | null
+  canonicalCategoryName: string | null
+  canonicalCategoryFamily: string | null
+  contextId: string | null
+  contextName: string | null
+  bucketId: string | null
+  bucketName: string | null
+  reimbursementStatus: 'none' | 'to_be_reimbursed' | 'reimbursed'
+  taxTreatment: 'none' | 'deductible' | 'review'
+}
+
+export interface ClassificationOption {
+  id: string
+  name: string
+}
+
+export interface CanonicalCategory extends ClassificationOption {
+  family: string
+  type: 'income' | 'expense'
+}
+
+export interface ClassificationOptions {
+  contexts: ClassificationOption[]
+  buckets: ClassificationOption[]
+  categories: CanonicalCategory[]
 }
 
 export interface ScheduledTransaction {

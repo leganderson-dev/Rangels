@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react'
 import { Modal } from './Modal'
 import { today } from '../utils'
 import type { Transaction, Account, Category } from '../types/finance'
+import type { ClassificationOptions } from '../types/finance'
+import { api } from '../api'
 
 interface Props {
   transaction?: Transaction
@@ -25,9 +27,19 @@ export function TransactionFormModal({ transaction, accounts, categories, defaul
   const [saving, setSaving] = useState(false)
   const [catSearch, setCatSearch] = useState('')
   const [catOpen, setCatOpen] = useState(false)
+  const [options, setOptions] = useState<ClassificationOptions>({ contexts: [], buckets: [], categories: [] })
+  const [canonicalCategoryId, setCanonicalCategoryId] = useState(transaction?.canonicalCategoryId ?? '')
+  const [contextId, setContextId] = useState(transaction?.contextId ?? '')
+  const [bucketId, setBucketId] = useState(transaction?.bucketId ?? '')
+  const [reimbursementStatus, setReimbursementStatus] = useState(transaction?.reimbursementStatus ?? 'none')
+  const [taxTreatment, setTaxTreatment] = useState(transaction?.taxTreatment ?? 'none')
+  const [tags, setTags] = useState(transaction?.tags ?? '')
 
   const descRef = useRef<HTMLInputElement>(null)
-  useEffect(() => { descRef.current?.focus() }, [])
+  useEffect(() => {
+    descRef.current?.focus()
+    api.classification.options().then(setOptions).catch(console.error)
+  }, [])
 
   const filteredCats = categories.filter(c =>
     !catSearch || c.fullName.toLowerCase().includes(catSearch.toLowerCase())
@@ -50,6 +62,12 @@ export function TransactionFormModal({ transaction, accounts, categories, defaul
         categoryId,
         isTransfer,
         status: 'C'
+        ,canonicalCategoryId: isTransfer ? null : canonicalCategoryId || null
+        ,contextId: isTransfer ? null : contextId || null
+        ,bucketId: isTransfer ? null : bucketId || null
+        ,reimbursementStatus: isTransfer ? 'none' : reimbursementStatus
+        ,taxTreatment: isTransfer ? 'none' : taxTreatment
+        ,tags
       })
     } finally {
       setSaving(false)
@@ -203,6 +221,58 @@ export function TransactionFormModal({ transaction, accounts, categories, defaul
             )}
           </div>
         </div>
+
+        {!isTransfer && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+            <div>
+              <p className="text-xs font-semibold text-slate-700">Classification</p>
+              <p className="text-[11px] text-slate-400">Independent reporting dimensions; the legacy category remains available above.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Context</label>
+                <select value={contextId} onChange={e => { setContextId(e.target.value); if (!options.contexts.find(item => item.id === e.target.value)?.name.startsWith('Personal')) setBucketId('') }} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+                  <option value="">Not classified</option>
+                  {options.contexts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Personal bucket</label>
+                <select value={bucketId} onChange={e => setBucketId(e.target.value)} disabled={!options.contexts.find(item => item.id === contextId)?.name.startsWith('Personal')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400">
+                  <option value="">None</option>
+                  {options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Purpose</label>
+              <select value={canonicalCategoryId} onChange={e => setCanonicalCategoryId(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+                <option value="">Requires review</option>
+                {[...new Set(options.categories.map(item => item.family))].map(family => (
+                  <optgroup key={family} label={family}>{options.categories.filter(item => item.family === family && (isExpense ? item.type === 'expense' : item.type === 'income')).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Reimbursement</label>
+                <select value={reimbursementStatus} onChange={e => setReimbursementStatus(e.target.value as typeof reimbursementStatus)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+                  <option value="none">None</option><option value="to_be_reimbursed">To be reimbursed</option><option value="reimbursed">Reimbursed</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Tax treatment</label>
+                <select value={taxTreatment} onChange={e => setTaxTreatment(e.target.value as typeof taxTreatment)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+                  <option value="none">None</option><option value="deductible">Deductible</option><option value="review">Needs review</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Tags (optional, comma separated)</label>
+              <input value={tags} onChange={e => setTags(e.target.value)} placeholder="e.g. Christmas, Hanna" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white" />
+            </div>
+          </div>
+        )}
 
         {/* Comment */}
         <div>

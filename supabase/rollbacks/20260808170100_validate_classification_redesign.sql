@@ -1,0 +1,1 @@
+-- Validation-only migration; no database objects were created.

@@ -1,0 +1,1 @@
+-- Function correction is intentionally retained on rollback.

@@ -1,6 +1,6 @@
 # Rangels classification redesign blueprint
 
-Status: **design only**. This document does not authorize or perform application, schema, or ledger changes.
+Status: **implemented additively in Rangels V0.3**. Legacy categories remain available while the independent classification dimensions are introduced.
 
 ## Objective
 
@@ -275,4 +275,4 @@ These paths should be reviewed before any migration because they represent subst
 
 ## Next step
 
-Review the high-impact decisions above in descending transaction-count order. Once confirmed, produce a row-level mapping dataset and only then design the additive schema migration.
+Review the remaining high-impact decisions in descending transaction-count order. Deterministic paths are mapped; ambiguous paths remain explicitly reviewable. `ToBeRefunded` and `Reibursment` remain untouched until the owner changes them manually.
