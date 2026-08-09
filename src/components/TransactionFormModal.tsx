@@ -70,7 +70,7 @@ export function TransactionFormModal({ transaction, accounts, defaultDate, onClo
   }
 
   return (
-    <Modal title={transaction ? 'Edit Transaction' : 'New Transaction'} onClose={onClose}>
+    <Modal title={transaction ? 'Edit Transaction' : 'New Transaction'} onClose={onClose} large>
       <div className="space-y-3">
         {/* Type toggle */}
         <div className="flex gap-1 p-1 bg-gray-100 rounded-lg">
