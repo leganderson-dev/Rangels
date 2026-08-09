@@ -6,7 +6,7 @@ import { CategoryPill } from '../components/CategoryPill'
 import { TransactionFormModal } from '../components/TransactionFormModal'
 import { ImportBankModal } from '../components/ImportBankModal'
 import { ImportAlzexButton } from '../components/ImportAlzexButton'
-import type { Transaction, Account, Category, ScheduledTransaction } from '../types/finance'
+import type { Transaction, Account, Category, ScheduledTransaction, AccountLedgerSummary } from '../types/finance'
 import { merchantDisplayName } from '../lib/merchants'
 import { transferReasonLabel } from '../lib/transfers'
 
@@ -35,6 +35,7 @@ function needsCategory(transaction: Transaction): boolean {
 
 export function TransactionsPage({ accounts, categories, selectedAccountId, month, year, dateMode, customFrom, customTo, onRefreshAccounts, onRefreshCategories }: Props) {
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [ledgerSummary, setLedgerSummary] = useState<AccountLedgerSummary | null>(null)
   const [scheduledTxns, setScheduledTxns] = useState<ScheduledTransaction[]>([])
   const [search, setSearch] = useState('')
   const [groupBy, setGroupBy] = useState<'category' | 'date' | 'none'>('category')
@@ -144,6 +145,21 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
     run()
     return () => { cancelled = true }
   }, [month, year, dateMode, customFrom, customTo, selectedAccountId, search, refreshKey])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!selectedAccountId) {
+      setLedgerSummary(null)
+      return
+    }
+    const period = dateMode === 'custom'
+      ? { dateFrom: customFrom || undefined, dateTo: customTo || undefined }
+      : { month, year }
+    api.transactions.accountLedgerSummary(selectedAccountId, period)
+      .then(summary => { if (!cancelled) setLedgerSummary(summary) })
+      .catch(() => { if (!cancelled) setLedgerSummary(null) })
+    return () => { cancelled = true }
+  }, [month, year, dateMode, customFrom, customTo, selectedAccountId, refreshKey])
 
   useEffect(() => {
     api.transactions.categorizedDescriptions().then(setCatHistory).catch(() => {})
@@ -395,20 +411,23 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
 
       {/* Summary bar */}
       <div className="flex items-center px-4 bg-slate-50/70 border-y border-gray-200 shrink-0">
-        <div className="flex flex-col py-2.5 px-4 border-r border-gray-100">
-          <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Income</span>
-          <span className="text-sm font-bold text-emerald-600 mt-0.5">{fmt(income)}</span>
-        </div>
-        <div className="flex flex-col py-2.5 px-4 border-r border-gray-100">
-          <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Expenses</span>
-          <span className="text-sm font-bold text-gray-700 mt-0.5">{fmt(Math.abs(expenses))}</span>
-        </div>
-        <div className="flex flex-col py-2.5 px-4">
-          <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Net</span>
-          <span className={`text-sm font-bold mt-0.5 ${income + expenses >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-            {fmt(income + expenses, true)}
-          </span>
-        </div>
+        {selectedAccountId && ledgerSummary ? (
+          <>
+            <SummaryMetric label="Opening" value={ledgerSummary.openingBalance} />
+            <SummaryMetric label="Income" value={ledgerSummary.income} tone="income" />
+            <SummaryMetric label="Expenses" value={ledgerSummary.expenses} tone="expense" absolute />
+            <SummaryMetric label="Transfers in" value={ledgerSummary.transfersIn} tone="transfer" />
+            <SummaryMetric label="Transfers out" value={ledgerSummary.transfersOut} tone="transfer" absolute />
+            <SummaryMetric label="Net movement" value={ledgerSummary.netMovement} signed />
+            <SummaryMetric label="Closing balance" value={ledgerSummary.closingBalance} signed strong />
+          </>
+        ) : (
+          <>
+            <SummaryMetric label="Income" value={income} tone="income" />
+            <SummaryMetric label="Expenses" value={expenses} tone="expense" absolute />
+            <SummaryMetric label="Net" value={income + expenses} signed />
+          </>
+        )}
         <div className="flex-1" />
         <span className="text-xs text-gray-300">{filtered.length} transactions</span>
       </div>
@@ -1267,6 +1286,33 @@ function CategoryFilterButton({ categories, selected, onChange }: {
 }
 
 // ─── Bulk category quick pick ─────────────────────────────────────────────────
+
+function SummaryMetric({ label, value, tone, absolute = false, signed = false, strong = false }: {
+  label: string
+  value: number
+  tone?: 'income' | 'expense' | 'transfer'
+  absolute?: boolean
+  signed?: boolean
+  strong?: boolean
+}) {
+  const color = tone === 'income'
+    ? 'text-emerald-600'
+    : tone === 'expense'
+      ? 'text-slate-700'
+      : tone === 'transfer'
+        ? 'text-sky-600'
+        : value < 0
+          ? 'text-red-500'
+          : 'text-emerald-600'
+  return (
+    <div className={`flex flex-col py-2.5 px-3 border-r border-gray-100 ${strong ? 'bg-white/70' : ''}`}>
+      <span className="whitespace-nowrap text-[9px] font-semibold text-gray-400 uppercase tracking-wider">{label}</span>
+      <span className={`whitespace-nowrap text-sm font-bold mt-0.5 ${color}`}>
+        {fmt(absolute ? Math.abs(value) : value, signed)}
+      </span>
+    </div>
+  )
+}
 
 function CategoryQuickPick({ categories, onPick }: { categories: Category[]; onPick: (id: string | null) => void }) {
   const [open, setOpen] = useState(false)

@@ -197,6 +197,16 @@ export interface MonthSummary {
   byCategory: { categoryId: string; categoryFullName: string; categoryColor: string; total: number }[]
 }
 
+export interface AccountLedgerSummary {
+  openingBalance: number
+  income: number
+  expenses: number
+  transfersIn: number
+  transfersOut: number
+  netMovement: number
+  closingBalance: number
+}
+
 export interface ImportResult {
   imported: number
   skipped: number

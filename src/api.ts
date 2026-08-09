@@ -1,6 +1,7 @@
 import { supabase } from './lib/supabase'
 import type {
   Account,
+  AccountLedgerSummary,
   AllocationPlanSummary,
   Budget,
   Category,
@@ -742,6 +743,62 @@ async function monthSummary(
   }
 }
 
+async function accountLedgerSummary(
+  accountId: string,
+  filter: Pick<TransactionFilter, 'month' | 'year' | 'dateFrom' | 'dateTo'> = {},
+): Promise<AccountLedgerSummary> {
+  const accountResult = await supabase.from('accounts').select('initial_balance').eq('id', accountId).single()
+  fail(accountResult.error)
+
+  let dateFrom = filter.dateFrom
+  let dateTo = filter.dateTo
+  if (!dateFrom && filter.month && filter.year) {
+    ;[dateFrom, dateTo] = monthRange(filter.month, filter.year)
+  }
+
+  const transactions = await fetchAllRows(() => supabase
+    .from('transactions')
+    .select('account_id,target_account_id,occurred_on,amount,is_transfer,status')
+    .eq('status', 'C')
+    .or(`account_id.eq.${accountId},target_account_id.eq.${accountId}`)
+    .order('occurred_on', { ascending: true }))
+
+  let openingBalance = Number(accountResult.data?.initial_balance ?? 0)
+  let income = 0
+  let expenses = 0
+  let transfersIn = 0
+  let transfersOut = 0
+
+  const effect = (transaction: Row) => {
+    const amount = Number(transaction.amount)
+    if (!transaction.is_transfer) return transaction.account_id === accountId ? amount : 0
+    let result = 0
+    if (transaction.account_id === accountId) result -= Math.abs(amount)
+    if (transaction.target_account_id === accountId) result += Math.abs(amount)
+    return result
+  }
+
+  for (const transaction of transactions) {
+    if (dateFrom && transaction.occurred_on < dateFrom) {
+      openingBalance += effect(transaction)
+      continue
+    }
+    if (dateTo && transaction.occurred_on > dateTo) continue
+
+    const amount = Number(transaction.amount)
+    if (!transaction.is_transfer && transaction.account_id === accountId) {
+      if (amount >= 0) income += amount
+      else expenses += amount
+    } else if (transaction.is_transfer) {
+      if (transaction.account_id === accountId) transfersOut += Math.abs(amount)
+      if (transaction.target_account_id === accountId) transfersIn += Math.abs(amount)
+    }
+  }
+
+  const netMovement = income + expenses + transfersIn - transfersOut
+  return { openingBalance, income, expenses, transfersIn, transfersOut, netMovement, closingBalance: openingBalance + netMovement }
+}
+
 function nextDate(current: string, frequency: ScheduledTransaction['frequency']): string {
   const date = new Date(`${current}T00:00:00`)
   if (frequency === 'daily') date.setDate(date.getDate() + 1)
@@ -1177,6 +1234,7 @@ export const api = {
   },
   transactions: {
     list: listTransactions,
+    accountLedgerSummary,
     add: addTransaction,
     update: updateTransaction,
     delete: async (id: string): Promise<void> => {
