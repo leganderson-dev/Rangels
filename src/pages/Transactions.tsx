@@ -265,6 +265,15 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
     }
   }
 
+  function toggleSectionSelection(ids: string[]) {
+    setSelected(current => {
+      const next = new Set(current)
+      const sectionSelected = ids.length > 0 && ids.every(id => next.has(id))
+      ids.forEach(id => sectionSelected ? next.delete(id) : next.add(id))
+      return next
+    })
+  }
+
   async function handleDelete(id: string) {
     if (!confirm('Delete this transaction?')) return
     await api.transactions.delete(id); refresh(); onRefreshAccounts()
@@ -274,8 +283,10 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
     await Promise.all([...selected].map(id => api.transactions.delete(id))); refresh(); onRefreshAccounts()
   }
   async function handleBulkCategory(categoryId: string | null) {
-    const prevCats = [...selected].map(id => ({ id, prev: transactions.find(t => t.id === id)?.categoryId ?? null }))
-    await api.transactions.bulkCategory([...selected], categoryId)
+    const purposeIds = [...selected].filter(id => !transactions.find(t => t.id === id)?.isTransfer)
+    if (purposeIds.length === 0) return
+    const prevCats = purposeIds.map(id => ({ id, prev: transactions.find(t => t.id === id)?.categoryId ?? null }))
+    await api.transactions.bulkCategory(purposeIds, categoryId)
     pushHistory({
       undo: async () => { await Promise.all(prevCats.map(({ id, prev }) => api.transactions.update(id, { categoryId: prev }))) },
       redo: async () => { await api.transactions.bulkCategory(prevCats.map(p => p.id), categoryId) }
@@ -302,8 +313,9 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
     refresh()
   }
 
-  const allSelected = sorted.length > 0 && selected.size === sorted.length
+  const allSelected = filtered.length > 0 && filtered.every(transaction => selected.has(transaction.id))
   const someSelected = selected.size > 0
+  const selectedPurposeCount = [...selected].filter(id => !transactions.find(transaction => transaction.id === id)?.isTransfer).length
 
   const TYPE_FILTERS = [
     { key: 'all', label: 'All' }, { key: 'income', label: 'Income' },
@@ -350,7 +362,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
         {someSelected && (
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500">{selected.size} selected</span>
-            <CategoryQuickPick categories={categories} onPick={handleBulkCategory} />
+            {selectedPurposeCount > 0 && <CategoryQuickPick categories={categories} onPick={handleBulkCategory} />}
             <button onClick={handleBulkDelete} className="text-red-500 px-2 py-1 text-xs rounded hover:bg-red-50">Delete</button>
           </div>
         )}
@@ -414,11 +426,11 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
         {!loading && filtered.length > 0 && (
           <div className="flex items-center gap-3 px-4 py-1.5 bg-white border-b-2 border-gray-200 sticky top-0 select-none z-20">
             <input type="checkbox" checked={allSelected}
-              onChange={() => allSelected ? setSelected(new Set()) : setSelected(new Set(sorted.map(t => t.id)))}
+              onChange={() => allSelected ? setSelected(current => { const next = new Set(current); filtered.forEach(transaction => next.delete(transaction.id)); return next }) : setSelected(current => { const next = new Set(current); filtered.forEach(transaction => next.add(transaction.id)); return next })}
               className="rounded shrink-0" />
             <ColHeader label="Description" col="description" flex sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
             <ColHeader label="Amount" col="amount" width={colWidths.amount} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} onResize={e => startResize('amount', e)} />
-            <ColHeader label="Purpose" col="category" width={colWidths.category} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} onResize={e => startResize('category', e)} />
+            <ColHeader label="Purpose / Transfer reason" col="category" width={colWidths.category} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} onResize={e => startResize('category', e)} />
             <ColHeader label="Date" col="date" width={colWidths.date} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} onResize={e => startResize('date', e)} />
             <ColHeader label="Account" col="account" width={colWidths.account} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} onResize={e => startResize('account', e)} />
             <div className="w-16 shrink-0" />
@@ -429,21 +441,34 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
         {!loading && groupBy === 'category' && typeSections.map(ts => {
           const cfg = TYPE_CONFIG[ts.type]
           const typeCollapsed = collapsedTypes.has(ts.type)
+          const sectionIds = ts.groups.flatMap(group => group.children.flatMap(child => child.rows.map(row => row.id)))
+          const sectionSelectedCount = sectionIds.filter(id => selected.has(id)).length
+          const sectionAllSelected = sectionIds.length > 0 && sectionSelectedCount === sectionIds.length
 
           return (
             <div key={ts.type}>
               {/* Level 1: Type section header */}
-              <button
-                onClick={() => toggleType(ts.type)}
+              <div
                 className={`w-full flex items-center gap-2 px-4 py-1.5 border-b border-t transition-colors sticky top-[37px] z-[15] ${cfg.bg} ${cfg.border}`}
               >
-                {typeCollapsed ? <ChevronRight size={12} className={`${cfg.color} shrink-0`} /> : <ChevronDown size={12} className={`${cfg.color} shrink-0`} />}
-                <cfg.Icon size={12} className={`${cfg.color} shrink-0`} />
-                <span className={`text-xs font-bold uppercase tracking-widest ${cfg.color}`}>{cfg.label}</span>
-                <span className={`text-xs ${cfg.color} opacity-60`}>{ts.groups.length} groups</span>
+                <input
+                  type="checkbox"
+                  checked={sectionAllSelected}
+                  ref={element => { if (element) element.indeterminate = sectionSelectedCount > 0 && !sectionAllSelected }}
+                  onChange={() => toggleSectionSelection(sectionIds)}
+                  className="rounded shrink-0 cursor-pointer"
+                  aria-label={`Select all ${cfg.label.toLowerCase()}`}
+                />
+                <button onClick={() => toggleType(ts.type)} className="flex min-w-0 items-center gap-2 text-left">
+                  {typeCollapsed ? <ChevronRight size={12} className={`${cfg.color} shrink-0`} /> : <ChevronDown size={12} className={`${cfg.color} shrink-0`} />}
+                  <cfg.Icon size={12} className={`${cfg.color} shrink-0`} />
+                  <span className={`text-xs font-bold uppercase tracking-widest ${cfg.color}`}>{cfg.label}</span>
+                  <span className={`text-xs ${cfg.color} opacity-60`}>{ts.groups.length} groups</span>
+                </button>
                 <span className="flex-1" />
+                {sectionSelectedCount > 0 && <span className={`text-[10px] font-medium ${cfg.color}`}>{sectionSelectedCount} selected</span>}
                 <span className={`text-sm font-bold ${cfg.color}`}>{fmt(ts.total)}</span>
-              </button>
+              </div>
 
               {!typeCollapsed && ts.groups.map(group => {
                 const parentCollapsed = collapsedParents.has(group.key)
@@ -632,6 +657,11 @@ function buildHierarchyGroups(transactions: Transaction[], catMap: Map<string, C
   }
 
   function getParentChild(tx: Transaction): { parentKey: string; parentLabel: string; parentColor: string | null; parentCatId: string | null; childKey: string; childLabel: string; childColor: string | null; childCatId: string | null; isSingleLevel: boolean } {
+    if (tx.isTransfer) {
+      const reason = tx.transferReason ?? 'account_movement'
+      const label = transferReasonLabel(reason)
+      return { parentKey: `transfer_${reason}`, parentLabel: label, parentColor: '#0ea5e9', parentCatId: null, childKey: `transfer_${reason}`, childLabel: label, childColor: '#0ea5e9', childCatId: null, isSingleLevel: true }
+    }
     if (!tx.categoryId || needsCategory(tx)) return { parentKey: '__none', parentLabel: 'Needs purpose', parentColor: '#f59e0b', parentCatId: null, childKey: '__none', childLabel: 'Needs purpose', childColor: '#f59e0b', childCatId: null, isSingleLevel: true }
 
     const cat = catMap.get(tx.categoryId)
@@ -786,12 +816,18 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
       </div>
       <span className={`text-sm font-bold text-right shrink-0 ${tx.amount > 0 && !tx.isTransfer ? 'text-emerald-600' : tx.isTransfer ? 'text-sky-600' : 'text-slate-700'}`}
         style={{ width: colWidths.amount }}>
-        {tx.isTransfer ? `→ ${tx.targetAccountName ?? ''}` : fmt(tx.amount)}
+        {tx.isTransfer ? fmt(Math.abs(tx.amount)) : fmt(tx.amount)}
       </span>
 
-      {/* Category cell — no overflow-hidden so the dropdown can escape; fixed-position dropdown avoids scroll-container clipping */}
+      {/* Purpose for income/expenses; transfer reason for transfers. */}
       <div ref={cellRef} className="shrink-0 relative" style={{ width: colWidths.category }}>
-        {catOpen ? (
+        {tx.isTransfer ? (
+          <div className="truncate text-xs font-medium text-sky-700" title={[transferReasonLabel(tx.transferReason), tx.contextName].filter(Boolean).join(' · ')}>
+            <span className="inline-flex max-w-full items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5">
+              <span className="truncate">{transferReasonLabel(tx.transferReason)}</span>
+            </span>
+          </div>
+        ) : catOpen ? (
           <>
             <input autoFocus value={q} onChange={e => { setQ(e.target.value); setActiveIdx(-1) }} placeholder="Search categories…"
               className="w-full border border-blue-400 rounded px-2 py-0.5 text-xs focus:outline-none ring-1 ring-blue-300"
@@ -815,7 +851,7 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
           </>
         ) : (
           <button onClick={openCat} className="w-full text-left rounded px-1 -mx-1 hover:bg-white/80 overflow-hidden"
-            title={applyingToMany ? `Set category for ${selectedCount} selected` : 'Click to set category'}>
+            title={applyingToMany ? `Set purpose for ${selectedCount} selected` : 'Click to set purpose'}>
             <CategoryPill name={tx.categoryFullName} color={tx.categoryColor} />
             {applyingToMany && <span className="ml-1 text-[10px] text-blue-500 font-medium">×{selectedCount}</span>}
           </button>
@@ -823,8 +859,8 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
       </div>
 
       <span className="text-xs text-gray-400 shrink-0" style={{ width: colWidths.date }}>{formatDate(tx.date)}</span>
-      <span className="text-xs text-gray-400 truncate shrink-0" style={{ width: colWidths.account }} title={`${tx.accountName} · ${tx.memberName}`}>
-        <span className="block truncate">{tx.accountName}</span>
+      <span className="text-xs text-gray-400 truncate shrink-0" style={{ width: colWidths.account }} title={`${tx.accountName}${tx.isTransfer && tx.targetAccountName ? ` → ${tx.targetAccountName}` : ''} · ${tx.memberName}`}>
+        <span className="block truncate">{tx.isTransfer && tx.targetAccountName ? `${tx.accountName} → ${tx.targetAccountName}` : tx.accountName}</span>
         <span className="block text-[10px] text-slate-300">{tx.memberName}</span>
       </span>
       <div className="w-16 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">

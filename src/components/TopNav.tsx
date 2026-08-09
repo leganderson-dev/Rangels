@@ -41,17 +41,17 @@ export function TopNav({
   const showDateNav = ['overview', 'transactions', 'calendar', 'reports', 'budget'].includes(page)
 
   return (
-    <header className="bg-white border-b border-gray-200 flex items-center gap-4 px-4 h-11 shrink-0 titlebar-drag">
+    <header className="bg-white border-b border-gray-200 flex items-center gap-2 px-3 h-11 shrink-0 overflow-hidden titlebar-drag">
       {/* macOS traffic light spacing */}
-      <div className="w-16 shrink-0" />
+      <div className="hidden 2xl:block 2xl:w-8 shrink-0" />
 
       {/* Tabs */}
-      <nav className="flex items-center gap-0.5 titlebar-nodrag">
+      <nav className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto titlebar-nodrag [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {TABS.map(tab => (
           <button
             key={tab.id}
             onClick={() => onPageChange(tab.id)}
-            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+            className={`shrink-0 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
               page === tab.id
                 ? 'bg-blue-600 text-white'
                 : 'text-gray-600 hover:bg-gray-100'
@@ -62,10 +62,8 @@ export function TopNav({
         ))}
       </nav>
 
-      <div className="flex-1" />
-
       {showDateNav && (
-        <div className="flex items-center gap-2 titlebar-nodrag">
+        <div className="flex shrink-0 items-center gap-2 border-l border-slate-100 pl-2 titlebar-nodrag">
           {/* Mode toggle */}
           <div className="flex rounded-md border border-gray-200 overflow-hidden text-xs">
             <button
@@ -101,21 +99,21 @@ export function TopNav({
                 type="date"
                 value={customFrom}
                 onChange={e => onCustomFromChange(e.target.value)}
-                className="border border-gray-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-700"
+                className="w-32 border border-gray-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-700"
               />
               <span className="text-gray-400">–</span>
               <input
                 type="date"
                 value={customTo}
                 onChange={e => onCustomToChange(e.target.value)}
-                className="border border-gray-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-700"
+                className="w-32 border border-gray-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-700"
               />
             </div>
           )}
         </div>
       )}
-      <button onClick={onHelp} className="titlebar-nodrag flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700" title="How Rangels works">
-        <CircleHelp size={14} /> Help
+      <button onClick={onHelp} className="titlebar-nodrag flex shrink-0 items-center gap-1 rounded-md border border-slate-200 p-1.5 2xl:px-2.5 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700" title="How Rangels works" aria-label="Help">
+        <CircleHelp size={14} /> <span className="hidden 2xl:inline">Help</span>
       </button>
     </header>
   )
