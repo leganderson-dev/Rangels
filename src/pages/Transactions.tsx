@@ -472,47 +472,73 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
 
               {!typeCollapsed && ts.groups.map(group => {
                 const parentCollapsed = collapsedParents.has(group.key)
+                const groupIds = group.children.flatMap(child => child.rows.map(row => row.id))
+                const groupSelectedCount = groupIds.filter(id => selected.has(id)).length
+                const groupAllSelected = groupIds.length > 0 && groupSelectedCount === groupIds.length
 
                 return (
                   <div key={group.key}>
                     {/* Level 2: Parent category header */}
-                    <button
-                      onClick={() => toggleParent(group.key)}
+                    <div
                       onDragOver={e => { e.preventDefault(); setDragOverKey(group.key) }}
                       onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverKey(null) }}
                       onDrop={e => { e.preventDefault(); setDragOverKey(null); if (dragTxId.current !== null && group.catId !== null) { handleInlineCategory(dragTxId.current, group.catId); dragTxId.current = null } }}
                       className={`w-full flex items-center gap-2 pl-8 pr-4 py-2.5 transition-colors border-b ${group.key === '__none' ? 'border-amber-100 bg-amber-50/70 hover:bg-amber-50' : 'border-gray-100 bg-slate-50 hover:bg-slate-100'} ${dragOverKey === group.key ? 'ring-2 ring-inset ring-blue-400' : ''}`}
                       style={{ borderLeft: group.color ? `3px solid ${group.color}` : '3px solid #e5e7eb' }}
                     >
-                      {parentCollapsed ? <ChevronRight size={12} className="text-gray-400 shrink-0" /> : <ChevronDown size={12} className="text-gray-400 shrink-0" />}
-                      {group.color && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: group.color }} />}
-                      <span className="flex-1 text-xs font-bold text-gray-700 text-left tracking-wide">{group.label}</span>
+                      <input
+                        type="checkbox"
+                        checked={groupAllSelected}
+                        ref={element => { if (element) element.indeterminate = groupSelectedCount > 0 && !groupAllSelected }}
+                        onChange={() => toggleSectionSelection(groupIds)}
+                        className="rounded shrink-0 cursor-pointer"
+                        aria-label={`Select all ${group.label} transactions`}
+                      />
+                      <button onClick={() => toggleParent(group.key)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                        {parentCollapsed ? <ChevronRight size={12} className="text-gray-400 shrink-0" /> : <ChevronDown size={12} className="text-gray-400 shrink-0" />}
+                        {group.color && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: group.color }} />}
+                        <span className="flex-1 text-xs font-bold text-gray-700 text-left tracking-wide">{group.label}</span>
+                      </button>
                       {!parentCollapsed && <span className="text-xs text-gray-300 mr-2">{group.txCount} txns</span>}
+                      {groupSelectedCount > 0 && <span className="text-[10px] font-medium text-blue-600">{groupSelectedCount} selected</span>}
                       <span className={`text-sm font-bold ${group.total > 0 ? 'text-emerald-600' : 'text-slate-700'}`}>
                         {fmt(group.total)}
                       </span>
-                    </button>
+                    </div>
 
                     {!parentCollapsed && group.children.map(child => {
                       const subKey = `${group.key}__${child.key}`
                       const subCollapsed = collapsedSubs.has(subKey)
+                      const childIds = child.rows.map(row => row.id)
+                      const childSelectedCount = childIds.filter(id => selected.has(id)).length
+                      const childAllSelected = childIds.length > 0 && childSelectedCount === childIds.length
 
                       return (
                         <div key={child.key}>
                           {/* Level 3: Child category header (only when multiple children exist) */}
                           {!group.isSingleLevel && (
-                            <button
-                              onClick={() => toggleSub(group.key, child.key)}
+                            <div
                               className="w-full flex items-center gap-2 pl-14 pr-4 py-2 bg-white hover:bg-slate-50 transition-colors border-b border-gray-100"
                             >
-                              {subCollapsed ? <ChevronRight size={11} className="text-gray-300 shrink-0" /> : <ChevronDown size={11} className="text-gray-300 shrink-0" />}
-                              {child.color && <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: child.color }} />}
-                              <span className="flex-1 text-xs font-medium text-gray-500 text-left">{child.label}</span>
+                              <input
+                                type="checkbox"
+                                checked={childAllSelected}
+                                ref={element => { if (element) element.indeterminate = childSelectedCount > 0 && !childAllSelected }}
+                                onChange={() => toggleSectionSelection(childIds)}
+                                className="rounded shrink-0 cursor-pointer"
+                                aria-label={`Select all ${child.label} transactions`}
+                              />
+                              <button onClick={() => toggleSub(group.key, child.key)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                                {subCollapsed ? <ChevronRight size={11} className="text-gray-300 shrink-0" /> : <ChevronDown size={11} className="text-gray-300 shrink-0" />}
+                                {child.color && <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: child.color }} />}
+                                <span className="flex-1 text-xs font-medium text-gray-500 text-left">{child.label}</span>
+                              </button>
                               <span className="text-xs text-gray-300 mr-2">{child.rows.length}</span>
+                              {childSelectedCount > 0 && <span className="text-[10px] font-medium text-blue-600">{childSelectedCount} selected</span>}
                               <span className={`text-xs font-semibold ${child.total > 0 ? 'text-emerald-500' : 'text-gray-500'}`}>
                                 {fmt(child.total)}
                               </span>
-                            </button>
+                            </div>
                           )}
 
                           {!subCollapsed && child.rows.map(tx => (
