@@ -18,11 +18,13 @@ interface Props {
 }
 
 export function TransactionFormModal({ transaction, accounts, defaultDate, onClose, onSave }: Props) {
+  const availableSourceAccounts = accounts.filter(account => account.isActive || account.id === transaction?.accountId)
+  const availableTargetAccounts = accounts.filter(account => account.isActive || account.id === transaction?.targetAccountId)
   const [description, setDescription] = useState(transaction?.description ?? '')
   const [amount, setAmount] = useState(transaction ? String(Math.abs(transaction.amount)) : '')
   const [isExpense, setIsExpense] = useState(!transaction || transaction.amount < 0)
   const [date, setDate] = useState(transaction?.date ?? defaultDate ?? today())
-  const [accountId, setAccountId] = useState(transaction?.accountId ?? accounts[0]?.id ?? '')
+  const [accountId, setAccountId] = useState(transaction?.accountId ?? accounts.find(account => account.isActive)?.id ?? '')
   const [comment, setComment] = useState(transaction?.comment ?? '')
   const [isTransfer, setIsTransfer] = useState(transaction?.isTransfer ?? false)
   const [targetAccountId, setTargetAccountId] = useState<string | null>(transaction?.targetAccountId ?? null)
@@ -140,7 +142,7 @@ export function TransactionFormModal({ transaction, accounts, defaultDate, onClo
               onChange={e => setAccountId(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              {availableSourceAccounts.map(a => <option key={a.id} value={a.id} disabled={!a.isActive}>{a.name}{a.isActive ? '' : ' (inactive)'}</option>)}
             </select>
           </div>
 
@@ -154,7 +156,7 @@ export function TransactionFormModal({ transaction, accounts, defaultDate, onClo
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">Select account…</option>
-                {accounts.filter(a => a.id !== accountId).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                {availableTargetAccounts.filter(a => a.id !== accountId).map(a => <option key={a.id} value={a.id} disabled={!a.isActive}>{a.name}{a.isActive ? '' : ' (inactive)'}</option>)}
               </select>
             </div>
           ) : null}

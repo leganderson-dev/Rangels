@@ -169,10 +169,11 @@ function ScheduledFormModal({ item, accounts, categories, onClose, onSave }: {
   onClose: () => void
   onSave: (data: any) => Promise<void>
 }) {
+  const availableAccounts = accounts.filter(account => account.isActive || account.id === item?.accountId)
   const [description, setDescription] = useState(item?.description ?? '')
   const [amount, setAmount] = useState(item ? String(Math.abs(item.amount)) : '')
   const [isExpense, setIsExpense] = useState(!item || item.amount < 0)
-  const [accountId, setAccountId] = useState(item?.accountId ?? accounts[0]?.id ?? '')
+  const [accountId, setAccountId] = useState(item?.accountId ?? accounts.find(account => account.isActive)?.id ?? '')
   const [categoryId, setCategoryId] = useState<string | null>(item?.categoryId ?? null)
   const [contextId, setContextId] = useState(item?.contextId ?? '')
   const [bucketId, setBucketId] = useState(item?.bucketId ?? '')
@@ -282,7 +283,7 @@ function ScheduledFormModal({ item, accounts, categories, onClose, onSave }: {
               onChange={e => setAccountId(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              {availableAccounts.map(a => <option key={a.id} value={a.id} disabled={!a.isActive}>{a.name}{a.isActive ? '' : ' (inactive)'}</option>)}
             </select>
           </div>
           <div>

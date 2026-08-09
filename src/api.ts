@@ -263,7 +263,14 @@ function matchMerchantRule(description: string, rules: Awaited<ReturnType<typeof
 
 type ImportPreviewProgress = (event: { stage: 'found' | 'duplicates' | 'categorizing' | 'done'; count?: number }) => void
 
+async function requireActiveImportAccount(accountId: string): Promise<void> {
+  const { data, error } = await supabase.from('accounts').select('is_active').eq('id', accountId).single()
+  fail(error)
+  if (!data?.is_active) throw new Error('This account is inactive and cannot receive imports.')
+}
+
 async function bankPreview(token: string, accountId: string, onProgress?: ImportPreviewProgress) {
+  await requireActiveImportAccount(accountId)
   const file = pickedFiles.get(token)
   if (!file) throw new Error('Please choose the CSV again.')
   const parsed = parseBankExport(file.text)
@@ -346,6 +353,7 @@ async function bankPreview(token: string, accountId: string, onProgress?: Import
 type BankImportAssignment = { categoryId: string | null; canonicalCategoryId?: string | null; contextId?: string | null; bucketId?: string | null; taxTreatment?: string; reimbursementStatus?: string; tags?: string[] }
 
 async function importBank(token: string, accountId: string, assignments: Record<number, BankImportAssignment | '__skip__'>): Promise<ImportResult> {
+  await requireActiveImportAccount(accountId)
   const file = pickedFiles.get(token)
   if (!file) throw new Error('Please choose the CSV again.')
   const parsed = parseBankExport(file.text)
@@ -423,7 +431,6 @@ async function rawAccounts(): Promise<Row[]> {
   const { data, error } = await supabase
     .from('accounts')
     .select('*')
-    .eq('is_active', true)
     .order('display_order')
     .order('name')
   fail(error)
@@ -1093,7 +1100,7 @@ export const api = {
   accounts: {
     list: listAccounts,
     add: async (
-      data: Pick<Account, 'name' | 'type' | 'color' | 'initialBalance'> & {
+      data: Pick<Account, 'name' | 'type' | 'color' | 'initialBalance' | 'isActive'> & {
         groupName?: string | null
         memberId: string
       },
@@ -1110,6 +1117,7 @@ export const api = {
           initial_balance: data.initialBalance,
           group_name: data.groupName ?? null,
           member_id: data.memberId,
+          is_active: data.isActive,
         })
         .select('id')
         .single()
@@ -1126,6 +1134,7 @@ export const api = {
       if (data.groupName !== undefined) payload.group_name = data.groupName
       if (data.lastUpdatedOn !== undefined) payload.last_updated_on = data.lastUpdatedOn
       if (data.memberId !== undefined) payload.member_id = data.memberId
+      if (data.isActive !== undefined) payload.is_active = data.isActive
       const { data: updated, error } = await supabase.from('accounts').update(payload).eq('id', id).select('id,color').single()
       fail(error)
       if (!updated) throw new Error('The account update was not persisted.')

@@ -45,11 +45,12 @@ interface Props {
 }
 
 export function ImportBankModal({ accounts, categories, onClose, onDone }: Props) {
+  const activeAccounts = accounts.filter(account => account.isActive)
   const [step, setStep] = useState<'pick' | 'categorize' | 'done'>('pick')
   const [filePath, setFilePath] = useState<string | null>(null)
   const [format, setFormat] = useState('')
   const [rows, setRows] = useState<PreviewRow[]>([])
-  const [accountId, setAccountId] = useState<string>(accounts[0]?.id ?? '')
+  const [accountId, setAccountId] = useState<string>(activeAccounts[0]?.id ?? '')
   const [assignments, setAssignments] = useState<Record<number, string | null>>({})
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<ImportResult | null>(null)
@@ -173,7 +174,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
                 onChange={e => setAccountId(e.target.value)}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                {activeAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
             </div>
             <button

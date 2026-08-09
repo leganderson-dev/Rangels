@@ -427,7 +427,7 @@ function DraggableRow({ account, selected, isDragging, isDropBefore, isDropOnto,
         onDragEnd={onDragEnd}
         className={`group relative flex items-center gap-1.5 px-2 py-1.5 rounded-lg select-none transition-colors hover:cursor-grab active:cursor-grabbing
           ${isDropOnto ? 'ring-1 ring-blue-500 bg-blue-500/10' : selected ? 'bg-slate-700' : 'hover:bg-slate-800'}
-          ${isDragging ? 'opacity-30' : ''}`}
+          ${isDragging ? 'opacity-30' : ''} ${!account.isActive ? 'opacity-60' : ''}`}
         style={selected ? { boxShadow: `inset 3px 0 0 ${account.color}` } : undefined}
         onClick={onClick}
       >
@@ -437,8 +437,8 @@ function DraggableRow({ account, selected, isDragging, isDropBefore, isDropOnto,
         />
         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: account.color }} />
         <div className="flex-1 min-w-0">
-          <p className="text-slate-200 text-xs font-medium truncate">{account.name}</p>
-          <p className={`text-xs font-semibold ${balance < 0 ? 'text-red-400' : 'text-slate-400'}`}>
+          <p className={`text-slate-200 text-xs font-medium truncate ${!account.isActive ? 'line-through' : ''}`}>{account.name}</p>
+          <p className={`text-xs font-semibold ${balance < 0 ? 'text-red-400' : 'text-slate-400'} ${!account.isActive ? 'line-through' : ''}`}>
             {fmt(balance)}
           </p>
           <p className="text-[10px] leading-tight text-slate-500">{account.memberName}</p>

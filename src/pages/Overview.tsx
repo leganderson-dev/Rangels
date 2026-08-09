@@ -99,8 +99,8 @@ export function OverviewPage({ accounts, selectedAccountId, month, year, dateMod
             {accounts.map(a => (
               <div key={a.id} className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: a.color }} />
-                <span className="flex-1 text-xs text-gray-600 truncate">{a.name}</span>
-                <span className={`text-xs font-semibold ${(a.balance ?? 0) < 0 ? 'text-red-500' : 'text-gray-800'}`}>
+                <span className={`flex-1 text-xs text-gray-600 truncate ${!a.isActive ? 'line-through opacity-60' : ''}`}>{a.name}</span>
+                <span className={`text-xs font-semibold ${(a.balance ?? 0) < 0 ? 'text-red-500' : 'text-gray-800'} ${!a.isActive ? 'line-through opacity-60' : ''}`}>
                   {fmt(a.balance ?? 0)}
                 </span>
               </div>

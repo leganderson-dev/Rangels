@@ -7,7 +7,7 @@ interface Props {
   account?: Account
   members: HouseholdMember[]
   onClose: () => void
-  onSave: (data: Pick<Account, 'name' | 'type' | 'color' | 'initialBalance' | 'memberId'> & { groupName: string | null }) => Promise<void>
+  onSave: (data: Pick<Account, 'name' | 'type' | 'color' | 'initialBalance' | 'memberId' | 'isActive'> & { groupName: string | null }) => Promise<void>
   onDelete?: () => Promise<void>
 }
 
@@ -18,6 +18,7 @@ export function AccountFormModal({ account, members, onClose, onSave, onDelete }
   const [initialBalance, setInitialBalance] = useState(String(account?.initialBalance ?? '0'))
   const [groupName, setGroupName] = useState(account?.groupName ?? '')
   const [memberId, setMemberId] = useState(account?.memberId ?? members[0]?.id ?? '')
+  const [isActive, setIsActive] = useState(account?.isActive ?? true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -33,6 +34,7 @@ export function AccountFormModal({ account, members, onClose, onSave, onDelete }
         initialBalance: parseFloat(initialBalance) || 0,
         groupName: groupName.trim() || null,
         memberId,
+        isActive,
       })
     } catch (e: any) {
       const msg: string = e?.message ?? String(e)
@@ -113,6 +115,18 @@ export function AccountFormModal({ account, members, onClose, onSave, onDelete }
             ))}
           </div>
         </div>
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
+          <input
+            type="checkbox"
+            checked={!isActive}
+            onChange={event => setIsActive(!event.target.checked)}
+            className="mt-0.5 rounded border-gray-300 text-slate-600"
+          />
+          <span>
+            <span className="block text-sm font-medium text-gray-700">Inactive</span>
+            <span className="block text-xs text-gray-400">Keep its history, but exclude it from transactions, transfers and imports.</span>
+          </span>
+        </label>
         {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
         <div className="flex gap-2 pt-2">
           {onDelete && (
