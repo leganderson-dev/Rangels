@@ -7,10 +7,9 @@ const TABS: { id: Page; label: string }[] = [
   { id: 'transactions', label: 'Transactions' },
   { id: 'merchants', label: 'Merchants' },
   { id: 'calendar', label: 'Calendar' },
-  { id: 'categories', label: 'Categories' },
+  { id: 'categories', label: 'Purposes' },
   { id: 'reports', label: 'Reports' },
   { id: 'plan', label: 'Plan' },
-  { id: 'migration', label: 'Migration' },
   { id: 'budget', label: 'Budget' },
   { id: 'scheduled', label: 'Scheduled' },
 ]

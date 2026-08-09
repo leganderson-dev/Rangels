@@ -1,0 +1,1 @@
+-- Validation-only migration. No rollback action is required.

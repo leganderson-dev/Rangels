@@ -10,14 +10,13 @@ import { CategoriesPage } from './pages/Categories'
 import { CalendarPage } from './pages/Calendar'
 import { MerchantsPage } from './pages/Merchants'
 import { PlanPage } from './pages/Plan'
-import { MigrationPage } from './pages/Migration'
 import { HelpInfoModal } from './components/HelpInfoModal'
 import { api } from './api'
 import type { Account, Category, HouseholdMember } from './types/finance'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
 
-export type Page = 'overview' | 'transactions' | 'merchants' | 'categories' | 'reports' | 'plan' | 'migration' | 'budget' | 'scheduled' | 'calendar'
+export type Page = 'overview' | 'transactions' | 'merchants' | 'categories' | 'reports' | 'plan' | 'budget' | 'scheduled' | 'calendar'
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
@@ -63,7 +62,7 @@ function SignIn() {
   return (
     <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
       <form onSubmit={submit} className="w-full max-w-sm rounded-2xl bg-white border border-slate-200 shadow-sm p-7">
-        <p className="text-xs font-bold tracking-[0.18em] text-blue-700 uppercase">Rangels V0.8</p>
+        <p className="text-xs font-bold tracking-[0.18em] text-blue-700 uppercase">Rangels V0.9</p>
         <h1 className="mt-2 text-2xl font-bold text-slate-900">Your finances, clearly.</h1>
         <p className="mt-2 text-sm text-slate-500">Sign in with your email. We’ll send you a secure link.</p>
         <label className="block mt-6 text-xs font-semibold text-slate-600">Email</label>
@@ -95,7 +94,7 @@ function FinanceApp() {
   )
 
   const refreshAccounts = useCallback(() => {
-    api.accounts.list().then(setAccounts).catch(console.error)
+    return api.accounts.list().then(setAccounts).catch(console.error)
   }, [])
 
   const refreshCategories = useCallback(() => {
@@ -153,7 +152,6 @@ function FinanceApp() {
           {page === 'categories' && <CategoriesPage {...pageProps} />}
           {page === 'reports' && <ReportsPage {...pageProps} />}
           {page === 'plan' && <PlanPage month={month} year={year} />}
-          {page === 'migration' && <MigrationPage />}
           {page === 'budget' && <BudgetPage {...pageProps} />}
           {page === 'scheduled' && <ScheduledPage {...pageProps} />}
           {page === 'calendar' && <CalendarPage {...pageProps} />}

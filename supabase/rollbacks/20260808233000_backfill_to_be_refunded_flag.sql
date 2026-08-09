@@ -1,0 +1,2 @@
+-- Intentionally no data reversal: after migration there is no safe way to
+-- distinguish the backfilled flag from an owner-confirmed reimbursement flag.

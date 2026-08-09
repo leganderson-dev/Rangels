@@ -3,7 +3,8 @@ import { Plus, Pencil, Trash2, Calendar, RefreshCw } from 'lucide-react'
 import { Modal } from '../components/Modal'
 import { api } from '../api'
 import { fmt, formatDate, today, FREQUENCIES } from '../utils'
-import type { Account, Category, ScheduledTransaction } from '../types/finance'
+import type { Account, Category, ClassificationOptions, ScheduledTransaction } from '../types/finance'
+import { canUseHouseholdBucket, emptyBucketLabel } from '../lib/classification'
 
 interface Props {
   accounts: Account[]
@@ -173,6 +174,10 @@ function ScheduledFormModal({ item, accounts, categories, onClose, onSave }: {
   const [isExpense, setIsExpense] = useState(!item || item.amount < 0)
   const [accountId, setAccountId] = useState(item?.accountId ?? accounts[0]?.id ?? '')
   const [categoryId, setCategoryId] = useState<string | null>(item?.categoryId ?? null)
+  const [contextId, setContextId] = useState(item?.contextId ?? '')
+  const [bucketId, setBucketId] = useState(item?.bucketId ?? '')
+  const [taxTreatment, setTaxTreatment] = useState<ScheduledTransaction['taxTreatment']>(item?.taxTreatment ?? 'none')
+  const [classificationOptions, setClassificationOptions] = useState<ClassificationOptions>({ contexts: [], buckets: [], categories: [] })
   const [frequency, setFrequency] = useState(item?.frequency ?? 'monthly')
   const [nextDate, setNextDate] = useState(item?.nextDate ?? today())
   const [isActive, setIsActive] = useState(item?.isActive ?? true)
@@ -182,9 +187,18 @@ function ScheduledFormModal({ item, accounts, categories, onClose, onSave }: {
 
   const filtered = categories.filter(c => !catSearch || c.fullName.toLowerCase().includes(catSearch.toLowerCase())).slice(0, 40)
   const selectedCat = categories.find(c => c.id === categoryId)
+  const selectedPurpose = classificationOptions.categories.find(item => item.id === categoryId)
+  const selectedContext = classificationOptions.contexts.find(item => item.id === contextId)
+
+  useEffect(() => {
+    api.classification.options().then(options => {
+      setClassificationOptions(options)
+      setContextId(current => current || options.contexts.find(context => context.name === 'Household')?.id || '')
+    }).catch(console.error)
+  }, [])
 
   async function handleSave() {
-    if (!description.trim() || !amount || !accountId) return
+    if (!description.trim() || !amount || !accountId || !categoryId || !contextId || taxTreatment === 'review' || (canUseHouseholdBucket(selectedContext?.name, selectedPurpose?.type) && !bucketId)) return
     setSaving(true)
     setError(null)
     try {
@@ -193,6 +207,9 @@ function ScheduledFormModal({ item, accounts, categories, onClose, onSave }: {
         amount: (isExpense ? -1 : 1) * Math.abs(parseFloat(amount)),
         accountId,
         categoryId,
+        contextId,
+        bucketId: canUseHouseholdBucket(selectedContext?.name, selectedPurpose?.type) ? bucketId || null : null,
+        taxTreatment,
         frequency,
         startDate: nextDate,
         nextDate,
@@ -280,15 +297,15 @@ function ScheduledFormModal({ item, accounts, categories, onClose, onSave }: {
           </div>
         </div>
 
-        {/* Category */}
+        {/* Purpose */}
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Category (optional)</label>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Purpose</label>
           <div className="relative">
             <input
               value={catSearch || (selectedCat ? selectedCat.fullName : '')}
               onChange={e => { setCatSearch(e.target.value); if (!e.target.value) setCategoryId(null) }}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Search category…"
+              placeholder="Search purpose…"
               onFocus={() => setCatSearch('')}
             />
             {catSearch && (
@@ -306,6 +323,12 @@ function ScheduledFormModal({ item, accounts, categories, onClose, onSave }: {
               </div>
             )}
           </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Context</label><select value={contextId} onChange={event => { setContextId(event.target.value); setBucketId('') }} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"><option value="">Choose…</option>{classificationOptions.contexts.filter(context => context.name !== 'Review required').map(context => <option key={context.id} value={context.id}>{context.name}</option>)}</select></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Household Bucket</label><select value={bucketId} disabled={!canUseHouseholdBucket(selectedContext?.name, selectedPurpose?.type)} onChange={event => setBucketId(event.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white disabled:bg-gray-100"><option value="">{emptyBucketLabel(selectedContext?.name, selectedPurpose?.type)}</option>{classificationOptions.buckets.map(bucket => <option key={bucket.id} value={bucket.id}>{bucket.name}</option>)}</select></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Tax</label><select value={taxTreatment} onChange={event => setTaxTreatment(event.target.value as ScheduledTransaction['taxTreatment'])} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"><option value="none">None</option><option value="deductible">Deductible</option><option value="review">Needs review</option></select></div>
         </div>
 
         {/* Active toggle */}
@@ -326,7 +349,7 @@ function ScheduledFormModal({ item, accounts, categories, onClose, onSave }: {
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !description.trim() || !amount}
+            disabled={saving || !description.trim() || !amount || !categoryId || !contextId || taxTreatment === 'review' || (canUseHouseholdBucket(selectedContext?.name, selectedPurpose?.type) && !bucketId)}
             className="flex-1 bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? 'Saving…' : (item ? 'Update' : 'Add')}

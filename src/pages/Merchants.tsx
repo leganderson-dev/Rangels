@@ -92,7 +92,7 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
         transactionIds: merchant.transactionIds,
         categoryId,
       })
-      setMessage(`${merchant.name} will now use this category for existing and future matching transactions.`)
+      setMessage(`${merchant.name} will now use this purpose for existing and future matching transactions.`)
       await load()
       onRefreshCategories()
     } finally {
@@ -184,7 +184,6 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
       {editingRule && (
         <MerchantRuleModal
           merchant={editingRule}
-          categories={categoryOptions}
           options={classificationOptions}
           onClose={() => setEditingRule(null)}
           onSave={async data => {
@@ -263,14 +262,14 @@ function MerchantRow({ merchant, categories, selectedCategoryId, applying, onCat
       </div>
 
       <div className="border-r border-slate-100 p-4">
-        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Category evidence</p>
+        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Purpose evidence</p>
         {merchant.candidates.length ? merchant.candidates.map(candidate => (
           <div key={candidate.categoryId} className="mb-2 grid grid-cols-[minmax(120px,1fr)_120px_42px] items-center gap-2 text-xs">
             <span className="truncate text-slate-600" title={candidate.categoryName}>{candidate.categoryName}</span>
             <div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full" style={{ width: `${candidate.percentage * 100}%`, backgroundColor: candidate.categoryColor }} /></div>
             <span className="text-right tabular-nums text-slate-400">{Math.round(candidate.percentage * 100)}%</span>
           </div>
-        )) : <p className="text-xs text-slate-400">No prior category decisions.</p>}
+        )) : <p className="text-xs text-slate-400">No prior purpose decisions.</p>}
       </div>
 
       <div className="border-r border-slate-100 p-4">
@@ -285,7 +284,7 @@ function MerchantRow({ merchant, categories, selectedCategoryId, applying, onCat
       <div className="p-4">
         <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Classification</label>
         <select value={selectedCategoryId} onChange={event => onCategoryChange(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700 outline-none focus:border-blue-400">
-          <option value="">Choose category…</option>
+          <option value="">Choose purpose…</option>
           {categories.map(category => <option key={category.id} value={category.id}>{category.fullName}</option>)}
         </select>
         <button onClick={onApply} disabled={!selectedCategoryId || applying} className="mt-3 w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-40">
@@ -300,18 +299,16 @@ function MerchantRow({ merchant, categories, selectedCategoryId, applying, onCat
   )
 }
 
-function MerchantRuleModal({ merchant, categories, options, onClose, onSave }: {
+function MerchantRuleModal({ merchant, options, onClose, onSave }: {
   merchant: MerchantInsight
-  categories: Category[]
   options: ClassificationOptions
   onClose: () => void
   onSave: (data: { name: string; categoryId: string; phrases: string[]; canonicalCategoryId: string | null; contextId: string | null; bucketId: string | null; taxTreatment: 'none' | 'deductible' | 'review' }) => Promise<void>
 }) {
   const [name, setName] = useState(merchant.name)
-  const [categoryId, setCategoryId] = useState(merchant.categoryId ?? '')
   const [phrases, setPhrases] = useState((merchant.rulePhrases.length ? merchant.rulePhrases : [merchant.name]).join('\n'))
   const [saving, setSaving] = useState(false)
-  const [canonicalCategoryId, setCanonicalCategoryId] = useState(merchant.canonicalCategoryId ?? '')
+  const [canonicalCategoryId, setCanonicalCategoryId] = useState(merchant.canonicalCategoryId ?? merchant.categoryId ?? '')
   const [contextId, setContextId] = useState(merchant.contextId ?? '')
   const [bucketId, setBucketId] = useState(merchant.bucketId ?? '')
   const [taxTreatment, setTaxTreatment] = useState(merchant.taxTreatment)
@@ -321,10 +318,10 @@ function MerchantRuleModal({ merchant, categories, options, onClose, onSave }: {
 
   async function save() {
     const rulePhrases = phrases.split('\n').map(phrase => phrase.trim()).filter(Boolean)
-    if (!name.trim() || !categoryId || rulePhrases.length === 0) return
+    if (!name.trim() || !canonicalCategoryId || rulePhrases.length === 0) return
     setSaving(true)
     try {
-      await onSave({ name: name.trim(), categoryId, phrases: rulePhrases, canonicalCategoryId: canonicalCategoryId || null, contextId: contextId || null, bucketId: bucketId || null, taxTreatment })
+      await onSave({ name: name.trim(), categoryId: canonicalCategoryId, phrases: rulePhrases, canonicalCategoryId, contextId: contextId || null, bucketId: bucketId || null, taxTreatment })
     } finally {
       setSaving(false)
     }
@@ -338,17 +335,10 @@ function MerchantRuleModal({ merchant, categories, options, onClose, onSave }: {
           <input autoFocus value={name} onChange={event => setName(event.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
         </div>
         <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 space-y-3">
-          <div><p className="text-xs font-semibold text-slate-700">V0.4 structured defaults</p><p className="text-[11px] text-slate-400">Remembered for matching transactions during future imports.</p></div>
+          <div><p className="text-xs font-semibold text-slate-700">Classification defaults</p><p className="text-[11px] text-slate-400">Remembered for matching transactions during future imports.</p></div>
           <div><label className="mb-1 block text-xs text-slate-500">Purpose</label><select value={canonicalCategoryId} onChange={event => { setCanonicalCategoryId(event.target.value); if (options.categories.find(item => item.id === event.target.value)?.type === 'income') setBucketId('') }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Requires review</option>{[...new Set(options.categories.map(item => item.family))].map(family => <optgroup key={family} label={family}>{options.categories.filter(item => item.family === family).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>)}</select></div>
           <div className="grid grid-cols-2 gap-3"><div><label className="mb-1 block text-xs text-slate-500">Context</label><select value={contextId} onChange={event => { const nextContext = options.contexts.find(item => item.id === event.target.value); setContextId(event.target.value); if (!canUseHouseholdBucket(nextContext?.name, purpose?.type)) setBucketId('') }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Requires review</option>{options.contexts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div><div><label className="mb-1 block text-xs text-slate-500">Household bucket</label><select value={bucketId} onChange={event => setBucketId(event.target.value)} disabled={!householdExpense} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"><option value="">{emptyBucketLabel(context?.name, purpose?.type)}</option>{householdExpense && options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div></div>
           <div><label className="mb-1 block text-xs text-slate-500">Tax treatment</label><select value={taxTreatment} onChange={event => setTaxTreatment(event.target.value as typeof taxTreatment)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="none">None</option><option value="deductible">Deductible</option><option value="review">Needs review</option></select></div>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-slate-600">Default category</label>
-          <select value={categoryId} onChange={event => setCategoryId(event.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400">
-            <option value="">Choose category…</option>
-            {categories.map(category => <option key={category.id} value={category.id}>{category.fullName}</option>)}
-          </select>
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600">Matching phrases</label>
@@ -360,7 +350,7 @@ function MerchantRuleModal({ merchant, categories, options, onClose, onSave }: {
         </div>
         <div className="flex gap-2 pt-1">
           <button onClick={onClose} className="flex-1 rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
-          <button onClick={save} disabled={saving || !name.trim() || !categoryId || !phrases.trim()} className="flex-1 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-40">{saving ? 'Saving…' : 'Save rule'}</button>
+          <button onClick={save} disabled={saving || !name.trim() || !canonicalCategoryId || !phrases.trim()} className="flex-1 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-40">{saving ? 'Saving…' : 'Save rule'}</button>
         </div>
       </div>
     </Modal>

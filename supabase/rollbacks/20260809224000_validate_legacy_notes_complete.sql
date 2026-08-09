@@ -1,0 +1,1 @@
+-- Validation-only migration. No data changes to reverse.

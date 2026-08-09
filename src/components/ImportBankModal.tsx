@@ -4,7 +4,7 @@ import { Modal } from './Modal'
 import { api } from '../api'
 import { canUseHouseholdBucket, emptyBucketLabel } from '../lib/classification'
 import { fmt, formatDate } from '../utils'
-import type { Account, Category, ClassificationOptions, ImportResult, LegacyCategoryMapping } from '../types/finance'
+import type { Account, Category, ClassificationOptions, ImportResult } from '../types/finance'
 import { classifyConfidence } from '../lib/matching'
 import type { ConfidenceGroup } from '../types/import'
 
@@ -58,7 +58,6 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   const [catOpen, setCatOpen] = useState<number | null>(null)
   const [included, setIncluded] = useState<Set<number>>(new Set())
   const [collapsedGroups, setCollapsedGroups] = useState<Set<ConfidenceGroup>>(new Set())
-  const [mappings, setMappings] = useState<LegacyCategoryMapping[]>([])
   const [loadError, setLoadError] = useState('')
   const [analysis, setAnalysis] = useState({ reading: false, found: null as number | null, duplicates: null as number | null, categorizing: false, done: false })
   const [hideDuplicates, setHideDuplicates] = useState(true)
@@ -66,7 +65,6 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   const [classifications, setClassifications] = useState<Record<number, RowClassification>>({})
 
   useEffect(() => {
-    api.classification.mappings().then(setMappings).catch(console.error)
     api.classification.options().then(setClassificationOptions).catch(console.error)
   }, [])
 
@@ -91,13 +89,11 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
       const init: Record<number, string | null> = {}
       preview.rows.forEach(r => { init[r.index] = r.suggestedCategoryId })
       setAssignments(init)
-      const activeMappings = mappings.length ? mappings : await api.classification.mappings()
-      if (!mappings.length) setMappings(activeMappings)
-      if (!classificationOptions.categories.length) setClassificationOptions(await api.classification.options())
+      const activeOptions = classificationOptions.categories.length ? classificationOptions : await api.classification.options()
+      if (!classificationOptions.categories.length) setClassificationOptions(activeOptions)
       const initialClassifications: Record<number, RowClassification> = {}
       preview.rows.forEach(row => {
-        const mapping = activeMappings.find(item => item.categoryId === row.suggestedCategoryId)
-        initialClassifications[row.index] = classificationFromMapping(mapping)
+        initialClassifications[row.index] = classificationFromPurpose(row.suggestedCategoryId, activeOptions)
       })
       setClassifications(initialClassifications)
       setIncluded(new Set(preview.rows.filter(r => !r.duplicate).map(r => r.index)))
@@ -115,7 +111,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
     try {
       const selected: Record<number, { categoryId: string | null; canonicalCategoryId: string | null; contextId: string | null; bucketId: string | null; taxTreatment: string; reimbursementStatus: string; tags: string[] } | '__skip__'> = {}
       rows.forEach(row => {
-        const classification = classifications[row.index] ?? classificationFromMapping()
+        const classification = classifications[row.index] ?? classificationFromPurpose(null, classificationOptions)
         selected[row.index] = included.has(row.index) ? { categoryId: assignments[row.index] ?? null, canonicalCategoryId: classification.canonicalCategoryId, contextId: classification.contextId, bucketId: classification.bucketId, taxTreatment: classification.taxTreatment, reimbursementStatus: classification.reimbursementStatus, tags: classification.tags } : '__skip__'
       })
       const res = await api.import.bankCsv(filePath, accountId, selected)
@@ -128,7 +124,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
 
   function setAssignment(rowIndex: number, categoryId: string | null) {
     setAssignments(a => ({ ...a, [rowIndex]: categoryId }))
-    setClassifications(current => ({ ...current, [rowIndex]: classificationFromMapping(mappings.find(mapping => mapping.categoryId === categoryId)) }))
+    setClassifications(current => ({ ...current, [rowIndex]: classificationFromPurpose(categoryId, classificationOptions) }))
     setCatSearch(current => ({ ...current, [rowIndex]: '' }))
     setCatOpen(null)
     setFocusRow(r => r + 1)
@@ -231,7 +227,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
                   </div>
                   {!collapsedGroups.has(group.key) && group.rows.map(row => {
                     const i = rows.indexOf(row)
-                    return <ImportRow key={row.index} row={row} categories={categories} mappings={mappings} options={classificationOptions} classification={classifications[row.index] ?? classificationFromMapping()} onClassificationChange={classification => setClassifications(current => ({ ...current, [row.index]: classification }))} included={included.has(row.index)} onIncluded={() => setIncluded(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} assignedCategoryId={assignments[row.index] ?? null} focused={focusRow === i} catOpen={catOpen === i} catSearch={catSearch[i] ?? ''} onFocus={() => setFocusRow(i)} onOpenCat={() => setCatOpen(i)} onCloseCat={() => setCatOpen(null)} onCatSearch={s => setCatSearch(c => ({ ...c, [i]: s }))} onAssign={catId => setAssignment(row.index, catId)} />
+                    return <ImportRow key={row.index} row={row} categories={categories} options={classificationOptions} classification={classifications[row.index] ?? classificationFromPurpose(null, classificationOptions)} onClassificationChange={classification => setClassifications(current => ({ ...current, [row.index]: classification }))} included={included.has(row.index)} onIncluded={() => setIncluded(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} assignedCategoryId={assignments[row.index] ?? null} focused={focusRow === i} catOpen={catOpen === i} catSearch={catSearch[i] ?? ''} onFocus={() => setFocusRow(i)} onOpenCat={() => setCatOpen(i)} onCloseCat={() => setCatOpen(null)} onCatSearch={s => setCatSearch(c => ({ ...c, [i]: s }))} onAssign={catId => setAssignment(row.index, catId)} />
                   })}
                 </div>
               ))}
@@ -276,14 +272,18 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   )
 }
 
-function classificationFromMapping(mapping?: LegacyCategoryMapping): RowClassification {
-  return { canonicalCategoryId: mapping?.canonicalCategoryId ?? null, contextId: mapping?.contextId ?? null, bucketId: mapping?.bucketId ?? null, taxTreatment: mapping?.taxTreatment ?? 'none', reimbursementStatus: 'none', tags: [], mapped: mapping?.status === 'mapped' }
+function classificationFromPurpose(categoryId: string | null, options: ClassificationOptions): RowClassification {
+  const purpose = options.categories.find(item => item.id === categoryId)
+  const household = options.contexts.find(item => item.name === 'Household')
+  const daily = new Set(['Mortgage payment', 'Rent', 'Council rates', 'Electricity', 'Gas', 'Water', 'Internet', 'Mobile phone', 'Home insurance', 'Groceries', 'Fuel', 'Public transport', 'Parking', 'Tolls', 'Registration', 'Vehicle insurance', 'Vehicle maintenance', 'Childcare', 'School care', 'School fees', 'School supplies', 'Books and learning', 'Activities', 'Medical care', 'Pharmacy', 'Health insurance', 'Bank fees', 'Debt repayment', 'Tax payment'])
+  const smile = new Set(['Travel', 'Gifts', 'Donations', 'Hobbies and collectibles'])
+  const bucketName = purpose?.type === 'expense' ? smile.has(purpose.name) ? 'Smile' : daily.has(purpose.name) ? 'Daily Expenses' : 'Splurge' : null
+  return { canonicalCategoryId: purpose?.id ?? null, contextId: purpose ? household?.id ?? null : null, bucketId: bucketName ? options.buckets.find(item => item.name === bucketName)?.id ?? null : null, taxTreatment: 'none', reimbursementStatus: 'none', tags: [], mapped: Boolean(purpose && household) }
 }
 
-function ClassificationEditor({ classification, options, legacyMapping, editingField, onEdit, onChange }: {
+function ClassificationEditor({ classification, options, editingField, onEdit, onChange }: {
   classification: RowClassification
   options: ClassificationOptions
-  legacyMapping?: LegacyCategoryMapping
   editingField: 'purpose' | 'context' | 'bucket' | 'tax' | 'reimbursement' | 'tags' | null
   onEdit: (field: 'purpose' | 'context' | 'bucket' | 'tax' | 'reimbursement' | 'tags' | null) => void
   onChange: (classification: RowClassification) => void
@@ -292,12 +292,12 @@ function ClassificationEditor({ classification, options, legacyMapping, editingF
   const context = options.contexts.find(item => item.id === classification.contextId)
   const bucket = options.buckets.find(item => item.id === classification.bucketId)
   const householdExpense = canUseHouseholdBucket(context?.name, purpose?.type)
-  const score = (matches: boolean, suggested: boolean) => matches && suggested ? '100%' : 'Manual'
+  const score = (selected: boolean) => selected ? 'Selected' : '—'
   const rows = [
-    { key: 'purpose' as const, label: 'Purpose', value: purpose ? `${purpose.family}: ${purpose.name}` : 'Requires review', score: score(classification.canonicalCategoryId === legacyMapping?.canonicalCategoryId, Boolean(legacyMapping?.canonicalCategoryId)) },
-    { key: 'context' as const, label: 'Context', value: context?.name ?? 'Requires review', score: score(classification.contextId === legacyMapping?.contextId, Boolean(legacyMapping?.contextId)) },
-    { key: 'bucket' as const, label: 'Bucket', value: bucket?.name ?? emptyBucketLabel(context?.name, purpose?.type), score: householdExpense ? score(classification.bucketId === legacyMapping?.bucketId, Boolean(legacyMapping?.bucketId)) : '—' },
-    { key: 'tax' as const, label: 'Tax', value: classification.taxTreatment === 'review' ? 'Needs review' : classification.taxTreatment === 'deductible' ? 'Deductible' : 'None', score: score(classification.taxTreatment === legacyMapping?.taxTreatment, Boolean(legacyMapping)) },
+    { key: 'purpose' as const, label: 'Purpose', value: purpose ? `${purpose.family}: ${purpose.name}` : 'Requires review', score: score(Boolean(purpose)) },
+    { key: 'context' as const, label: 'Context', value: context?.name ?? 'Requires review', score: score(Boolean(context)) },
+    { key: 'bucket' as const, label: 'Bucket', value: bucket?.name ?? emptyBucketLabel(context?.name, purpose?.type), score: householdExpense ? score(Boolean(bucket)) : '—' },
+    { key: 'tax' as const, label: 'Tax', value: classification.taxTreatment === 'review' ? 'Needs review' : classification.taxTreatment === 'deductible' ? 'Deductible' : 'None', score: score(classification.taxTreatment !== 'review') },
     { key: 'reimbursement' as const, label: 'Reimbursement', value: classification.reimbursementStatus === 'to_be_reimbursed' ? 'To be reimbursed' : classification.reimbursementStatus === 'reimbursed' ? 'Reimbursed' : 'None', score: 'Manual' },
     { key: 'tags' as const, label: 'Tags', value: classification.tags.length ? classification.tags.join(', ') : '—', score: classification.tags.length ? 'Manual' : '—' },
   ]
@@ -336,10 +336,9 @@ function AnalysisProgress({ analysis, compact = false }: { analysis: { reading: 
   </div>
 }
 
-function ImportRow({ row, categories, mappings, options, classification, onClassificationChange, included, onIncluded, assignedCategoryId, focused, catOpen, catSearch, onFocus, onOpenCat, onCloseCat, onCatSearch, onAssign }: {
+function ImportRow({ row, categories, options, classification, onClassificationChange, included, onIncluded, assignedCategoryId, focused, catOpen, catSearch, onFocus, onOpenCat, onCloseCat, onCatSearch, onAssign }: {
   row: PreviewRow
   categories: Category[]
-  mappings: LegacyCategoryMapping[]
   options: ClassificationOptions
   classification: RowClassification
   onClassificationChange: (classification: RowClassification) => void
@@ -357,7 +356,6 @@ function ImportRow({ row, categories, mappings, options, classification, onClass
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const assignedCat = categories.find(c => c.id === assignedCategoryId)
-  const legacyMapping = mappings.find(mapping => mapping.categoryId === assignedCategoryId)
   const [editingField, setEditingField] = useState<'purpose' | 'context' | 'bucket' | 'tax' | 'reimbursement' | 'tags' | null>(null)
   const manuallySelected = assignedCat && !row.suggestions.some(suggestion => suggestion.categoryId === assignedCat.id)
   const visibleSuggestions = manuallySelected
@@ -408,7 +406,7 @@ function ImportRow({ row, categories, mappings, options, classification, onClass
             <Pencil size={13} />
           </button>
         </div>
-        <ClassificationEditor classification={classification} options={options} legacyMapping={legacyMapping} editingField={editingField} onEdit={setEditingField} onChange={next => { onClassificationChange({ ...next, mapped: false }); setEditingField(null) }} />
+        <ClassificationEditor classification={classification} options={options} editingField={editingField} onEdit={setEditingField} onChange={next => { onClassificationChange({ ...next, mapped: false }); setEditingField(null) }} />
 
         {catOpen && (
           <div className="absolute top-full right-0 mt-1 w-[420px] bg-white border border-gray-200 rounded-lg shadow-xl z-40">

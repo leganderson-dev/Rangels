@@ -68,7 +68,7 @@ export function HelpInfoModal({ onClose }: { onClose: () => void }) {
         </section>
 
         <section className="rounded-2xl border border-amber-200 bg-amber-50/60 p-5">
-          <div className="flex gap-3"><CircleHelp size={20} className="mt-0.5 shrink-0 text-amber-600" /><div><h3 className="text-sm font-bold text-slate-900">Import intelligence and the temporary Migration page</h3><p className="mt-1 text-xs leading-5 text-slate-600">Imports learn from merchant rules, prior descriptions, corrections, account ownership, and approved mappings. Legacy Alzex categories are retained only as historical evidence. Use <strong>Migration</strong> to give every ambiguous legacy category an approved Purpose, Context, Household Bucket, and Tax decision. Once that queue is complete, legacy categories can disappear from the normal import workflow.</p></div></div>
+          <div className="flex gap-3"><CircleHelp size={20} className="mt-0.5 shrink-0 text-amber-600" /><div><h3 className="text-sm font-bold text-slate-900">Import intelligence</h3><p className="mt-1 text-xs leading-5 text-slate-600">Imports learn from merchant rules, reviewed transaction descriptions, corrections and account ownership. New transactions are classified directly with Purpose, Context, Household Bucket, Tax and reimbursement dimensions. Legacy Alzex category IDs are dormant audit references only and are never used for current reporting.</p></div></div>
         </section>
 
         <section className="rounded-2xl border border-blue-200 bg-blue-50/40 p-5">
@@ -148,7 +148,7 @@ export function HelpInfoModal({ onClose }: { onClose: () => void }) {
           </div>
         </section>
 
-        <div className="flex items-center justify-between border-t border-slate-200 pt-4 text-[11px] text-slate-400"><span>Rangels V0.8 · This guide reflects the current agreed model.</span><span>Ledger first · Import first · No destructive legacy conversion</span></div>
+        <div className="flex items-center justify-between border-t border-slate-200 pt-4 text-[11px] text-slate-400"><span>Rangels V0.9 · Legacy categories retired from active use.</span><span>Ledger first · Import first · Canonical classification</span></div>
       </div>
     </Modal>
   )

@@ -17,19 +17,16 @@ interface Props {
   onSave: (data: any) => Promise<void>
 }
 
-export function TransactionFormModal({ transaction, accounts, categories, defaultDate, onClose, onSave }: Props) {
+export function TransactionFormModal({ transaction, accounts, defaultDate, onClose, onSave }: Props) {
   const [description, setDescription] = useState(transaction?.description ?? '')
   const [amount, setAmount] = useState(transaction ? String(Math.abs(transaction.amount)) : '')
   const [isExpense, setIsExpense] = useState(!transaction || transaction.amount < 0)
   const [date, setDate] = useState(transaction?.date ?? defaultDate ?? today())
   const [accountId, setAccountId] = useState(transaction?.accountId ?? accounts[0]?.id ?? '')
-  const [categoryId, setCategoryId] = useState<string | null>(transaction?.categoryId ?? null)
   const [comment, setComment] = useState(transaction?.comment ?? '')
   const [isTransfer, setIsTransfer] = useState(transaction?.isTransfer ?? false)
   const [targetAccountId, setTargetAccountId] = useState<string | null>(transaction?.targetAccountId ?? null)
   const [saving, setSaving] = useState(false)
-  const [catSearch, setCatSearch] = useState('')
-  const [catOpen, setCatOpen] = useState(false)
   const [options, setOptions] = useState<ClassificationOptions>({ contexts: [], buckets: [], categories: [] })
   const [canonicalCategoryId, setCanonicalCategoryId] = useState(transaction?.canonicalCategoryId ?? '')
   const [contextId, setContextId] = useState(transaction?.contextId ?? '')
@@ -45,12 +42,6 @@ export function TransactionFormModal({ transaction, accounts, categories, defaul
     api.classification.options().then(setOptions).catch(console.error)
   }, [])
 
-  const filteredCats = categories.filter(c =>
-    !catSearch || c.fullName.toLowerCase().includes(catSearch.toLowerCase())
-  ).slice(0, 40)
-
-  const selectedCat = categories.find(c => c.id === categoryId)
-
   async function handleSave() {
     if (!description.trim() || !amount || !accountId || (isTransfer && (!targetAccountId || !transferReason || (transferReasonNeedsContext(transferReason) && !contextId)))) return
     setSaving(true)
@@ -63,7 +54,6 @@ export function TransactionFormModal({ transaction, accounts, categories, defaul
         amount: sign * Math.abs(parseFloat(amount)),
         accountId,
         targetAccountId: isTransfer ? targetAccountId : null,
-        categoryId,
         isTransfer,
         status: 'C'
         ,canonicalCategoryId: isTransfer ? null : canonicalCategoryId || null
@@ -154,7 +144,7 @@ export function TransactionFormModal({ transaction, accounts, categories, defaul
             </select>
           </div>
 
-          {/* Target account (transfer) or Category */}
+          {/* Target account */}
           {isTransfer ? (
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">To Account</label>
@@ -169,62 +159,6 @@ export function TransactionFormModal({ transaction, accounts, categories, defaul
             </div>
           ) : null}
 
-          {/* Category — always shown */}
-          <div className={`relative ${isTransfer ? 'col-span-2' : ''}`}>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Category</label>
-            <button
-              type="button"
-              onClick={() => { setCatOpen(o => !o); setCatSearch('') }}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-left focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center gap-2"
-            >
-              {selectedCat ? (
-                <>
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: selectedCat.color }} />
-                  <span className="truncate">{selectedCat.fullName}</span>
-                </>
-              ) : (
-                <span className="text-gray-400">Select category…</span>
-              )}
-            </button>
-            {catOpen && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-30">
-                <div className="p-2 border-b border-gray-100">
-                  <input
-                    autoFocus
-                    value={catSearch}
-                    onChange={e => setCatSearch(e.target.value)}
-                    placeholder="Search…"
-                    className="w-full px-2 py-1 text-sm border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && filteredCats.length > 0) {
-                        setCategoryId(filteredCats[0].id)
-                        setCatOpen(false)
-                      }
-                      if (e.key === 'Escape') setCatOpen(false)
-                    }}
-                  />
-                </div>
-                <div className="max-h-48 overflow-y-auto">
-                  <button
-                    onMouseDown={() => { setCategoryId(null); setCatOpen(false) }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-50"
-                  >
-                    No category
-                  </button>
-                  {filteredCats.map(c => (
-                    <button
-                      key={c.id}
-                      onMouseDown={() => { setCategoryId(c.id); setCatOpen(false) }}
-                      className={`w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 flex items-center gap-2 ${categoryId === c.id ? 'bg-blue-50' : ''}`}
-                    >
-                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
-                      <span className="text-gray-700">{c.fullName}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
         </div>
 
         {isTransfer && (
@@ -241,7 +175,7 @@ export function TransactionFormModal({ transaction, accounts, categories, defaul
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
             <div>
               <p className="text-xs font-semibold text-slate-700">Classification</p>
-              <p className="text-[11px] text-slate-400">Independent reporting dimensions; the legacy category remains available above.</p>
+              <p className="text-[11px] text-slate-400">Purpose, Context and Household Bucket are the active reporting dimensions.</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

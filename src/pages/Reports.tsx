@@ -334,7 +334,7 @@ export function ReportsPage({ categories, month, year, selectedAccountId, dateMo
         {view === 'spending' && !isDrillCategory && (
           <div className="grid grid-cols-5 gap-5">
             <div className="col-span-2 bg-white rounded-2xl border border-gray-200 p-5 shadow-sm flex flex-col">
-              <h3 className="text-sm font-semibold text-gray-700 mb-1">Spending by Category</h3>
+              <h3 className="text-sm font-semibold text-gray-700 mb-1">Spending by Purpose</h3>
               <p className="text-xs text-gray-400 mb-4">{drillMonthName} — click to drill in</p>
               {pieData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={220}>

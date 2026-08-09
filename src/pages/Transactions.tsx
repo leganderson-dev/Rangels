@@ -321,7 +321,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
         </div>
         <select value={groupBy} onChange={e => setGroupBy(e.target.value as any)}
           className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-600 bg-gray-50 focus:outline-none">
-          <option value="category">Group by Category</option>
+          <option value="category">Group by Purpose</option>
           <option value="date">Group by Date</option>
           <option value="none">No grouping</option>
         </select>
@@ -336,7 +336,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors ${needsCategoryOnly ? 'border-amber-300 bg-amber-100 text-amber-800' : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'}`}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-            Needs category <span className="text-amber-500">{needsCategoryCount}</span>
+            Needs purpose <span className="text-amber-500">{needsCategoryCount}</span>
           </button>
         )}
         {groupBy === 'category' && (
@@ -418,7 +418,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
               className="rounded shrink-0" />
             <ColHeader label="Description" col="description" flex sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
             <ColHeader label="Amount" col="amount" width={colWidths.amount} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} onResize={e => startResize('amount', e)} />
-            <ColHeader label="Category" col="category" width={colWidths.category} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} onResize={e => startResize('category', e)} />
+            <ColHeader label="Purpose" col="category" width={colWidths.category} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} onResize={e => startResize('category', e)} />
             <ColHeader label="Date" col="date" width={colWidths.date} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} onResize={e => startResize('date', e)} />
             <ColHeader label="Account" col="account" width={colWidths.account} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} onResize={e => startResize('account', e)} />
             <div className="w-16 shrink-0" />
@@ -632,10 +632,10 @@ function buildHierarchyGroups(transactions: Transaction[], catMap: Map<string, C
   }
 
   function getParentChild(tx: Transaction): { parentKey: string; parentLabel: string; parentColor: string | null; parentCatId: string | null; childKey: string; childLabel: string; childColor: string | null; childCatId: string | null; isSingleLevel: boolean } {
-    if (!tx.categoryId || needsCategory(tx)) return { parentKey: '__none', parentLabel: 'Needs category', parentColor: '#f59e0b', parentCatId: null, childKey: '__none', childLabel: 'Needs category', childColor: '#f59e0b', childCatId: null, isSingleLevel: true }
+    if (!tx.categoryId || needsCategory(tx)) return { parentKey: '__none', parentLabel: 'Needs purpose', parentColor: '#f59e0b', parentCatId: null, childKey: '__none', childLabel: 'Needs purpose', childColor: '#f59e0b', childCatId: null, isSingleLevel: true }
 
     const cat = catMap.get(tx.categoryId)
-    if (!cat) return { parentKey: '__none', parentLabel: 'Needs category', parentColor: '#f59e0b', parentCatId: null, childKey: '__none', childLabel: 'Needs category', childColor: '#f59e0b', childCatId: null, isSingleLevel: true }
+    if (!cat) return { parentKey: '__none', parentLabel: 'Needs purpose', parentColor: '#f59e0b', parentCatId: null, childKey: '__none', childLabel: 'Needs purpose', childColor: '#f59e0b', childCatId: null, isSingleLevel: true }
 
     // Proper DB hierarchy
     if (cat.parentId) {
@@ -802,7 +802,7 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
               style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, width: Math.max(224, colWidths.category), zIndex: 9999 }}
             >
               {applyingToMany && <div className="px-3 py-1.5 text-xs text-blue-600 bg-blue-50 border-b border-blue-100 font-medium">Applying to {selectedCount} selected</div>}
-              <button onMouseDown={() => pickCat(null)} className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-50">Remove category</button>
+              <button onMouseDown={() => pickCat(null)} className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-50">Remove purpose</button>
               {filteredCats.map((c, i) => (
                 <button key={c.id} data-cat-item onMouseDown={() => pickCat(c.id)}
                   className={`w-full text-left px-3 py-1.5 text-xs text-gray-700 flex items-center gap-2 ${i === activeIdx ? 'bg-blue-100' : 'hover:bg-blue-50'}`}>
@@ -1109,7 +1109,7 @@ function CategoryFilterButton({ categories, selected, onChange }: {
         }`}
       >
         <SlidersHorizontal size={13} />
-        Category
+        Purpose
         {activeCount > 0 && (
           <span className="flex items-center gap-1">
             <span className="bg-blue-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">{activeCount}</span>
@@ -1204,7 +1204,7 @@ function CategoryQuickPick({ categories, onPick }: { categories: Category[]; onP
   const [q, setQ] = useState('')
   const filtered = categories.filter(c => !q || c.fullName.toLowerCase().includes(q.toLowerCase())).slice(0, 30)
 
-  if (!open) return <button onClick={() => setOpen(true)} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">Set Category</button>
+  if (!open) return <button onClick={() => setOpen(true)} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">Set Purpose</button>
 
   return (
     <div className="relative">
@@ -1213,7 +1213,7 @@ function CategoryQuickPick({ categories, onPick }: { categories: Category[]; onP
         onBlur={() => setTimeout(() => setOpen(false), 200)} />
       {filtered.length > 0 && (
         <div className="absolute top-full left-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-30 max-h-48 overflow-y-auto">
-          <button onClick={() => { onPick(null); setOpen(false) }} className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-50">Remove category</button>
+          <button onClick={() => { onPick(null); setOpen(false) }} className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-50">Remove purpose</button>
           {filtered.map(c => (
             <button key={c.id} onMouseDown={() => { onPick(c.id); setOpen(false) }}
               className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-blue-50 flex items-center gap-2">

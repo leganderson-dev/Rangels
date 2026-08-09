@@ -9,7 +9,7 @@ export function CategoryPill({ name, color, size = 'sm', maxWidth }: Props) {
   if (!name || /^\?+$/.test(name.trim())) return (
     <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 max-w-full truncate">
       <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-      Needs category
+      Needs purpose
     </span>
   )
 

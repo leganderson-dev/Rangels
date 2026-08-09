@@ -102,8 +102,11 @@ export function AccountFormModal({ account, members, onClose, onSave, onDelete }
           <div className="flex gap-2 flex-wrap">
             {ACCOUNT_COLORS.map(c => (
               <button
+                type="button"
                 key={c}
                 onClick={() => setColor(c)}
+                aria-label={`Select account color ${c}`}
+                aria-pressed={color === c}
                 className={`w-7 h-7 rounded-full transition-transform ${color === c ? 'scale-125 ring-2 ring-offset-1 ring-gray-400' : ''}`}
                 style={{ backgroundColor: c }}
               />
@@ -127,6 +130,7 @@ export function AccountFormModal({ account, members, onClose, onSave, onDelete }
             Cancel
           </button>
           <button
+            type="button"
             onClick={handleSave}
             disabled={saving || !name.trim() || !memberId}
             className="flex-1 bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"

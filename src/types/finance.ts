@@ -120,6 +120,32 @@ export interface LegacyTransactionSample {
   amount: number
 }
 
+export interface AwaitingMappingTransaction extends LegacyTransactionSample {
+  accountName: string
+  categoryId: string
+  categoryPath: string
+  isTransfer: boolean
+  canonicalCategoryId: string | null
+  canonicalCategoryType: 'income' | 'expense' | null
+  contextId: string | null
+  contextName: string | null
+  bucketId: string | null
+  taxTreatment: 'none' | 'deductible' | 'review'
+  transferReason: TransferReason | null
+  reimbursementStatus: 'none' | 'to_be_reimbursed' | 'reimbursed'
+  classificationReviewedAt: string | null
+  suggestion: {
+    canonicalCategoryId: string | null
+    contextId: string | null
+    bucketId: string | null
+    taxTreatment: 'none' | 'deductible' | 'review'
+    transferReason: TransferReason | null
+    confidence: number
+    evidenceCount: number
+    source: string
+  } | null
+}
+
 export interface ScheduledTransaction {
   id: string
   description: string
@@ -130,6 +156,12 @@ export interface ScheduledTransaction {
   categoryId: string | null
   categoryName: string | null
   categoryFullName: string | null
+  contextId: string | null
+  contextName: string | null
+  bucketId: string | null
+  bucketName: string | null
+  taxTreatment: 'none' | 'deductible' | 'review'
+  transferReason: TransferReason | null
   isTransfer: boolean
   frequency: 'daily' | 'weekly' | 'fortnightly' | 'monthly' | 'yearly'
   startDate: string

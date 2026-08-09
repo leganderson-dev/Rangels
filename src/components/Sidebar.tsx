@@ -11,7 +11,7 @@ interface Props {
   members: HouseholdMember[]
   selectedAccountId: string | null
   onSelectAccount: (id: string | null) => void
-  onRefresh: () => void
+  onRefresh: () => void | Promise<void>
 }
 
 type DropZone =
@@ -235,7 +235,7 @@ export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount,
             isDropOnto={dropZone?.kind === 'onto' && dropZone.id === account.id}
             onClick={() => onSelectAccount(account.id === selectedAccountId ? null : account.id)}
             onEdit={() => setEditAccount(account)}
-            onLastUpdatedChange={async value => { await api.accounts.update(account.id, { lastUpdatedOn: value }); onRefresh() }}
+            onLastUpdatedChange={async value => { await api.accounts.update(account.id, { lastUpdatedOn: value }); await onRefresh() }}
             onDragStart={() => { setDragId(account.id); setDropZone(null) }}
             onDragEnd={() => { setDragId(null); setDropZone(null) }}
             onDragOver={e => handleAccountDragOver(account.id, e)}
@@ -304,7 +304,7 @@ export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount,
                       isDropOnto={dropZone?.kind === 'onto' && dropZone.id === account.id}
                       onClick={() => onSelectAccount(account.id === selectedAccountId ? null : account.id)}
                       onEdit={() => setEditAccount(account)}
-                      onLastUpdatedChange={async value => { await api.accounts.update(account.id, { lastUpdatedOn: value }); onRefresh() }}
+                      onLastUpdatedChange={async value => { await api.accounts.update(account.id, { lastUpdatedOn: value }); await onRefresh() }}
                       onDragStart={() => { setDragId(account.id); setDropZone(null) }}
                       onDragEnd={() => { setDragId(null); setDropZone(null) }}
                       onDragOver={e => handleAccountDragOver(account.id, e)}
@@ -369,7 +369,7 @@ export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount,
           onClose={() => setShowAdd(false)}
           onSave={async (data) => {
             await api.accounts.add(data)
-            onRefresh()
+            await onRefresh()
             setShowAdd(false)
           }}
         />
@@ -382,12 +382,12 @@ export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount,
           onClose={() => setEditAccount(null)}
           onSave={async (data) => {
             await api.accounts.update(editAccount.id, data)
-            onRefresh()
+            await onRefresh()
             setEditAccount(null)
           }}
           onDelete={async () => {
             await api.accounts.delete(editAccount.id)
-            onRefresh()
+            await onRefresh()
             setEditAccount(null)
           }}
         />
@@ -428,6 +428,7 @@ function DraggableRow({ account, selected, isDragging, isDropBefore, isDropOnto,
         className={`group relative flex items-center gap-1.5 px-2 py-1.5 rounded-lg select-none transition-colors hover:cursor-grab active:cursor-grabbing
           ${isDropOnto ? 'ring-1 ring-blue-500 bg-blue-500/10' : selected ? 'bg-slate-700' : 'hover:bg-slate-800'}
           ${isDragging ? 'opacity-30' : ''}`}
+        style={selected ? { boxShadow: `inset 3px 0 0 ${account.color}` } : undefined}
         onClick={onClick}
       >
         <GripVertical
