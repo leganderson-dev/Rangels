@@ -1082,31 +1082,38 @@ function CategoryFilterButton({ categories, selected, onChange }: {
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
   }, [open])
 
-  const parents = useMemo(() => {
-    const pMap = new Map<string, { cat: Category; children: Category[] }>()
-    for (const c of categories) {
-      if (c.parentId === null) {
-        if (!pMap.has(c.id)) pMap.set(c.id, { cat: c, children: [] })
-        else pMap.get(c.id)!.cat = c
-      } else {
-        if (!pMap.has(c.parentId)) pMap.set(c.parentId, { cat: {} as Category, children: [] })
-        pMap.get(c.parentId)!.children.push(c)
-      }
+  const purposeFamilies = useMemo(() => {
+    const groups = new Map<string, Category[]>()
+    for (const purpose of categories) {
+      const family = purpose.parentName?.trim() || 'Other'
+      groups.set(family, [...(groups.get(family) ?? []), purpose])
     }
-    return [...pMap.values()].filter(g => g.cat?.id)
+    return [...groups.entries()]
+      .map(([family, children]) => ({
+        id: `family:${family}`,
+        name: family,
+        color: children[0]?.color ?? '#94a3b8',
+        children: children.sort((left, right) => left.name.localeCompare(right.name)),
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name))
   }, [categories])
 
-  const q = search.toLowerCase()
-  const visibleGroups = parents
-    .map(g => ({
-      ...g,
-      children: g.children.filter(c => !q || c.name.toLowerCase().includes(q) || c.fullName.toLowerCase().includes(q))
-    }))
-    .filter(g => !q || g.cat.name.toLowerCase().includes(q) || g.children.length > 0)
+  const q = search.trim().toLowerCase()
+  const visibleGroups = purposeFamilies
+    .map(group => {
+      const familyMatches = !q || group.name.toLowerCase().includes(q)
+      return {
+        ...group,
+        children: familyMatches
+          ? group.children
+          : group.children.filter(purpose => purpose.name.toLowerCase().includes(q) || purpose.fullName.toLowerCase().includes(q)),
+      }
+    })
+    .filter(group => group.children.length > 0)
 
   // When searching, auto-expand matching groups
   const effectiveExpanded = q
-    ? new Set(visibleGroups.filter(g => g.children.length > 0).map(g => g.cat.id))
+    ? new Set(visibleGroups.map(group => group.id))
     : expandedGroups
 
   function toggleExpand(id: string) {
@@ -1123,8 +1130,8 @@ function CategoryFilterButton({ categories, selected, onChange }: {
     onChange(next)
   }
 
-  function toggleGroup(g: { cat: Category; children: Category[] }) {
-    const allIds = [g.cat.id, ...g.children.map(c => c.id)]
+  function toggleGroup(g: { children: Category[] }) {
+    const allIds = g.children.map(purpose => purpose.id)
     const allChecked = allIds.every(id => selected.has(id))
     const next = new Set(selected)
     if (allChecked) allIds.forEach(id => next.delete(id))
@@ -1161,23 +1168,23 @@ function CategoryFilterButton({ categories, selected, onChange }: {
               autoFocus
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search categories…"
+              placeholder="Search families or purposes…"
               className="w-full px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
           <div className="overflow-y-auto max-h-72 py-1">
             {visibleGroups.map(g => {
-              const allIds = [g.cat.id, ...g.children.map(c => c.id)]
+              const allIds = g.children.map(purpose => purpose.id)
               const allChecked = allIds.every(id => selected.has(id))
               const someChecked = !allChecked && allIds.some(id => selected.has(id))
-              const expanded = effectiveExpanded.has(g.cat.id)
+              const expanded = effectiveExpanded.has(g.id)
               return (
-                <div key={g.cat.id}>
+                <div key={g.id}>
                   {/* Parent row */}
                   <div className="flex items-center gap-1 px-2 py-1 hover:bg-gray-50 group">
                     {/* Expand/collapse chevron */}
                     <button
-                      onClick={() => toggleExpand(g.cat.id)}
+                      onClick={() => toggleExpand(g.id)}
                       className="p-0.5 rounded text-gray-300 hover:text-gray-500 shrink-0"
                     >
                       <ChevronRight size={13} className={`transition-transform ${expanded ? 'rotate-90' : ''}`} />
@@ -1190,8 +1197,8 @@ function CategoryFilterButton({ categories, selected, onChange }: {
                         onChange={() => toggleGroup(g)}
                         className="rounded shrink-0"
                       />
-                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: g.cat.color }} />
-                      <span className="text-sm text-gray-700 font-medium truncate">{g.cat.name}</span>
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: g.color }} />
+                      <span className="text-sm text-gray-700 font-medium truncate">{g.name}</span>
                       {g.children.length > 0 && (
                         <span className="text-[10px] text-gray-300 shrink-0">{g.children.length}</span>
                       )}
