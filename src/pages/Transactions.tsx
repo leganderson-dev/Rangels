@@ -4,6 +4,7 @@ import { api } from '../api'
 import { fmt, formatDate, FREQUENCIES } from '../utils'
 import { CategoryPill } from '../components/CategoryPill'
 import { TransactionFormModal } from '../components/TransactionFormModal'
+import { BulkTransactionEditModal } from '../components/BulkTransactionEditModal'
 import { ImportBankModal } from '../components/ImportBankModal'
 import { ImportAlzexButton } from '../components/ImportAlzexButton'
 import type { Transaction, Account, Category, ScheduledTransaction, AccountLedgerSummary } from '../types/finance'
@@ -56,6 +57,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   const [editTx, setEditTx] = useState<Transaction | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [showImport, setShowImport] = useState(false)
+  const [showBulkEdit, setShowBulkEdit] = useState(false)
   const [loading, setLoading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; tx: Transaction } | null>(null)
@@ -392,6 +394,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500">{selected.size} selected</span>
             {selectedPurposeCount > 0 && <CategoryQuickPick categories={categories} onPick={handleBulkCategory} />}
+            {selected.size > 1 && <button onClick={() => setShowBulkEdit(true)} className="px-2 py-1 text-xs border border-blue-300 text-blue-700 rounded hover:bg-blue-50">Bulk Edit</button>}
             <button onClick={handleBulkDelete} className="text-red-500 px-2 py-1 text-xs rounded hover:bg-red-50">Delete</button>
           </div>
         )}
@@ -678,6 +681,22 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
               await api.transactions.add(data)
             }
             refresh(); onRefreshAccounts(); setShowAdd(false); setEditTx(null)
+          }}
+        />
+      )}
+      {showBulkEdit && selected.size > 1 && (
+        <BulkTransactionEditModal
+          transactions={transactions.filter(transaction => selected.has(transaction.id))}
+          accounts={accounts}
+          onClose={() => setShowBulkEdit(false)}
+          onSave={async changes => {
+            const ids = [...selected]
+            const changed = await api.transactions.bulkEdit(ids, changes)
+            if (changed !== ids.length) throw new Error(`Only ${changed} of ${ids.length} transactions could be updated. Check transfer source and target accounts.`)
+            setShowBulkEdit(false)
+            setSelected(new Set())
+            refresh()
+            onRefreshAccounts()
           }}
         />
       )}

@@ -1,0 +1,2 @@
+-- The original bulk-edit function remains valid; rollback by reapplying
+-- 20260810210000_add_atomic_bulk_transaction_edit.sql.

@@ -64,6 +64,22 @@ export interface Transaction {
   taxTreatment: 'none' | 'deductible' | 'review'
 }
 
+export interface BulkTransactionChanges {
+  transactionType?: 'income' | 'expense' | 'transfer'
+  date?: string
+  accountId?: string
+  targetAccountId?: string | null
+  canonicalCategoryId?: string | null
+  contextId?: string | null
+  bucketId?: string | null
+  reimbursementStatus?: 'none' | 'to_be_reimbursed' | 'reimbursed'
+  taxTreatment?: 'none' | 'deductible' | 'review'
+  transferReason?: TransferReason | null
+  status?: string
+  tags?: string[]
+  comment?: string
+}
+
 export interface ClassificationOption {
   id: string
   name: string

@@ -13,6 +13,7 @@ import type {
   Transaction,
   TransactionFilter,
   HouseholdMember,
+  BulkTransactionChanges,
 } from './types/finance'
 import { parseBankExport } from './lib/importers'
 import { createCategoryMatcher, normalizeDescription, relevantCategorySuggestions, transactionDuplicateKey } from './lib/matching'
@@ -1265,6 +1266,15 @@ export const api = {
         .in('id', ids)
       fail(error)
       invalidateTransactionQueries()
+    },
+    bulkEdit: async (ids: string[], changes: BulkTransactionChanges): Promise<number> => {
+      const { data, error } = await supabase.rpc('bulk_edit_transactions', {
+        p_ids: ids,
+        p_changes: changes,
+      })
+      fail(error)
+      invalidateTransactionQueries()
+      return Number(data ?? 0)
     },
     monthSummary,
     yearlySummary: async (year: number, accountId?: string | null) => {
