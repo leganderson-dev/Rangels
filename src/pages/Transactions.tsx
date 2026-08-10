@@ -429,7 +429,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
             <SummaryMetric label="Income" value={ledgerSummary.income} tone="income" />
             <SummaryMetric label="Expenses" value={ledgerSummary.expenses} tone="expense" absolute />
             <SummaryMetric label="Transfers" value={ledgerSummary.transfersIn - ledgerSummary.transfersOut} tone="transfer" signed />
-            <SummaryMetric label="Net" value={ledgerSummary.netMovement} signed />
+            <SummaryMetric label="Net" value={ledgerSummary.closingBalance} signed info="Includes the balance brought into this period. For the full date range, this matches the selected account balance." />
           </>
         ) : (
           <>
@@ -1298,12 +1298,13 @@ function CategoryFilterButton({ categories, selected, onChange }: {
 
 // ─── Bulk category quick pick ─────────────────────────────────────────────────
 
-function SummaryMetric({ label, value, tone, absolute = false, signed = false }: {
+function SummaryMetric({ label, value, tone, absolute = false, signed = false, info }: {
   label: string
   value: number
   tone?: 'income' | 'expense' | 'transfer'
   absolute?: boolean
   signed?: boolean
+  info?: string
 }) {
   const color = tone === 'income'
     ? 'text-emerald-600'
@@ -1316,7 +1317,9 @@ function SummaryMetric({ label, value, tone, absolute = false, signed = false }:
           : 'text-emerald-600'
   return (
     <div className="flex flex-col py-2.5 px-3 border-r border-gray-100">
-      <span className="whitespace-nowrap text-[9px] font-semibold text-gray-400 uppercase tracking-wider">{label}</span>
+      <span className="whitespace-nowrap text-[9px] font-semibold text-gray-400 uppercase tracking-wider">
+        {label}{info && <span title={info} aria-label={info} className="ml-1 cursor-help normal-case text-blue-500">ⓘ</span>}
+      </span>
       <span className={`whitespace-nowrap text-sm font-bold mt-0.5 ${color}`}>
         {fmt(absolute ? Math.abs(value) : value, signed)}
       </span>
