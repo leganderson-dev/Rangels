@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { PlusCircle, ChevronRight, Download, Upload, Pencil, GripVertical, LogOut } from 'lucide-react'
+import { PlusCircle, ChevronRight, Download, Upload, Pencil, GripVertical, Landmark, LogOut } from 'lucide-react'
 import { api } from '../api'
 import type { Account, HouseholdMember } from '../types/finance'
 import { AccountFormModal } from './AccountFormModal'
@@ -45,19 +45,20 @@ export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount,
     }
     const groups = [...groupMap.entries()].map(([name, children]) => ({
       name,
-      children,
+      children: [...children].sort((left, right) => Number(right.isActive) - Number(left.isActive)),
       balance: children.reduce((s, a) => s + (a.balance ?? 0), 0),
       color: children[0]?.color ?? '#3b82f6',
-    }))
+    })).sort((left, right) => Number(right.children.some(account => account.isActive)) - Number(left.children.some(account => account.isActive)))
     return { ungrouped, groups }
   }, [accounts])
 
   const orderedAccounts = useMemo(() => {
     const list: { account: Account; groupName: string | null }[] = []
-    for (const a of ungrouped) list.push({ account: a, groupName: null })
+    for (const a of ungrouped.filter(account => account.isActive)) list.push({ account: a, groupName: null })
     for (const g of groups) {
       for (const a of g.children) list.push({ account: a, groupName: g.name })
     }
+    for (const a of ungrouped.filter(account => !account.isActive)) list.push({ account: a, groupName: null })
     return list
   }, [ungrouped, groups])
 
@@ -225,7 +226,7 @@ export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount,
           </div>
         )}
 
-        {ungrouped.map(account => (
+        {ungrouped.filter(account => account.isActive).map(account => (
           <DraggableRow
             key={account.id}
             account={account}
@@ -283,7 +284,7 @@ export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount,
                   size={12}
                   className={`text-slate-500 shrink-0 transition-transform ${collapsed ? '' : 'rotate-90'}`}
                 />
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: group.color }} />
+                <BankFavicon name={group.name} />
                 <div className="flex-1 min-w-0">
                   <p className="text-slate-300 text-xs font-semibold truncate">{group.name}</p>
                   <p className={`text-xs font-semibold ${group.balance < 0 ? 'text-red-400' : 'text-slate-500'}`}>
@@ -316,6 +317,24 @@ export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount,
             </div>
           )
         })}
+
+        {ungrouped.filter(account => !account.isActive).map(account => (
+          <DraggableRow
+            key={account.id}
+            account={account}
+            selected={selectedAccountId === account.id}
+            isDragging={dragId === account.id}
+            isDropBefore={dropZone?.kind === 'before' && dropZone.id === account.id}
+            isDropOnto={dropZone?.kind === 'onto' && dropZone.id === account.id}
+            onClick={() => onSelectAccount(account.id === selectedAccountId ? null : account.id)}
+            onEdit={() => setEditAccount(account)}
+            onLastUpdatedChange={async value => { await api.accounts.update(account.id, { lastUpdatedOn: value }); await onRefresh() }}
+            onDragStart={() => { setDragId(account.id); setDropZone(null) }}
+            onDragEnd={() => { setDragId(null); setDropZone(null) }}
+            onDragOver={e => handleAccountDragOver(account.id, e)}
+            onDrop={e => handleAccountDrop(account.id, e)}
+          />
+        ))}
       </div>
 
       <div className="mx-3 mb-4 space-y-1">
@@ -394,6 +413,14 @@ export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount,
       )}
     </aside>
   )
+}
+
+function BankFavicon({ name }: { name: string }) {
+  const normalized = name.trim().toLocaleLowerCase()
+  if (normalized.includes('nab')) return <span title="NAB" className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-red-600 text-[8px] font-black text-white">N</span>
+  if (normalized.includes('ing')) return <span title="ING" className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-orange-500 text-[8px] font-black text-white">ING</span>
+  if (normalized.includes('cw') || normalized.includes('commonwealth')) return <span title="Commonwealth Bank" className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-amber-400 text-[8px] font-black text-slate-900">C</span>
+  return <span title="Bank group" className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-slate-700 text-slate-300"><Landmark size={10} /></span>
 }
 
 function DraggableRow({ account, selected, isDragging, isDropBefore, isDropOnto, onClick, onEdit, onLastUpdatedChange, onDragStart, onDragEnd, onDragOver, onDrop }: {
