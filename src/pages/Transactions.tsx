@@ -414,13 +414,10 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
       <div className="flex items-center px-4 bg-slate-50/70 border-y border-gray-200 shrink-0">
         {selectedAccountId && ledgerSummary ? (
           <>
-            <SummaryMetric label="Opening" value={ledgerSummary.openingBalance} />
             <SummaryMetric label="Income" value={ledgerSummary.income} tone="income" />
             <SummaryMetric label="Expenses" value={ledgerSummary.expenses} tone="expense" absolute />
-            <SummaryMetric label="Transfers in" value={ledgerSummary.transfersIn} tone="transfer" />
-            <SummaryMetric label="Transfers out" value={ledgerSummary.transfersOut} tone="transfer" absolute />
-            <SummaryMetric label="Net movement" value={ledgerSummary.netMovement} signed />
-            <SummaryMetric label="Closing balance" value={ledgerSummary.closingBalance} signed strong />
+            <SummaryMetric label="Transfers" value={ledgerSummary.transfersIn - ledgerSummary.transfersOut} tone="transfer" signed />
+            <SummaryMetric label="Net" value={ledgerSummary.netMovement} signed />
           </>
         ) : (
           <>
@@ -1289,13 +1286,12 @@ function CategoryFilterButton({ categories, selected, onChange }: {
 
 // ─── Bulk category quick pick ─────────────────────────────────────────────────
 
-function SummaryMetric({ label, value, tone, absolute = false, signed = false, strong = false }: {
+function SummaryMetric({ label, value, tone, absolute = false, signed = false }: {
   label: string
   value: number
   tone?: 'income' | 'expense' | 'transfer'
   absolute?: boolean
   signed?: boolean
-  strong?: boolean
 }) {
   const color = tone === 'income'
     ? 'text-emerald-600'
@@ -1307,7 +1303,7 @@ function SummaryMetric({ label, value, tone, absolute = false, signed = false, s
           ? 'text-red-500'
           : 'text-emerald-600'
   return (
-    <div className={`flex flex-col py-2.5 px-3 border-r border-gray-100 ${strong ? 'bg-white/70' : ''}`}>
+    <div className="flex flex-col py-2.5 px-3 border-r border-gray-100">
       <span className="whitespace-nowrap text-[9px] font-semibold text-gray-400 uppercase tracking-wider">{label}</span>
       <span className={`whitespace-nowrap text-sm font-bold mt-0.5 ${color}`}>
         {fmt(absolute ? Math.abs(value) : value, signed)}
