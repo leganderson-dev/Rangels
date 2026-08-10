@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle2, Pencil, Search, Sparkles, Store } from 'lucide-react'
+import { AlertCircle, CheckCircle2, ChevronDown, Pencil, Search, Sparkles, Store } from 'lucide-react'
 import { api } from '../api'
 import { Modal } from '../components/Modal'
 import { canUseHouseholdBucket, emptyBucketLabel } from '../lib/classification'
@@ -14,7 +14,7 @@ interface Props {
 
 type MerchantFilter = 'all' | 'learned' | 'review' | 'unclassified'
 type VolumeFilter = 'all' | 'over100' | 'over50' | 'over10' | 'under10'
-type MerchantSort = 'name-asc' | 'name-desc' | 'transactions-desc' | 'transactions-asc'
+type MerchantSort = 'name-asc' | 'name-desc' | 'transactions-desc' | 'transactions-asc' | 'confidence-desc' | 'confidence-asc'
 
 function merchantState(merchant: MerchantInsight): Exclude<MerchantFilter, 'all'> {
   if (!merchant.categoryId) return 'unclassified'
@@ -28,7 +28,7 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<MerchantFilter>('all')
   const [volumeFilter, setVolumeFilter] = useState<VolumeFilter>('all')
-  const [sort, setSort] = useState<MerchantSort>('transactions-desc')
+  const [sort, setSort] = useState<MerchantSort>('confidence-desc')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [applying, setApplying] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(100)
@@ -71,6 +71,8 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
       if (sort === 'name-asc') return left.name.localeCompare(right.name)
       if (sort === 'name-desc') return right.name.localeCompare(left.name)
       if (sort === 'transactions-asc') return left.transactionCount - right.transactionCount || left.name.localeCompare(right.name)
+      if (sort === 'confidence-desc') return right.confidence - left.confidence || right.transactionCount - left.transactionCount || left.name.localeCompare(right.name)
+      if (sort === 'confidence-asc') return left.confidence - right.confidence || right.transactionCount - left.transactionCount || left.name.localeCompare(right.name)
       return right.transactionCount - left.transactionCount || left.name.localeCompare(right.name)
     })
   }, [merchants, search, filter, volumeFilter, sort])
@@ -140,6 +142,8 @@ export function MerchantsPage({ categories, onRefreshCategories }: Props) {
             aria-label="Sort merchants"
             className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-medium text-slate-600 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
           >
+            <option value="confidence-desc">Confidence: highest first</option>
+            <option value="confidence-asc">Confidence: lowest first</option>
             <option value="transactions-desc">Transactions: most first</option>
             <option value="transactions-asc">Transactions: fewest first</option>
             <option value="name-asc">Merchant name: A–Z</option>
@@ -222,6 +226,55 @@ function Stat({ label, value, tone, active, onClick }: { label: string; value: n
   )
 }
 
+type PurposeSearchOption = { id: string; name: string; family: string; fullName: string }
+
+function PurposeSearchSelect({ value, options, onChange, emptyLabel = 'Choose purpose…' }: {
+  value: string
+  options: PurposeSearchOption[]
+  onChange: (value: string) => void
+  emptyLabel?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const selected = options.find(option => option.id === value)
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const matches = options.filter(option => !normalizedQuery || option.name.toLocaleLowerCase().includes(normalizedQuery) || option.family.toLocaleLowerCase().includes(normalizedQuery) || option.fullName.toLocaleLowerCase().includes(normalizedQuery))
+  const families = [...new Set(matches.map(option => option.family))]
+
+  return (
+    <div className={`relative ${open ? 'z-50' : ''}`}>
+      <button type="button" onClick={() => { setOpen(current => !current); setQuery('') }} className="flex w-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-2 text-left text-xs text-slate-700 outline-none hover:border-slate-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-100">
+        <span className={`min-w-0 flex-1 truncate ${selected ? '' : 'text-slate-400'}`}>{selected?.fullName ?? emptyLabel}</span>
+        <ChevronDown size={13} className="shrink-0 text-slate-400" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+          <div className="border-b border-slate-100 p-2">
+            <div className="relative">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input autoFocus value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') setOpen(false) }} onBlur={() => setTimeout(() => setOpen(false), 180)} placeholder="Search purpose or family…" className="w-full rounded-lg border border-slate-200 py-2 pl-8 pr-2 text-xs outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+            </div>
+          </div>
+          <div className="max-h-72 overflow-y-auto py-1">
+            <button type="button" onMouseDown={event => event.preventDefault()} onClick={() => { onChange(''); setOpen(false) }} className="w-full px-3 py-2 text-left text-xs text-slate-400 hover:bg-slate-50">{emptyLabel}</button>
+            {families.map(family => (
+              <div key={family || 'Other'}>
+                <p className="sticky top-0 bg-slate-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">{family || 'Other'}</p>
+                {matches.filter(option => option.family === family).map(option => (
+                  <button key={option.id} type="button" onMouseDown={event => event.preventDefault()} onClick={() => { onChange(option.id); setOpen(false) }} className={`w-full px-4 py-2 text-left text-xs hover:bg-blue-50 ${option.id === value ? 'bg-blue-50 font-semibold text-blue-700' : 'text-slate-700'}`}>
+                    {option.name}
+                  </button>
+                ))}
+              </div>
+            ))}
+            {matches.length === 0 && <p className="px-3 py-4 text-center text-xs text-slate-400">No matching purposes</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function MerchantRow({ merchant, categories, selectedCategoryId, applying, onCategoryChange, onApply, onEditRule }: {
   merchant: MerchantInsight
   categories: Category[]
@@ -241,7 +294,7 @@ function MerchantRow({ merchant, categories, selectedCategoryId, applying, onCat
       : { label: 'Unclassified', classes: 'bg-rose-50 text-rose-700 border-rose-200', Icon: AlertCircle }
 
   return (
-    <article className="grid grid-cols-[minmax(240px,1.2fr)_minmax(300px,1.5fr)_150px_220px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <article className="relative grid grid-cols-[minmax(240px,1.2fr)_minmax(300px,1.5fr)_150px_220px] rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="border-r border-slate-100 p-4">
         <div className="flex gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-100 bg-white text-slate-500 shadow-sm">
@@ -283,10 +336,7 @@ function MerchantRow({ merchant, categories, selectedCategoryId, applying, onCat
 
       <div className="p-4">
         <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Classification</label>
-        <select value={selectedCategoryId} onChange={event => onCategoryChange(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700 outline-none focus:border-blue-400">
-          <option value="">Choose purpose…</option>
-          {categories.map(category => <option key={category.id} value={category.id}>{category.fullName}</option>)}
-        </select>
+        <div className="mt-2"><PurposeSearchSelect value={selectedCategoryId} options={categories.map(category => ({ id: category.id, name: category.name, family: category.parentName ?? '', fullName: category.fullName }))} onChange={onCategoryChange} /></div>
         <button onClick={onApply} disabled={!selectedCategoryId || applying} className="mt-3 w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-40">
           {applying ? 'Applying…' : `Apply to ${merchant.transactionCount} & remember`}
         </button>
@@ -336,7 +386,7 @@ function MerchantRuleModal({ merchant, options, onClose, onSave }: {
         </div>
         <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 space-y-3">
           <div><p className="text-xs font-semibold text-slate-700">Classification defaults</p><p className="text-[11px] text-slate-400">Remembered for matching transactions during future imports.</p></div>
-          <div><label className="mb-1 block text-xs text-slate-500">Purpose</label><select value={canonicalCategoryId} onChange={event => { setCanonicalCategoryId(event.target.value); if (options.categories.find(item => item.id === event.target.value)?.type === 'income') setBucketId('') }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Requires review</option>{[...new Set(options.categories.map(item => item.family))].map(family => <optgroup key={family} label={family}>{options.categories.filter(item => item.family === family).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>)}</select></div>
+          <div><label className="mb-1 block text-xs text-slate-500">Purpose</label><PurposeSearchSelect value={canonicalCategoryId} options={options.categories.map(item => ({ id: item.id, name: item.name, family: item.family, fullName: `${item.family}: ${item.name}` }))} emptyLabel="Requires review" onChange={value => { setCanonicalCategoryId(value); if (options.categories.find(item => item.id === value)?.type === 'income') setBucketId('') }} /></div>
           <div className="grid grid-cols-2 gap-3"><div><label className="mb-1 block text-xs text-slate-500">Context</label><select value={contextId} onChange={event => { const nextContext = options.contexts.find(item => item.id === event.target.value); setContextId(event.target.value); if (!canUseHouseholdBucket(nextContext?.name, purpose?.type)) setBucketId('') }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="">Requires review</option>{options.contexts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div><div><label className="mb-1 block text-xs text-slate-500">Household bucket</label><select value={bucketId} onChange={event => setBucketId(event.target.value)} disabled={!householdExpense} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"><option value="">{emptyBucketLabel(context?.name, purpose?.type)}</option>{householdExpense && options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div></div>
           <div><label className="mb-1 block text-xs text-slate-500">Tax treatment</label><select value={taxTreatment} onChange={event => setTaxTreatment(event.target.value as typeof taxTreatment)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="none">None</option><option value="deductible">Deductible</option><option value="review">Needs review</option></select></div>
         </div>
