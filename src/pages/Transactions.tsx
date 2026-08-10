@@ -192,6 +192,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
 
   const income = transactions.filter(t => t.amount > 0 && !t.isTransfer && t.status === 'C').reduce((s, t) => s + t.amount, 0)
   const expenses = transactions.filter(t => t.amount < 0 && !t.isTransfer && t.status === 'C').reduce((s, t) => s + t.amount, 0)
+  const transfers = transactions.filter(t => t.isTransfer && t.status === 'C').reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0)
 
   const sorted = useMemo(() => {
     const getVal = (t: Transaction) => {
@@ -425,6 +426,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
           <>
             <SummaryMetric label="Income" value={income} tone="income" />
             <SummaryMetric label="Expenses" value={expenses} tone="expense" absolute />
+            <SummaryMetric label="Transfers" value={transfers} tone="transfer" />
             <SummaryMetric label="Net" value={income + expenses} signed />
           </>
         )}
