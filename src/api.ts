@@ -1305,19 +1305,22 @@ export const api = {
       }))
     },
     calendarSummary: async (month: number, year: number, accountId?: string) => {
-      const [accounts, before, current] = await Promise.all([
+      const [monthStart, monthEnd] = monthRange(month, year)
+      const previousDay = new Date(`${monthStart}T00:00:00`)
+      previousDay.setDate(previousDay.getDate() - 1)
+      const previousDate = previousDay.toISOString().slice(0, 10)
+      const [accounts, before, current, selectedLedger] = await Promise.all([
         listAccounts(),
-        listTransactions({ dateTo: `${year}-${String(month).padStart(2, '0')}-01`, accountId }),
+        accountId ? Promise.resolve([]) : listTransactions({ dateTo: previousDate }),
         listTransactions({ month, year, accountId }),
+        accountId ? accountLedgerSummary(accountId, { dateFrom: monthStart, dateTo: monthEnd }) : Promise.resolve(null),
       ])
-      const initial = accountId
-        ? accounts.find((account) => account.id === accountId)?.initialBalance ?? 0
-        : accounts.reduce((sum, account) => sum + account.initialBalance, 0)
-      const startBalance =
-        initial +
-        before
-          .filter((transaction) => !transaction.isTransfer && transaction.status === 'C')
-          .reduce((sum, transaction) => sum + transaction.amount, 0)
+      const startBalance = selectedLedger
+        ? selectedLedger.openingBalance
+        : accounts.reduce((sum, account) => sum + account.initialBalance, 0) +
+          before
+            .filter((transaction) => !transaction.isTransfer && transaction.status === 'C')
+            .reduce((sum, transaction) => sum + transaction.amount, 0)
       const grouped = new Map<string, Transaction[]>()
       current.forEach((transaction) => {
         const rows = grouped.get(transaction.date) ?? []
@@ -1325,9 +1328,10 @@ export const api = {
         grouped.set(transaction.date, rows)
       })
       let running = startBalance
-      const days = [...grouped.entries()]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([date, rows]) => {
+      const lastDate = new Date(year, month, 0).getDate()
+      const days = Array.from({ length: lastDate }, (_, index) => {
+          const date = `${year}-${String(month).padStart(2, '0')}-${String(index + 1).padStart(2, '0')}`
+          const rows = grouped.get(date) ?? []
           const normal = rows.filter((row) => !row.isTransfer && row.status === 'C')
           const income = normal
             .filter((row) => row.amount > 0)
@@ -1335,7 +1339,14 @@ export const api = {
           const expenses = normal
             .filter((row) => row.amount < 0)
             .reduce((sum, row) => sum + row.amount, 0)
-          const total = income + expenses
+          const transferMovement = accountId
+            ? rows.filter(row => row.isTransfer && row.status === 'C').reduce((sum, row) => {
+                if (row.targetAccountId === accountId) return sum + Math.abs(row.amount)
+                if (row.accountId === accountId) return sum - Math.abs(row.amount)
+                return sum
+              }, 0)
+            : 0
+          const total = income + expenses + transferMovement
           running += total
           return { date, total, income, expenses, balance: running }
         })

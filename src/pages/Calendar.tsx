@@ -172,18 +172,10 @@ export function CalendarPage({ accounts, categories, selectedAccountId, month, y
 
                   {cell.data && cell.isCurrentMonth && (
                     <div className="mt-auto pt-2 space-y-0.5">
-                      <p className={`text-xs font-bold text-right tabular-nums ${
-                        cell.data.total > 0 ? 'text-emerald-600'
-                          : cell.data.total < 0 ? 'text-rose-500'
-                          : 'text-gray-400'
-                      }`}>
-                        {fmt(cell.data.total, true)}
+                      {cell.data.total !== 0 && <p className={`text-xs font-bold text-right tabular-nums ${cell.data.total > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{fmt(cell.data.total, true)}</p>}
+                      <p className="text-xs font-semibold text-right tabular-nums text-slate-400" title="Closing balance at the end of this day">
+                        {fmt(cell.data.balance)}
                       </p>
-                    </div>
-                  )}
-                  {cell.isCurrentMonth && !cell.data && (
-                    <div className="mt-auto pt-2 opacity-0 hover:opacity-100 transition-opacity">
-                      <p className="text-[10px] text-gray-300 text-center">double-click to add</p>
                     </div>
                   )}
                 </div>
