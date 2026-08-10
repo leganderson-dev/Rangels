@@ -148,7 +148,7 @@ export function HelpInfoModal({ onClose }: { onClose: () => void }) {
           </div>
         </section>
 
-        <div className="flex items-center justify-between border-t border-slate-200 pt-4 text-[11px] text-slate-400"><span>Rangels V0.9 · Legacy categories retired from active use.</span><span>Ledger first · Import first · Canonical classification</span></div>
+        <div className="flex items-center justify-between border-t border-slate-200 pt-4 text-[11px] text-slate-400"><span>Rangels V0.10 · Indexed, cached ledger retrieval.</span><span>Ledger first · Import first · Canonical classification</span></div>
       </div>
     </Modal>
   )

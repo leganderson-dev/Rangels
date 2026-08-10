@@ -21,6 +21,18 @@ import { merchantDisplayName, merchantKey } from './lib/merchants'
 import { inferTransferClassification } from './lib/transfers'
 
 const pickedFiles = new Map<string, { name: string; text: string }>()
+let classificationOptionsCache: Promise<ClassificationOptions> | null = null
+let accountMetadataCache: { expiresAt: number; promise: Promise<Row[]> } | null = null
+let householdMembersCache: Promise<HouseholdMember[]> | null = null
+const transactionQueryCache = new Map<string, { expiresAt: number; promise: Promise<Transaction[]> }>()
+
+function invalidateTransactionQueries() {
+  transactionQueryCache.clear()
+}
+
+function invalidateAccountMetadata() {
+  accountMetadataCache = null
+}
 
 async function pickCsv(): Promise<string | null> {
   return new Promise((resolve, reject) => {
@@ -174,6 +186,7 @@ async function importAlzex(): Promise<ImportResult | null> {
     if (error) errors.push(error.message)
     else imported += batch.length
   }
+  invalidateTransactionQueries()
   return { imported, skipped, errors: errors.slice(0, 20) }
 }
 
@@ -394,6 +407,7 @@ async function importBank(token: string, accountId: string, assignments: Record<
     else errors.push(error.message)
   }
   pickedFiles.delete(token)
+  invalidateTransactionQueries()
   return { imported, skipped, errors: errors.slice(0, 20) }
 }
 
@@ -429,37 +443,32 @@ function monthRange(month: number, year: number): [string, string] {
 }
 
 async function rawAccounts(): Promise<Row[]> {
-  const { data, error } = await supabase
-    .from('accounts')
-    .select('*')
-    .order('display_order')
-    .order('name')
-  fail(error)
-  return data ?? []
+  if (accountMetadataCache && accountMetadataCache.expiresAt > Date.now()) return accountMetadataCache.promise
+  const promise = (async () => {
+    try {
+      const { data, error } = await supabase.from('accounts').select('*').order('display_order').order('name')
+      fail(error)
+      return data ?? []
+    } catch (error) {
+      accountMetadataCache = null
+      throw error
+    }
+  })()
+  accountMetadataCache = { expiresAt: Date.now() + 30_000, promise }
+  return promise
 }
 
 async function listAccounts(): Promise<Account[]> {
-  const [accounts, transactions, members] = await Promise.all([
+  const [accounts, balanceResult, members] = await Promise.all([
     rawAccounts(),
-    fetchAllRows(() => supabase
-      .from('transactions')
-      .select('account_id,target_account_id,amount,is_transfer,status')
-      .eq('status', 'C')),
+    supabase.rpc('account_balance_summary'),
     listHouseholdMembers(),
   ])
+  fail(balanceResult.error)
   const memberMap = new Map(members.map(member => [member.id, member.name]))
+  const balances = new Map<string, number>((balanceResult.data ?? []).map((row: Row) => [String(row.account_id), Number(row.balance)]))
 
   return accounts.map((account) => {
-    let balance = Number(account.initial_balance)
-    for (const transaction of transactions) {
-      const amount = Number(transaction.amount)
-      if (!transaction.is_transfer && transaction.account_id === account.id) {
-        balance += amount
-      } else if (transaction.is_transfer) {
-        if (transaction.account_id === account.id) balance -= Math.abs(amount)
-        if (transaction.target_account_id === account.id) balance += Math.abs(amount)
-      }
-    }
     return {
       id: account.id,
       name: account.name,
@@ -472,27 +481,19 @@ async function listAccounts(): Promise<Account[]> {
       lastUpdatedOn: account.last_updated_on,
       memberId: account.member_id,
       memberName: memberMap.get(account.member_id) ?? 'Unknown',
-      balance,
+      balance: balances.get(account.id) ?? Number(account.initial_balance),
     }
   })
 }
 
 async function listCategories(): Promise<Category[]> {
-  const [categoryResult, transactions] = await Promise.all([
+  const [categoryResult, countResult] = await Promise.all([
     supabase.from('canonical_categories').select('id,name,family,type,display_order').order('family').order('display_order'),
-    fetchAllRows(() => supabase.from('transactions').select('canonical_category_id')),
+    supabase.rpc('canonical_category_transaction_counts'),
   ])
-  fail(categoryResult.error)
+  fail(categoryResult.error); fail(countResult.error)
   const rows = categoryResult.data ?? []
-  const counts = new Map<string, number>()
-  for (const transaction of transactions) {
-    if (transaction.canonical_category_id) {
-      counts.set(
-        transaction.canonical_category_id,
-        (counts.get(transaction.canonical_category_id) ?? 0) + 1,
-      )
-    }
-  }
+  const counts = new Map<string, number>((countResult.data ?? []).map((row: Row) => [String(row.category_id), Number(row.transaction_count)]))
 
   const palette = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2', '#64748b']
   const families = [...new Set(rows.map(row => row.family))]
@@ -509,9 +510,10 @@ async function listCategories(): Promise<Category[]> {
   }))
 }
 
-async function listTransactions(filter: TransactionFilter = {}): Promise<Transaction[]> {
+async function fetchTransactions(filter: TransactionFilter = {}): Promise<Transaction[]> {
   const makeQuery = () => {
-    let query = supabase.from('transactions').select('*')
+    let query = supabase.from('transactions').select('id,description,comment,occurred_on,amount,account_id,target_account_id,canonical_category_id,is_transfer,transfer_reason,status,payee,tags,external_id,context_id,bucket_id,reimbursement_status,tax_treatment,created_at')
+    if (filter.transactionId) query = query.eq('id', filter.transactionId)
     if (filter.dateFrom) query = query.gte('occurred_on', filter.dateFrom)
     if (filter.dateTo) query = query.lte('occurred_on', filter.dateTo)
     if (!filter.dateFrom && filter.month && filter.year) {
@@ -528,20 +530,26 @@ async function listTransactions(filter: TransactionFilter = {}): Promise<Transac
     return query.order('occurred_on', { ascending: false }).order('created_at', { ascending: false })
   }
 
-  const [transactionRows, accounts, categories, classification] = await Promise.all([
+  const [transactionRows, accounts, members, classification] = await Promise.all([
     fetchAllRows(makeQuery),
-    listAccounts(),
-    listCategories(),
+    rawAccounts(),
+    listHouseholdMembers(),
     listClassificationOptions(),
   ])
+  const memberMap = new Map(members.map(member => [member.id, member.name]))
   const accountMap = new Map(accounts.map((account) => [account.id, account]))
-  const categoryMap = new Map(categories.map((category) => [category.id, category]))
   const contextMap = new Map(classification.contexts.map(item => [item.id, item.name]))
   const bucketMap = new Map(classification.buckets.map(item => [item.id, item.name]))
   const canonicalMap = new Map(classification.categories.map(item => [item.id, item]))
+  const palette = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2', '#64748b']
+  const families = [...new Set(classification.categories.map(item => item.family))].sort()
+  const familyColors = new Map(families.map((family, index) => [family, palette[index % palette.length]]))
 
   return transactionRows.map((row) => {
-    const category = row.canonical_category_id ? categoryMap.get(row.canonical_category_id) : undefined
+    const category = row.canonical_category_id ? canonicalMap.get(row.canonical_category_id) : undefined
+    const account = accountMap.get(row.account_id)
+    const family = category?.family ?? null
+    const categoryName = category?.name ?? null
     return {
       id: row.id,
       description: row.description,
@@ -549,17 +557,17 @@ async function listTransactions(filter: TransactionFilter = {}): Promise<Transac
       date: row.occurred_on,
       amount: Number(row.amount),
       accountId: row.account_id,
-      accountName: accountMap.get(row.account_id)?.name ?? '',
-      memberId: accountMap.get(row.account_id)?.memberId ?? '',
-      memberName: accountMap.get(row.account_id)?.memberName ?? 'Unknown',
+      accountName: account?.name ?? '',
+      memberId: account?.member_id ?? '',
+      memberName: memberMap.get(account?.member_id) ?? 'Unknown',
       targetAccountId: row.target_account_id,
       targetAccountName: row.target_account_id
         ? accountMap.get(row.target_account_id)?.name ?? null
         : null,
       categoryId: row.canonical_category_id,
-      categoryName: category?.name ?? null,
-      categoryFullName: category?.fullName ?? null,
-      categoryColor: category?.color ?? null,
+      categoryName,
+      categoryFullName: categoryName && family ? `${family}: ${categoryName}` : categoryName,
+      categoryColor: family ? familyColors.get(family) ?? null : null,
       isTransfer: row.is_transfer,
       transferReason: row.transfer_reason ?? null,
       status: row.status,
@@ -579,10 +587,32 @@ async function listTransactions(filter: TransactionFilter = {}): Promise<Transac
   })
 }
 
+function listTransactions(filter: TransactionFilter = {}): Promise<Transaction[]> {
+  const key = JSON.stringify(filter, Object.keys(filter).sort())
+  const cached = transactionQueryCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) return cached.promise
+  const promise = fetchTransactions(filter).catch(error => {
+    transactionQueryCache.delete(key)
+    throw error
+  })
+  transactionQueryCache.set(key, { expiresAt: Date.now() + 30_000, promise })
+  return promise
+}
+
 async function listHouseholdMembers(): Promise<HouseholdMember[]> {
-  const { data, error } = await supabase.from('household_members').select('id,name').order('display_order')
-  fail(error)
-  return data ?? []
+  if (!householdMembersCache) {
+    householdMembersCache = (async () => {
+      try {
+        const { data, error } = await supabase.from('household_members').select('id,name').order('display_order')
+        fail(error)
+        return data ?? []
+      } catch (error) {
+        householdMembersCache = null
+        throw error
+      }
+    })()
+  }
+  return householdMembersCache!
 }
 
 async function getAllocationPlan(): Promise<AllocationPlanSummary | null> {
@@ -616,17 +646,20 @@ async function getAllocationPlan(): Promise<AllocationPlanSummary | null> {
 }
 
 async function listClassificationOptions(): Promise<ClassificationOptions> {
-  const [contexts, buckets, categories] = await Promise.all([
-    supabase.from('contexts').select('id,name').order('display_order'),
-    supabase.from('buckets').select('id,name').order('display_order'),
-    supabase.from('canonical_categories').select('id,name,family,type').order('display_order'),
-  ])
-  fail(contexts.error); fail(buckets.error); fail(categories.error)
-  return {
-    contexts: contexts.data ?? [],
-    buckets: buckets.data ?? [],
-    categories: (categories.data ?? []) as ClassificationOptions['categories'],
+  if (!classificationOptionsCache) {
+    classificationOptionsCache = Promise.all([
+      supabase.from('contexts').select('id,name').order('display_order'),
+      supabase.from('buckets').select('id,name').order('display_order'),
+      supabase.from('canonical_categories').select('id,name,family,type').order('display_order'),
+    ]).then(([contexts, buckets, categories]) => {
+      fail(contexts.error); fail(buckets.error); fail(categories.error)
+      return { contexts: contexts.data ?? [], buckets: buckets.data ?? [], categories: (categories.data ?? []) as ClassificationOptions['categories'] }
+    }).catch(error => {
+      classificationOptionsCache = null
+      throw error
+    })
   }
+  return classificationOptionsCache
 }
 
 function transactionPayload(data: Record<string, any>): Row {
@@ -682,7 +715,8 @@ async function addTransaction(data: Record<string, any>): Promise<Transaction> {
     .single()
   fail(error)
   if (!inserted) throw new Error('Could not create the transaction.')
-  return (await listTransactions()).find((transaction) => transaction.id === inserted.id)!
+  invalidateTransactionQueries()
+  return (await listTransactions({ transactionId: inserted.id }))[0]
 }
 
 async function updateTransaction(
@@ -699,7 +733,8 @@ async function updateTransaction(
   }
   const { error } = await supabase.from('transactions').update(payload).eq('id', id)
   fail(error)
-  return (await listTransactions()).find((transaction) => transaction.id === id)!
+  invalidateTransactionQueries()
+  return (await listTransactions({ transactionId: id }))[0]
 }
 
 async function monthSummary(
@@ -708,8 +743,11 @@ async function monthSummary(
   accountId?: string | null,
 ): Promise<MonthSummary> {
   const transactions = await listTransactions({ month, year, accountId })
-  const categories = await listCategories()
-  const categoryMap = new Map(categories.map((category) => [category.id, category]))
+  const classification = await listClassificationOptions()
+  const palette = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2', '#64748b']
+  const families = [...new Set(classification.categories.map(category => category.family))].sort()
+  const familyColors = new Map(families.map((family, index) => [family, palette[index % palette.length]]))
+  const categoryMap = new Map(classification.categories.map(category => [category.id, category]))
   const included = transactions.filter(
     (transaction) => !transaction.isTransfer && transaction.status === 'C',
   )
@@ -735,8 +773,8 @@ async function monthSummary(
     byCategory: [...totals.entries()]
       .map(([categoryId, total]) => ({
         categoryId,
-        categoryFullName: categoryMap.get(categoryId)?.fullName ?? 'Uncategorised',
-        categoryColor: categoryMap.get(categoryId)?.color ?? '#9ca3af',
+        categoryFullName: categoryMap.has(categoryId) ? `${categoryMap.get(categoryId)!.family}: ${categoryMap.get(categoryId)!.name}` : 'Uncategorised',
+        categoryColor: familyColors.get(categoryMap.get(categoryId)?.family ?? '') ?? '#9ca3af',
         total,
       }))
       .sort((left, right) => left.total - right.total),
@@ -747,56 +785,28 @@ async function accountLedgerSummary(
   accountId: string,
   filter: Pick<TransactionFilter, 'month' | 'year' | 'dateFrom' | 'dateTo'> = {},
 ): Promise<AccountLedgerSummary> {
-  const accountResult = await supabase.from('accounts').select('initial_balance').eq('id', accountId).single()
-  fail(accountResult.error)
-
   let dateFrom = filter.dateFrom
   let dateTo = filter.dateTo
   if (!dateFrom && filter.month && filter.year) {
     ;[dateFrom, dateTo] = monthRange(filter.month, filter.year)
   }
-
-  const transactions = await fetchAllRows(() => supabase
-    .from('transactions')
-    .select('account_id,target_account_id,occurred_on,amount,is_transfer,status')
-    .eq('status', 'C')
-    .or(`account_id.eq.${accountId},target_account_id.eq.${accountId}`)
-    .order('occurred_on', { ascending: true }))
-
-  let openingBalance = Number(accountResult.data?.initial_balance ?? 0)
-  let income = 0
-  let expenses = 0
-  let transfersIn = 0
-  let transfersOut = 0
-
-  const effect = (transaction: Row) => {
-    const amount = Number(transaction.amount)
-    if (!transaction.is_transfer) return transaction.account_id === accountId ? amount : 0
-    let result = 0
-    if (transaction.account_id === accountId) result -= Math.abs(amount)
-    if (transaction.target_account_id === accountId) result += Math.abs(amount)
-    return result
+  const { data, error } = await supabase.rpc('account_ledger_summary', {
+    p_account_id: accountId,
+    p_date_from: dateFrom ?? null,
+    p_date_to: dateTo ?? null,
+  })
+  fail(error)
+  const row = data?.[0]
+  if (!row) throw new Error('The selected account could not be summarized.')
+  return {
+    openingBalance: Number(row.opening_balance),
+    income: Number(row.income),
+    expenses: Number(row.expenses),
+    transfersIn: Number(row.transfers_in),
+    transfersOut: Number(row.transfers_out),
+    netMovement: Number(row.net_movement),
+    closingBalance: Number(row.closing_balance),
   }
-
-  for (const transaction of transactions) {
-    if (dateFrom && transaction.occurred_on < dateFrom) {
-      openingBalance += effect(transaction)
-      continue
-    }
-    if (dateTo && transaction.occurred_on > dateTo) continue
-
-    const amount = Number(transaction.amount)
-    if (!transaction.is_transfer && transaction.account_id === accountId) {
-      if (amount >= 0) income += amount
-      else expenses += amount
-    } else if (transaction.is_transfer) {
-      if (transaction.account_id === accountId) transfersOut += Math.abs(amount)
-      if (transaction.target_account_id === accountId) transfersIn += Math.abs(amount)
-    }
-  }
-
-  const netMovement = income + expenses + transfersIn - transfersOut
-  return { openingBalance, income, expenses, transfersIn, transfersOut, netMovement, closingBalance: openingBalance + netMovement }
 }
 
 function nextDate(current: string, frequency: ScheduledTransaction['frequency']): string {
@@ -1092,6 +1102,7 @@ async function applyMerchantCategory(data: {
     fail(transactionError)
   }
   merchantRuleCache = null
+  invalidateTransactionQueries()
 }
 
 async function saveMerchantRule(data: {
@@ -1145,6 +1156,7 @@ async function saveMerchantRule(data: {
     fail(transactionError)
   }
   merchantRuleCache = null
+  invalidateTransactionQueries()
 }
 
 export const api = {
@@ -1180,6 +1192,7 @@ export const api = {
         .single()
       fail(error)
       if (!row) throw new Error('Could not create the account.')
+      invalidateAccountMetadata()
       return (await listAccounts()).find((account) => account.id === row.id)!
     },
     update: async (id: string, data: Partial<Account>): Promise<void> => {
@@ -1196,6 +1209,7 @@ export const api = {
       fail(error)
       if (!updated) throw new Error('The account update was not persisted.')
       if (data.color !== undefined && updated.color !== data.color) throw new Error('The selected account color was not persisted.')
+      invalidateAccountMetadata()
     },
     delete: async (id: string): Promise<void> => {
       const { error } = await supabase
@@ -1203,6 +1217,7 @@ export const api = {
         .update({ is_active: false })
         .eq('id', id)
       fail(error)
+      invalidateAccountMetadata()
     },
     reorder: async (
       updates: { id: string; groupName: string | null; displayOrder: number }[],
@@ -1219,6 +1234,7 @@ export const api = {
           fail(error)
         }),
       )
+      invalidateAccountMetadata()
     },
   },
   merchants: {
@@ -1240,6 +1256,7 @@ export const api = {
     delete: async (id: string): Promise<void> => {
       const { error } = await supabase.from('transactions').delete().eq('id', id)
       fail(error)
+      invalidateTransactionQueries()
     },
     bulkCategory: async (ids: string[], categoryId: string | null): Promise<void> => {
       const { error } = await supabase
@@ -1247,6 +1264,7 @@ export const api = {
         .update({ canonical_category_id: categoryId, classification_reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
         .in('id', ids)
       fail(error)
+      invalidateTransactionQueries()
     },
     monthSummary,
     yearlySummary: async (year: number, accountId?: string | null) => {

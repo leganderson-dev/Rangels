@@ -38,6 +38,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   const [ledgerSummary, setLedgerSummary] = useState<AccountLedgerSummary | null>(null)
   const [scheduledTxns, setScheduledTxns] = useState<ScheduledTransaction[]>([])
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [groupBy, setGroupBy] = useState<'category' | 'date' | 'none'>('category')
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense' | 'transfer'>('all')
   const [filterCatIds, setFilterCatIds] = useState<Set<string>>(new Set())
@@ -129,6 +130,11 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   function refresh() { setRefreshKey(k => k + 1) }
 
   useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedSearch(search.trim()), 250)
+    return () => window.clearTimeout(timeout)
+  }, [search])
+
+  useEffect(() => {
     let cancelled = false
     async function run() {
       setLoading(true)
@@ -136,15 +142,21 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
         const dateFilter = dateMode === 'custom'
           ? { dateFrom: customFrom || undefined, dateTo: customTo || undefined }
           : { month, year }
-        const data = await api.transactions.list({ ...dateFilter, accountId: selectedAccountId ?? undefined, search: search || undefined })
+        const data = await api.transactions.list({ ...dateFilter, accountId: selectedAccountId ?? undefined, search: debouncedSearch || undefined })
         if (!cancelled) { setTransactions(data); setSelected(new Set()); lastClickedIdx.current = null }
+        if (dateMode === 'month' && !debouncedSearch) {
+          const previous = month === 1 ? { month: 12, year: year - 1 } : { month: month - 1, year }
+          const next = month === 12 ? { month: 1, year: year + 1 } : { month: month + 1, year }
+          void api.transactions.list({ ...previous, accountId: selectedAccountId ?? undefined }).catch(() => {})
+          void api.transactions.list({ ...next, accountId: selectedAccountId ?? undefined }).catch(() => {})
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
     run()
     return () => { cancelled = true }
-  }, [month, year, dateMode, customFrom, customTo, selectedAccountId, search, refreshKey])
+  }, [month, year, dateMode, customFrom, customTo, selectedAccountId, debouncedSearch, refreshKey])
 
   useEffect(() => {
     let cancelled = false

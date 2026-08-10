@@ -215,6 +215,7 @@ export interface ImportResult {
 }
 
 export interface TransactionFilter {
+  transactionId?: string
   month?: number
   year?: number
   dateFrom?: string
