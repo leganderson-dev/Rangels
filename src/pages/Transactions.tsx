@@ -501,7 +501,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
                       onDragOver={e => { e.preventDefault(); setDragOverKey(group.key) }}
                       onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverKey(null) }}
                       onDrop={e => { e.preventDefault(); setDragOverKey(null); if (dragTxId.current !== null && group.catId !== null) { handleInlineCategory(dragTxId.current, group.catId); dragTxId.current = null } }}
-                      className={`w-full flex items-center gap-2 pl-8 pr-4 py-2.5 transition-colors border-b ${group.key === '__none' ? 'border-amber-100 bg-amber-50/70 hover:bg-amber-50' : 'border-gray-100 bg-slate-50 hover:bg-slate-100'} ${dragOverKey === group.key ? 'ring-2 ring-inset ring-blue-400' : ''}`}
+                      className={`w-full flex items-center gap-2 pl-8 pr-4 py-2.5 transition-colors border-y shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] ${group.key === '__none' ? 'border-amber-200/70 bg-amber-50/80 hover:bg-amber-100/70' : 'border-slate-200/80 bg-slate-100/80 hover:bg-slate-200/70'} ${dragOverKey === group.key ? 'ring-2 ring-inset ring-blue-400' : ''}`}
                       style={{ borderLeft: group.color ? `3px solid ${group.color}` : '3px solid #e5e7eb' }}
                     >
                       <input
@@ -515,7 +515,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
                       <button onClick={() => toggleParent(group.key)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                         {parentCollapsed ? <ChevronRight size={12} className="text-gray-400 shrink-0" /> : <ChevronDown size={12} className="text-gray-400 shrink-0" />}
                         {group.color && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: group.color }} />}
-                        <span className="flex-1 text-xs font-bold text-gray-700 text-left tracking-wide">{group.label}</span>
+                        <span className="flex-1 text-xs font-semibold text-slate-700 text-left tracking-wide">{group.label}</span>
                       </button>
                       {!parentCollapsed && <span className="text-xs text-gray-300 mr-2">{group.txCount} txns</span>}
                       {groupSelectedCount > 0 && <span className="text-[10px] font-medium text-blue-600">{groupSelectedCount} selected</span>}
@@ -536,7 +536,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
                           {/* Level 3: Child category header (only when multiple children exist) */}
                           {!group.isSingleLevel && (
                             <div
-                              className="w-full flex items-center gap-2 pl-14 pr-4 py-2 bg-white hover:bg-slate-50 transition-colors border-b border-gray-100"
+                              className="w-full flex items-center gap-2 pl-14 pr-4 py-2 bg-slate-50/80 hover:bg-slate-100 transition-colors border-b border-slate-200/70"
                             >
                               <input
                                 type="checkbox"
