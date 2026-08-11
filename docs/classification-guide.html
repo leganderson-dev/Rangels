@@ -39,6 +39,11 @@
     .eyebrow { margin-bottom: 18px; color: var(--green); font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
     .lede { max-width: 780px; color: var(--muted); font-size: 18px; }
     .hero-note { display: inline-flex; gap: 8px; margin-top: 10px; padding: 9px 13px; border: 1px solid #bfe0cc; border-radius: 999px; background: rgba(255,255,255,.72); color: var(--green); font-size: 12px; font-weight: 700; }
+    .plumbing { padding: 24px; overflow: hidden; }
+    .plumbing svg { display: block; width: 100%; height: auto; }
+    .plumbing-note { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+    .plain-note { padding: 13px 15px; border: 1px solid var(--line); border-radius: 12px; background: #f7faf8; color: var(--muted); font-size: 13px; }
+    .plain-note strong { color: var(--ink); }
     section { margin-top: 46px; }
     .grid { display: grid; gap: 16px; }
     .concepts { grid-template-columns: repeat(3, 1fr); }
@@ -112,7 +117,7 @@
     .final-rule strong { font-size: 19px; }
     footer { margin-top: 50px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
     @media (max-width: 850px) {
-      .concepts, .type-grid, .examples, .portfolio { grid-template-columns: 1fr; }
+      .concepts, .type-grid, .examples, .portfolio, .plumbing-note { grid-template-columns: 1fr; }
       .flow { grid-template-columns: 1fr; }
       .arrow { transform: rotate(90deg); }
       .lane::before { display: none; }
@@ -129,6 +134,149 @@
       <p class="lede">Purpose, Context, and Bucket are deliberately separate. They describe what happened, where it belongs financially, and—only when relevant—which part of the Household plan it consumed.</p>
       <div class="hero-note">This is an explanatory document only. It does not change the Rangels application.</div>
     </header>
+
+    <section>
+      <h2>The deliberately simple money plumbing</h2>
+      <div class="card plumbing">
+        <svg viewBox="0 0 1160 720" role="img" aria-labelledby="plumbing-title plumbing-desc">
+          <title id="plumbing-title">Household income allocation plumbing</title>
+          <desc id="plumbing-desc">Income made available to the Household flows into one shared tank, then splits in parallel into Daily Expenses, Splurge, Smile, and Fire Extinguisher.</desc>
+          <defs>
+            <linearGradient id="tank" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#f8fffa" />
+              <stop offset="1" stop-color="#dff5e7" />
+            </linearGradient>
+            <linearGradient id="water" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#4fb77c" />
+              <stop offset="1" stop-color="#25885a" />
+            </linearGradient>
+            <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#294b3a" flood-opacity=".12" />
+            </filter>
+            <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#25885a" />
+            </marker>
+          </defs>
+
+          <text x="580" y="28" text-anchor="middle" font-size="15" font-weight="800" fill="#62706a" letter-spacing="2">MONEY MADE AVAILABLE TO THE HOUSEHOLD</text>
+
+          <!-- Income sources -->
+          <g font-family="Inter, -apple-system, sans-serif" text-anchor="middle">
+            <g transform="translate(20 50)">
+              <rect width="170" height="66" rx="14" fill="#f3f8ff" stroke="#b9d3e8" />
+              <text x="85" y="28" font-size="14" font-weight="800" fill="#17211d">Anderson income</text>
+              <text x="85" y="48" font-size="11" fill="#62706a">Salary + other income</text>
+            </g>
+            <g transform="translate(210 50)">
+              <rect width="170" height="66" rx="14" fill="#f3f8ff" stroke="#b9d3e8" />
+              <text x="85" y="28" font-size="14" font-weight="800" fill="#17211d">Julia income</text>
+              <text x="85" y="48" font-size="11" fill="#62706a">Salary + other income</text>
+            </g>
+            <g transform="translate(400 50)">
+              <rect width="170" height="66" rx="14" fill="#f8f3fd" stroke="#d5c6e8" />
+              <text x="85" y="28" font-size="14" font-weight="800" fill="#17211d">ASA</text>
+              <text x="85" y="48" font-size="11" fill="#62706a">Household amount declared</text>
+            </g>
+            <g transform="translate(590 50)">
+              <rect width="170" height="66" rx="14" fill="#f8f3fd" stroke="#d5c6e8" />
+              <text x="85" y="28" font-size="14" font-weight="800" fill="#17211d">Folium Studio</text>
+              <text x="85" y="48" font-size="11" fill="#62706a">Household amount declared</text>
+            </g>
+            <g transform="translate(780 50)">
+              <rect width="170" height="66" rx="14" fill="#eef8fc" stroke="#b9d8e8" />
+              <text x="85" y="28" font-size="14" font-weight="800" fill="#17211d">Currumundi</text>
+              <text x="85" y="48" font-size="11" fill="#62706a">Surplus made available</text>
+            </g>
+            <g transform="translate(970 50)">
+              <rect width="170" height="66" rx="14" fill="#eef8fc" stroke="#b9d8e8" />
+              <text x="85" y="28" font-size="14" font-weight="800" fill="#17211d">Toogoom</text>
+              <text x="85" y="48" font-size="11" fill="#62706a">Surplus made available</text>
+            </g>
+          </g>
+
+          <!-- Pipes from sources into manifold -->
+          <g fill="none" stroke="#8ebda2" stroke-width="7" stroke-linecap="round">
+            <path d="M105 116 V150 H580" />
+            <path d="M295 116 V150" />
+            <path d="M485 116 V150" />
+            <path d="M675 116 V150" />
+            <path d="M865 116 V150" />
+            <path d="M1055 116 V150 H580" />
+            <path d="M580 150 V182" marker-end="url(#arrowGreen)" />
+          </g>
+
+          <!-- Shared tank -->
+          <g filter="url(#shadow)">
+            <path d="M385 190 H775 L748 355 Q744 378 720 378 H440 Q416 378 412 355 Z" fill="url(#tank)" stroke="#66a881" stroke-width="3" />
+            <path d="M406 276 H754 L742 351 Q739 363 723 363 H437 Q421 363 418 351 Z" fill="url(#water)" opacity=".9" />
+          </g>
+          <text x="580" y="232" text-anchor="middle" font-size="13" font-weight="800" fill="#176b4a" letter-spacing="1.5">ONE SHARED TANK</text>
+          <text x="580" y="261" text-anchor="middle" font-size="26" font-weight="900" fill="#17211d">Eligible Household Income</text>
+          <text x="580" y="312" text-anchor="middle" font-size="15" font-weight="700" fill="white">100% available to allocate</text>
+          <text x="580" y="338" text-anchor="middle" font-size="12" fill="#e9fff1">This is a planning pool—not necessarily one physical bank account</text>
+
+          <!-- Central outlet and parallel manifold -->
+          <g fill="none" stroke="#25885a" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M580 378 V425" />
+            <path d="M145 425 H1015" />
+            <path d="M145 425 V484" marker-end="url(#arrowGreen)" />
+            <path d="M435 425 V484" marker-end="url(#arrowGreen)" />
+            <path d="M725 425 V484" marker-end="url(#arrowGreen)" />
+            <path d="M1015 425 V484" marker-end="url(#arrowGreen)" />
+          </g>
+
+          <!-- Percentage valves -->
+          <g font-family="Inter, -apple-system, sans-serif" text-anchor="middle">
+            <g transform="translate(145 425)"><circle r="29" fill="white" stroke="#25885a" stroke-width="4" /><text y="6" font-size="16" font-weight="900" fill="#176b4a">60%</text></g>
+            <g transform="translate(435 425)"><circle r="29" fill="white" stroke="#25885a" stroke-width="4" /><text y="6" font-size="16" font-weight="900" fill="#176b4a">10%</text></g>
+            <g transform="translate(725 425)"><circle r="29" fill="white" stroke="#25885a" stroke-width="4" /><text y="6" font-size="16" font-weight="900" fill="#176b4a">10%</text></g>
+            <g transform="translate(1015 425)"><circle r="29" fill="white" stroke="#25885a" stroke-width="4" /><text y="6" font-size="16" font-weight="900" fill="#176b4a">20%</text></g>
+          </g>
+
+          <!-- Four actual buckets -->
+          <g font-family="Inter, -apple-system, sans-serif" text-anchor="middle" filter="url(#shadow)">
+            <g transform="translate(38 500)">
+              <path d="M0 0 H214 L194 150 Q191 166 174 166 H40 Q23 166 20 150 Z" fill="#e8f7ee" stroke="#58a576" stroke-width="3" />
+              <rect x="18" y="78" width="178" height="72" rx="8" fill="#43a66d" opacity=".9" />
+              <text x="107" y="41" font-size="18" font-weight="900" fill="#17211d">Daily Expenses</text>
+              <text x="107" y="64" font-size="11" fill="#62706a">Household essentials</text>
+              <text x="107" y="116" font-size="28" font-weight="900" fill="white">60%</text>
+              <text x="107" y="137" font-size="10" fill="#eafff1">mortgage · food · bills</text>
+            </g>
+            <g transform="translate(328 500)">
+              <path d="M0 0 H214 L194 150 Q191 166 174 166 H40 Q23 166 20 150 Z" fill="#fff6e6" stroke="#d9a247" stroke-width="3" />
+              <rect x="18" y="116" width="178" height="34" rx="8" fill="#d69a35" opacity=".9" />
+              <text x="107" y="41" font-size="18" font-weight="900" fill="#17211d">Splurge</text>
+              <text x="107" y="64" font-size="11" fill="#62706a">Enjoy now</text>
+              <text x="107" y="107" font-size="28" font-weight="900" fill="#a66a13">10%</text>
+              <text x="107" y="138" font-size="10" fill="white">guilt-free spending</text>
+            </g>
+            <g transform="translate(618 500)">
+              <path d="M0 0 H214 L194 150 Q191 166 174 166 H40 Q23 166 20 150 Z" fill="#f5effc" stroke="#9270bd" stroke-width="3" />
+              <rect x="18" y="116" width="178" height="34" rx="8" fill="#8460af" opacity=".9" />
+              <text x="107" y="41" font-size="18" font-weight="900" fill="#17211d">Smile</text>
+              <text x="107" y="64" font-size="11" fill="#62706a">Longer-term joy</text>
+              <text x="107" y="107" font-size="28" font-weight="900" fill="#7047a8">10%</text>
+              <text x="107" y="138" font-size="10" fill="white">holidays · bigger goals</text>
+            </g>
+            <g transform="translate(908 500)">
+              <path d="M0 0 H214 L194 150 Q191 166 174 166 H40 Q23 166 20 150 Z" fill="#edf5fb" stroke="#4d91b4" stroke-width="3" />
+              <rect x="18" y="102" width="178" height="48" rx="8" fill="#347fa5" opacity=".9" />
+              <text x="107" y="38" font-size="16" font-weight="900" fill="#17211d">Fire Extinguisher</text>
+              <text x="107" y="61" font-size="11" fill="#62706a">Financial pressure relief</text>
+              <text x="107" y="94" font-size="28" font-weight="900" fill="#176b91">20%</text>
+              <text x="107" y="125" font-size="10" fill="white">debt · buffer · resilience</text>
+              <text x="107" y="140" font-size="10" fill="white">destination tracked separately</text>
+            </g>
+          </g>
+        </svg>
+
+        <div class="plumbing-note">
+          <div class="plain-note"><strong>The split is parallel.</strong> Daily Expenses receives 60%, Splurge 10%, Smile 10%, and Fire Extinguisher 20% directly from the same Household income tank. Daily Expenses does not pour into Smile.</div>
+          <div class="plain-note"><strong>Businesses and properties keep their own results first.</strong> Only an amount deliberately made available to the Household enters this tank. Internal transfers still remain ledger-neutral.</div>
+        </div>
+      </div>
+    </section>
 
     <section>
       <div class="grid concepts">
