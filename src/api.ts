@@ -18,7 +18,7 @@ import type {
 import { parseBankExport } from './lib/importers'
 import { createCategoryMatcher, normalizeDescription, relevantCategorySuggestions, transactionDuplicateKey } from './lib/matching'
 import { parseDelimited } from './lib/csv'
-import { merchantDisplayName, merchantKey } from './lib/merchants'
+import { merchantDisplayName, merchantKey, normalizeMerchantRulePhrase } from './lib/merchants'
 import { inferTransferClassification } from './lib/transfers'
 
 const pickedFiles = new Map<string, { name: string; text: string }>()
@@ -243,7 +243,7 @@ async function loadMerchantClassificationRules(): Promise<{
 }> {
   const [merchantResult, aliasResult] = await Promise.all([
     supabase.from('merchants').select('id,normalized_name,default_category_id,default_canonical_category_id,default_context_id,default_bucket_id,default_tax_treatment').not('default_canonical_category_id', 'is', null),
-    supabase.from('merchant_aliases').select('merchant_id,normalized_alias'),
+    supabase.from('merchant_aliases').select('merchant_id,alias,normalized_alias'),
   ])
   fail(merchantResult.error)
   fail(aliasResult.error)
@@ -258,7 +258,7 @@ async function loadMerchantClassificationRules(): Promise<{
   return {
     byKey: new Map((merchantResult.data ?? []).map(merchant => [merchant.normalized_name, byMerchantId.get(merchant.id)!])),
     aliases: (aliasResult.data ?? [])
-      .map(alias => ({ phrase: alias.normalized_alias, rule: byMerchantId.get(alias.merchant_id) }))
+      .map(alias => ({ phrase: normalizeMerchantRulePhrase(alias.alias || alias.normalized_alias), rule: byMerchantId.get(alias.merchant_id) }))
       .filter((item): item is { phrase: string; rule: MerchantRuleMatch } => Boolean(item.phrase && item.rule))
       .sort((left, right) => right.phrase.length - left.phrase.length),
   }
@@ -275,7 +275,7 @@ function matchMerchantRule(description: string, rules: Awaited<ReturnType<typeof
   const key = merchantKey(description)
   const direct = rules.byKey.get(key)
   if (direct) return direct
-  const normalized = normalizeDescription(description)
+  const normalized = normalizeMerchantRulePhrase(description)
   return rules.aliases.find(alias =>
     normalized === alias.phrase || normalized.includes(alias.phrase) || key.includes(alias.phrase)
   )?.rule ?? null
@@ -1114,7 +1114,7 @@ async function applyMerchantCategory(data: {
   fail(error)
   if (!merchant) throw new Error('Could not save the merchant rule.')
 
-  const aliases = [...new Map(data.aliases.map(alias => [normalizeDescription(alias), alias])).entries()]
+  const aliases = [...new Map(data.aliases.map(alias => [normalizeMerchantRulePhrase(alias), alias])).entries()]
     .filter(([normalized]) => normalized)
     .map(([normalized, alias]) => ({
       owner_id: owner,
@@ -1170,7 +1170,7 @@ async function saveMerchantRule(data: {
     const { error: deleteError } = await supabase.from('merchant_aliases').delete().eq('merchant_id', data.merchantId)
     fail(deleteError)
   }
-  const phrases = [...new Map(data.phrases.map(phrase => [normalizeDescription(phrase), phrase.trim()])).entries()]
+  const phrases = [...new Map(data.phrases.map(phrase => [normalizeMerchantRulePhrase(phrase), phrase.trim()])).entries()]
     .filter(([normalized, phrase]) => normalized.length >= 2 && phrase)
     .map(([normalized, phrase]) => ({ owner_id: owner, merchant_id: merchant.id, alias: phrase, normalized_alias: normalized }))
   if (phrases.length) {

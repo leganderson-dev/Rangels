@@ -1,5 +1,15 @@
 import { normalizeDescription } from './matching'
 
+export function normalizeMerchantRulePhrase(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(word => word.length > 1)
+    .join(' ')
+    .trim()
+}
+
 export function merchantDisplayName(description: string): string {
   const cleaned = description
     .replace(/\bvalue\s+date:\s*\d{1,2}\/\d{1,2}\/\d{2,4}.*$/i, '')
