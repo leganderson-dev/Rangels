@@ -13,18 +13,20 @@ interface Props {
   accounts: Account[]
   categories: Category[]
   defaultDate?: string
+  defaultAccountId?: string | null
   onClose: () => void
   onSave: (data: any) => Promise<void>
 }
 
-export function TransactionFormModal({ transaction, accounts, defaultDate, onClose, onSave }: Props) {
+export function TransactionFormModal({ transaction, accounts, defaultDate, defaultAccountId, onClose, onSave }: Props) {
   const availableSourceAccounts = accounts.filter(account => account.isActive || account.id === transaction?.accountId)
   const availableTargetAccounts = accounts.filter(account => account.isActive || account.id === transaction?.targetAccountId)
   const [description, setDescription] = useState(transaction?.description ?? '')
   const [amount, setAmount] = useState(transaction ? String(Math.abs(transaction.amount)) : '')
   const [isExpense, setIsExpense] = useState(!transaction || transaction.amount < 0)
   const [date, setDate] = useState(transaction?.date ?? defaultDate ?? today())
-  const [accountId, setAccountId] = useState(transaction?.accountId ?? accounts.find(account => account.isActive)?.id ?? '')
+  const selectedDefaultAccount = accounts.find(account => account.id === defaultAccountId && account.isActive)
+  const [accountId, setAccountId] = useState(transaction?.accountId ?? selectedDefaultAccount?.id ?? accounts.find(account => account.isActive)?.id ?? '')
   const [comment, setComment] = useState(transaction?.comment ?? '')
   const [isTransfer, setIsTransfer] = useState(transaction?.isTransfer ?? false)
   const [targetAccountId, setTargetAccountId] = useState<string | null>(transaction?.targetAccountId ?? null)

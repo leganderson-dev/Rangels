@@ -669,7 +669,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
         />
       )}
       {(showAdd || editTx) && (
-        <TransactionFormModal transaction={editTx ?? undefined} accounts={accounts} categories={categories}
+        <TransactionFormModal transaction={editTx ?? undefined} accounts={accounts} categories={categories} defaultAccountId={selectedAccountId}
           onClose={() => { setShowAdd(false); setEditTx(null) }}
           onSave={async data => {
             if (editTx) {

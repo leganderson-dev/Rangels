@@ -347,6 +347,7 @@ function DayPanel({ date, accounts, categories, selectedAccountId, onClose, onCh
           accounts={accounts}
           categories={categories}
           defaultDate={date}
+          defaultAccountId={selectedAccountId}
           onClose={() => { setShowAdd(false); setEditTx(null) }}
           onSave={async data => {
             if (editTx) await api.transactions.update(editTx.id, data)
