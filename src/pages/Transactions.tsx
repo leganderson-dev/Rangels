@@ -380,7 +380,18 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
         <div className="relative flex-1 max-w-xs">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search transactions…"
-            className="w-full pl-8 pr-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50" />
+            className="w-full pl-8 pr-8 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50" />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-400 hover:bg-gray-200 hover:text-gray-700"
+              aria-label="Clear transaction search"
+              title="Clear search"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
         <select value={groupBy} onChange={e => setGroupBy(e.target.value as any)}
           className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-600 bg-gray-50 focus:outline-none">
