@@ -46,6 +46,13 @@ export function TransactionFormModal({ transaction, accounts, defaultDate, defau
     api.classification.options().then(setOptions).catch(console.error)
   }, [])
 
+  useEffect(() => {
+    const selectedContext = options.contexts.find(item => item.id === contextId)
+    if (options.contexts.length && !canUseHouseholdBucket(selectedContext?.name, isExpense ? 'expense' : 'income')) {
+      setBucketId('')
+    }
+  }, [contextId, isExpense, options.contexts])
+
   async function handleSave() {
     if (!description.trim() || !amount || !accountId || (isTransfer && (!targetAccountId || !transferReason || (transferReasonNeedsContext(transferReason) && !contextId)))) return
     setSaving(true)
@@ -197,6 +204,7 @@ export function TransactionFormModal({ transaction, accounts, defaultDate, defau
                   <option value="">{emptyBucketLabel(options.contexts.find(item => item.id === contextId)?.name, isExpense ? 'expense' : 'income')}</option>
                   {isExpense && options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
                 </select>
+                {!isExpense && <p className="mt-1 text-[10px] leading-4 text-slate-400">Income supplies the allocation plan; it does not consume a spending Bucket.</p>}
               </div>
             </div>
             <div>

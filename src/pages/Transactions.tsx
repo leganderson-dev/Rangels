@@ -9,6 +9,7 @@ import { ImportBankModal } from '../components/ImportBankModal'
 import { ImportAlzexButton } from '../components/ImportAlzexButton'
 import type { Transaction, Account, Category, ScheduledTransaction, AccountLedgerSummary } from '../types/finance'
 import { transferReasonLabel } from '../lib/transfers'
+import { canUseHouseholdBucket, emptyBucketLabel } from '../lib/classification'
 
 interface Props {
   accounts: Account[]
@@ -38,6 +39,17 @@ function transactionDisplayAmount(transaction: Transaction, selectedAccountId: s
   if (transaction.targetAccountId === selectedAccountId) return Math.abs(transaction.amount)
   if (transaction.accountId === selectedAccountId) return -Math.abs(transaction.amount)
   return transaction.amount
+}
+
+function transactionBucketDisplay(transaction: Transaction): { label: string; muted: boolean } {
+  if (transaction.isTransfer) return { label: 'Not applicable', muted: true }
+  const purposeType = transaction.amount > 0 ? 'income' : 'expense'
+  if (!canUseHouseholdBucket(transaction.contextName, purposeType)) {
+    return { label: emptyBucketLabel(transaction.contextName, purposeType), muted: true }
+  }
+  return transaction.bucketName
+    ? { label: transaction.bucketName, muted: false }
+    : { label: '—', muted: true }
 }
 
 export function TransactionsPage({ accounts, categories, selectedAccountId, month, year, dateMode, customFrom, customTo, onRefreshAccounts, onRefreshCategories }: Props) {
@@ -827,6 +839,7 @@ function TransactionRow({ tx, selected, selectedCount, selectedAccountId, catego
   const [dropPos, setDropPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
   const applyingToMany = selected && selectedCount > 1
   const displayAmount = transactionDisplayAmount(tx, selectedAccountId)
+  const bucketDisplay = transactionBucketDisplay(tx)
   // No slice limit — show all categories; filter as user types
   const filteredCats = categories.filter(c => !q || c.fullName.toLowerCase().includes(q.toLowerCase()))
 
@@ -940,8 +953,8 @@ function TransactionRow({ tx, selected, selectedCount, selectedAccountId, catego
         )}
       </div>
 
-      <span className="text-xs text-slate-500 truncate shrink-0" style={{ width: colWidths.bucket }} title={tx.bucketName ?? undefined}>
-        {tx.isTransfer ? <span className="text-slate-300">Not applicable</span> : (tx.bucketName ?? <span className="text-slate-300">—</span>)}
+      <span className={`text-xs truncate shrink-0 ${bucketDisplay.muted ? 'text-slate-300' : 'text-slate-500'}`} style={{ width: colWidths.bucket }} title={bucketDisplay.label}>
+        {bucketDisplay.label}
       </span>
 
       <span className="text-xs text-gray-400 shrink-0" style={{ width: colWidths.date }}>{formatDate(tx.date)}</span>
@@ -960,6 +973,7 @@ function TransactionRow({ tx, selected, selectedCount, selectedAccountId, catego
 
 function ScheduledGhostRow({ s, colWidths }: { s: ScheduledTransaction; colWidths: ColWidths }) {
   const freqLabel = FREQUENCIES.find(f => f.value === s.frequency)?.label ?? s.frequency
+  const bucketLabel = s.isTransfer ? 'Not applicable' : s.amount > 0 ? 'Allocation source' : (s.bucketName ?? '—')
   return (
     <div className="flex items-center gap-3 px-4 pr-4 py-1.5 border-b border-dashed border-gray-100 opacity-50 hover:opacity-70 transition-opacity">
       <div className="w-4 shrink-0" />
@@ -976,7 +990,7 @@ function ScheduledGhostRow({ s, colWidths }: { s: ScheduledTransaction; colWidth
         {s.isTransfer ? transferReasonLabel(s.transferReason) : (s.categoryName ?? s.categoryFullName ?? <span className="text-gray-300">—</span>)}
       </div>
       <div className="shrink-0 text-xs text-gray-400 truncate" style={{ width: colWidths.bucket }}>
-        {s.isTransfer ? <span className="text-gray-300">Not applicable</span> : (s.bucketName ?? <span className="text-gray-300">—</span>)}
+        {bucketLabel}
       </div>
       <span className="text-xs text-gray-400 shrink-0" style={{ width: colWidths.date }}>{formatDate(s.nextDate)}</span>
       <span className="text-xs text-gray-400 truncate shrink-0" style={{ width: colWidths.account }}>{s.accountName}</span>
