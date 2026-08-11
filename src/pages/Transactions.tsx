@@ -33,6 +33,13 @@ function needsCategory(transaction: Transaction): boolean {
   return transaction.categoryId === null || /^\?+$/.test(transaction.categoryFullName?.trim() ?? '')
 }
 
+function transactionDisplayAmount(transaction: Transaction, selectedAccountId: string | null): number {
+  if (!transaction.isTransfer || !selectedAccountId) return transaction.amount
+  if (transaction.targetAccountId === selectedAccountId) return Math.abs(transaction.amount)
+  if (transaction.accountId === selectedAccountId) return -Math.abs(transaction.amount)
+  return transaction.amount
+}
+
 export function TransactionsPage({ accounts, categories, selectedAccountId, month, year, dateMode, customFrom, customTo, onRefreshAccounts, onRefreshCategories }: Props) {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [ledgerSummary, setLedgerSummary] = useState<AccountLedgerSummary | null>(null)
@@ -239,7 +246,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
 
   const typeSections = useMemo(() => {
     if (groupBy !== 'category') return []
-    const sections = buildHierarchyGroups(filtered, catMap)
+    const sections = buildHierarchyGroups(filtered, catMap, selectedAccountId)
     if (sortCol === 'amount') {
       for (const ts of sections) {
         ts.groups.sort((a, b) => {
@@ -249,17 +256,17 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
       }
     }
     return sections
-  }, [filtered, catMap, groupBy, sortCol, sortDir])
+  }, [filtered, catMap, groupBy, sortCol, sortDir, selectedAccountId])
 
   const dateGroups = useMemo(() => {
     if (groupBy !== 'date') return []
     const map = new Map<string, { key: string; label: string; total: number; rows: Transaction[] }>()
     for (const t of filtered) {
       if (!map.has(t.date)) map.set(t.date, { key: t.date, label: formatDate(t.date), total: 0, rows: [] })
-      const g = map.get(t.date)!; g.total += t.amount; g.rows.push(t)
+      const g = map.get(t.date)!; g.total += transactionDisplayAmount(t, selectedAccountId); g.rows.push(t)
     }
     return [...map.values()].sort((a, b) => b.key.localeCompare(a.key))
-  }, [filtered, groupBy])
+  }, [filtered, groupBy, selectedAccountId])
 
   // ─── Collapse helpers ────────────────────────────────────────────────────────
 
@@ -503,7 +510,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
                 </button>
                 <span className="flex-1" />
                 {sectionSelectedCount > 0 && <span className={`text-[10px] font-medium ${cfg.color}`}>{sectionSelectedCount} selected</span>}
-                <span className={`text-sm font-bold ${cfg.color}`}>{fmt(ts.total)}</span>
+                <span className={`text-sm font-bold ${cfg.color}`}>{fmt(ts.total, ts.type === 'transfer')}</span>
               </div>
 
               {!typeCollapsed && ts.groups.map(group => {
@@ -538,7 +545,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
                       {!parentCollapsed && <span className="text-xs text-gray-300 mr-2">{group.txCount} txns</span>}
                       {groupSelectedCount > 0 && <span className="text-[10px] font-medium text-blue-600">{groupSelectedCount} selected</span>}
                       <span className={`text-sm font-bold ${group.total > 0 ? 'text-emerald-600' : 'text-slate-700'}`}>
-                        {fmt(group.total)}
+                        {fmt(group.total, ts.type === 'transfer')}
                       </span>
                     </div>
 
@@ -572,13 +579,13 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
                               <span className="text-xs text-gray-300 mr-2">{child.rows.length}</span>
                               {childSelectedCount > 0 && <span className="text-[10px] font-medium text-blue-600">{childSelectedCount} selected</span>}
                               <span className={`text-xs font-semibold ${child.total > 0 ? 'text-emerald-500' : 'text-gray-500'}`}>
-                                {fmt(child.total)}
+                                {fmt(child.total, ts.type === 'transfer')}
                               </span>
                             </div>
                           )}
 
                           {!subCollapsed && child.rows.map(tx => (
-                            <TransactionRow key={tx.id} tx={tx} selected={selected.has(tx.id)} selectedCount={selected.size}
+                            <TransactionRow key={tx.id} tx={tx} selected={selected.has(tx.id)} selectedCount={selected.size} selectedAccountId={selectedAccountId}
                               categories={categories} colWidths={colWidths}
                               indent={group.isSingleLevel ? 'single' : 'double'}
                               onSelect={(shiftKey, metaKey) => toggleSelect(tx.id, shiftKey, metaKey)}
@@ -615,7 +622,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
                 </span>
               </button>
               {!isCollapsed && group.rows.map(tx => (
-                <TransactionRow key={tx.id} tx={tx} selected={selected.has(tx.id)} selectedCount={selected.size}
+                <TransactionRow key={tx.id} tx={tx} selected={selected.has(tx.id)} selectedCount={selected.size} selectedAccountId={selectedAccountId}
                   categories={categories} colWidths={colWidths} indent="none"
                   onSelect={(shiftKey, metaKey) => toggleSelect(tx.id, shiftKey, metaKey)}
                   onEdit={() => setEditTx(tx)}
@@ -631,7 +638,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
         })}
         {/* ── No grouping ── */}
         {!loading && groupBy === 'none' && filtered.map(tx => (
-          <TransactionRow key={tx.id} tx={tx} selected={selected.has(tx.id)} selectedCount={selected.size}
+          <TransactionRow key={tx.id} tx={tx} selected={selected.has(tx.id)} selectedCount={selected.size} selectedAccountId={selectedAccountId}
             categories={categories} colWidths={colWidths} indent="none"
             onSelect={(shiftKey, metaKey) => toggleSelect(tx.id, shiftKey, metaKey)}
             onEdit={() => setEditTx(tx)}
@@ -726,7 +733,7 @@ interface TypeSection {
   type: 'income' | 'expense' | 'transfer'; total: number; groups: HierarchyGroup[]
 }
 
-function buildHierarchyGroups(transactions: Transaction[], catMap: Map<string, Category>): TypeSection[] {
+function buildHierarchyGroups(transactions: Transaction[], catMap: Map<string, Category>, selectedAccountId: string | null): TypeSection[] {
   const typeSections = new Map<string, TypeSection>()
 
   function getTxType(tx: Transaction): 'income' | 'expense' | 'transfer' {
@@ -767,16 +774,17 @@ function buildHierarchyGroups(transactions: Transaction[], catMap: Map<string, C
 
     if (!typeSections.has(txType)) typeSections.set(txType, { type: txType, total: 0, groups: [] })
     const section = typeSections.get(txType)!
-    section.total += tx.amount
+    const displayAmount = transactionDisplayAmount(tx, selectedAccountId)
+    section.total += displayAmount
 
     let pg = section.groups.find(g => g.key === e.parentKey)
     if (!pg) { pg = { key: e.parentKey, label: e.parentLabel, color: e.parentColor, catId: e.parentCatId, total: 0, txCount: 0, isSingleLevel: e.isSingleLevel, children: [] }; section.groups.push(pg) }
     if (!e.isSingleLevel) pg.isSingleLevel = false
-    pg.total += tx.amount; pg.txCount++
+    pg.total += displayAmount; pg.txCount++
 
     let child = pg.children.find(c => c.key === e.childKey)
     if (!child) { child = { key: e.childKey, label: e.childLabel, color: e.childColor, catId: e.childCatId, total: 0, rows: [] }; pg.children.push(child) }
-    child.total += tx.amount; child.rows.push(tx)
+    child.total += displayAmount; child.rows.push(tx)
   }
 
   // Sort groups within each section alphabetically
@@ -797,8 +805,9 @@ function buildHierarchyGroups(transactions: Transaction[], catMap: Map<string, C
 
 type ColWidths = { amount: number; context: number; purpose: number; bucket: number; date: number; account: number }
 
-function TransactionRow({ tx, selected, selectedCount, categories, colWidths, indent = 'single', onSelect, onEdit, onDelete, onCategoryChange, onRightClick, onDragStart, onDragEnd }: {
+function TransactionRow({ tx, selected, selectedCount, selectedAccountId, categories, colWidths, indent = 'single', onSelect, onEdit, onDelete, onCategoryChange, onRightClick, onDragStart, onDragEnd }: {
   tx: Transaction; selected: boolean; selectedCount: number; categories: Category[]
+  selectedAccountId: string | null
   colWidths: ColWidths; indent?: 'none' | 'single' | 'double'
   onSelect: (shiftKey: boolean, metaKey?: boolean) => void; onEdit: () => void; onDelete: () => void
   onCategoryChange: (catId: string | null) => void
@@ -812,6 +821,7 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
   const dropRef = useRef<HTMLDivElement>(null)
   const [dropPos, setDropPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
   const applyingToMany = selected && selectedCount > 1
+  const displayAmount = transactionDisplayAmount(tx, selectedAccountId)
   // No slice limit — show all categories; filter as user types
   const filteredCats = categories.filter(c => !q || c.fullName.toLowerCase().includes(q.toLowerCase()))
 
@@ -877,9 +887,9 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
       <div className="flex-1 min-w-0">
         <p className="text-xs font-medium text-slate-700 truncate" title={tx.description}>{tx.description}</p>
       </div>
-      <span className={`text-sm font-bold text-right shrink-0 ${tx.amount > 0 && !tx.isTransfer ? 'text-emerald-600' : tx.isTransfer ? 'text-sky-600' : 'text-slate-700'}`}
+      <span className={`text-sm font-bold text-right shrink-0 ${displayAmount > 0 ? 'text-emerald-600' : tx.isTransfer ? 'text-sky-600' : 'text-slate-700'}`}
         style={{ width: colWidths.amount }}>
-        {tx.isTransfer ? fmt(Math.abs(tx.amount)) : fmt(tx.amount)}
+        {tx.isTransfer ? fmt(displayAmount, true) : fmt(displayAmount)}
       </span>
 
       <span className="text-xs text-slate-500 truncate shrink-0" style={{ width: colWidths.context }} title={tx.contextName ?? undefined}>
