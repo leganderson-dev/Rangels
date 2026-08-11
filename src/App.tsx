@@ -98,7 +98,7 @@ function FinanceApp() {
   }, [])
 
   const refreshCategories = useCallback(() => {
-    api.categories.list().then(setCategories).catch(console.error)
+    return api.categories.list().then(setCategories).catch(console.error)
   }, [])
 
   const refreshMembers = useCallback(() => {

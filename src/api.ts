@@ -35,6 +35,11 @@ function invalidateAccountMetadata() {
   accountMetadataCache = null
 }
 
+function invalidatePurposeMetadata() {
+  classificationOptionsCache = null
+  invalidateTransactionQueries()
+}
+
 async function pickCsv(): Promise<string | null> {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input')
@@ -1276,6 +1281,60 @@ export const api = {
   },
   categories: {
     list: listCategories,
+    create: async (data: { name: string; family: string; type: 'income' | 'expense' }): Promise<void> => {
+      const owner = await ownerId()
+      const family = data.family.trim()
+      const name = data.name.trim()
+      if (!family || !name) throw new Error('A group and Purpose name are required.')
+      const { data: last } = await supabase
+        .from('canonical_categories')
+        .select('display_order')
+        .eq('family', family)
+        .order('display_order', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const { error } = await supabase.from('canonical_categories').insert({
+        owner_id: owner,
+        family,
+        name,
+        type: data.type,
+        display_order: Number(last?.display_order ?? 0) + 1,
+      })
+      fail(error)
+      invalidatePurposeMetadata()
+    },
+    update: async (id: string, data: { name: string; family: string; type: 'income' | 'expense' }): Promise<void> => {
+      const name = data.name.trim()
+      const family = data.family.trim()
+      if (!family || !name) throw new Error('A group and Purpose name are required.')
+      const { error } = await supabase
+        .from('canonical_categories')
+        .update({ name, family, type: data.type })
+        .eq('id', id)
+      fail(error)
+      invalidatePurposeMetadata()
+    },
+    renameGroup: async (from: string, to: string): Promise<void> => {
+      const family = to.trim()
+      if (!family) throw new Error('A group name is required.')
+      const { error } = await supabase
+        .from('canonical_categories')
+        .update({ family })
+        .eq('family', from)
+      fail(error)
+      invalidatePurposeMetadata()
+    },
+    delete: async (id: string): Promise<void> => {
+      const { count, error: countError } = await supabase
+        .from('transactions')
+        .select('id', { count: 'exact', head: true })
+        .eq('canonical_category_id', id)
+      fail(countError)
+      if ((count ?? 0) > 0) throw new Error(`This Purpose is used by ${count} transactions. Reassign those transactions before deleting it.`)
+      const { error } = await supabase.from('canonical_categories').delete().eq('id', id)
+      fail(error)
+      invalidatePurposeMetadata()
+    },
   },
   transactions: {
     list: listTransactions,
