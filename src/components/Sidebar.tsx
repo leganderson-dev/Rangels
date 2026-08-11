@@ -30,7 +30,9 @@ export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount,
   const [pendingGroup, setPendingGroup] = useState<{ draggedId: string; targetId: string } | null>(null)
   const [pendingGroupName, setPendingGroupName] = useState('')
 
-  const totalBalance = accounts.reduce((s, a) => s + (a.balance ?? 0), 0)
+  const totalBalance = accounts
+    .filter(account => account.isActive)
+    .reduce((sum, account) => sum + (account.balance ?? 0), 0)
 
   const { ungrouped, groups } = useMemo(() => {
     const groupMap = new Map<string, Account[]>()
@@ -46,7 +48,9 @@ export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount,
     const groups = [...groupMap.entries()].map(([name, children]) => ({
       name,
       children: [...children].sort((left, right) => Number(right.isActive) - Number(left.isActive)),
-      balance: children.reduce((s, a) => s + (a.balance ?? 0), 0),
+      balance: children
+        .filter(account => account.isActive)
+        .reduce((sum, account) => sum + (account.balance ?? 0), 0),
       color: children[0]?.color ?? '#3b82f6',
     })).sort((left, right) => Number(right.children.some(account => account.isActive)) - Number(left.children.some(account => account.isActive)))
     return { ungrouped, groups }

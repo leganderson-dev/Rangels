@@ -45,7 +45,9 @@ export function OverviewPage({ accounts, selectedAccountId, month, year, dateMod
     }
   }, [month, year, dateMode, customFrom, customTo, selectedAccountId])
 
-  const totalBalance = accounts.reduce((s, a) => s + (a.balance ?? 0), 0)
+  const totalBalance = accounts
+    .filter(account => account.isActive)
+    .reduce((sum, account) => sum + (account.balance ?? 0), 0)
   const periodLabel = dateMode === 'custom' && customFrom && customTo
     ? `${customFrom.slice(5)} – ${customTo.slice(5)}`
     : monthName(month)
