@@ -7,6 +7,7 @@ import { api } from '../api'
 import { canUseHouseholdBucket, emptyBucketLabel } from '../lib/classification'
 import { transferReasonNeedsContext, transferReasons } from '../lib/transfers'
 import type { TransferReason } from '../types/finance'
+import { PurposeSearchSelect } from './PurposeSearchSelect'
 
 interface Props {
   transaction?: Transaction
@@ -209,12 +210,12 @@ export function TransactionFormModal({ transaction, accounts, defaultDate, defau
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Purpose</label>
-              <select value={canonicalCategoryId} onChange={e => setCanonicalCategoryId(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
-                <option value="">Requires review</option>
-                {[...new Set(options.categories.map(item => item.family))].map(family => (
-                  <optgroup key={family} label={family}>{options.categories.filter(item => item.family === family && (isExpense ? item.type === 'expense' : item.type === 'income')).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>
-                ))}
-              </select>
+              <PurposeSearchSelect
+                value={canonicalCategoryId}
+                options={options.categories.filter(item => item.type === (isExpense ? 'expense' : 'income')).map(item => ({ id: item.id, name: item.name, family: item.family, fullName: `${item.family}: ${item.name}` }))}
+                emptyLabel="Requires review"
+                onChange={setCanonicalCategoryId}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
