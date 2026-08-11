@@ -115,10 +115,43 @@
     .formula { margin: 16px 0; padding: 16px; border-radius: 12px; background: #f3f6f4; font: 700 15px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
     .final-rule { padding: 22px; border: 1px solid #b8dac5; border-radius: 18px; background: linear-gradient(135deg, #eaf8ef, #f8fcf9); }
     .final-rule strong { font-size: 19px; }
+    .planning-stack { display: grid; grid-template-columns: 1fr 34px 1fr 34px 1fr 34px 1fr; align-items: stretch; }
+    .planning-box { min-height: 170px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: white; }
+    .planning-box b { display: block; margin-bottom: 8px; font-size: 16px; }
+    .planning-box small { display: block; margin-top: 10px; color: var(--muted); }
+    .planning-box.classify { border-color: #bad7e7; background: #f5fbfe; }
+    .planning-box.allocate { border-color: #b8dac5; background: #f5fcf7; }
+    .planning-box.budget { border-color: #ead09f; background: #fffbf1; }
+    .planning-box.ledger { border-color: #d6c8e7; background: #fbf8fe; }
+    .mini-list { margin: 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
+    .mini-list li { margin: 5px 0; }
+    .money-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .money-table th, .money-table td { padding: 11px 13px; border-bottom: 1px solid var(--line); text-align: right; }
+    .money-table th:first-child, .money-table td:first-child { text-align: left; }
+    .money-table th { color: var(--muted); background: #f5f8f6; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+    .money-table tr:last-child td { border-bottom: 0; }
+    .ledger-formula { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr auto 1fr; align-items: center; gap: 8px; margin: 18px 0; }
+    .ledger-cell { padding: 14px 8px; border: 1px solid var(--line); border-radius: 12px; background: #fff; text-align: center; }
+    .ledger-cell strong { display: block; font-size: 17px; }
+    .ledger-cell span { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+    .operator { color: #8c9992; text-align: center; font-size: 20px; font-weight: 800; }
+    .status-grid { grid-template-columns: 1fr 1fr; }
+    .status-list { margin: 12px 0 0; padding: 0; list-style: none; }
+    .status-list li { margin: 9px 0; padding-left: 25px; position: relative; }
+    .status-list li::before { position: absolute; left: 0; content: "✓"; color: var(--green); font-weight: 900; }
+    .status-list.missing li::before { content: "○"; color: var(--amber); }
+    .allowance-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    .allowance-card { padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: white; }
+    .allowance-card h3 { display: flex; justify-content: space-between; gap: 8px; }
+    .balance { margin-top: 10px; color: var(--green); font-size: 23px; font-weight: 900; }
+    .example-only { display: inline-block; padding: 3px 7px; border-radius: 999px; background: var(--amber-soft); color: var(--amber); font-size: 10px; font-weight: 800; }
     footer { margin-top: 50px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
     @media (max-width: 850px) {
-      .concepts, .type-grid, .examples, .portfolio, .plumbing-note { grid-template-columns: 1fr; }
+      .concepts, .type-grid, .examples, .portfolio, .plumbing-note, .status-grid, .allowance-grid { grid-template-columns: 1fr; }
       .flow { grid-template-columns: 1fr; }
+      .planning-stack { grid-template-columns: 1fr; gap: 9px; }
+      .ledger-formula { grid-template-columns: 1fr; }
+      .operator { transform: rotate(90deg); }
       .arrow { transform: rotate(90deg); }
       .lane::before { display: none; }
       .decision { overflow-x: auto; }
@@ -478,6 +511,109 @@
           <li><strong>The model can still explain cash movement.</strong> Transfer reason, Funding Context, source account, destination account, and +/− direction show where the money went.</li>
         </ol>
       </article>
+    </section>
+
+    <section>
+      <h2>How classification becomes planning and budgeting</h2>
+      <p class="lede">These are four related layers, not four names for the same thing. Classification supplies the facts. The allocation plan divides eligible income. Budgets constrain particular kinds of spending. The balance ledger remembers what remains.</p>
+      <div class="card planning-stack">
+        <article class="planning-box classify">
+          <span class="chip purpose">1 · CLASSIFY</span>
+          <b>Describe actual transactions</b>
+          <ul class="mini-list"><li>Purpose: what?</li><li>Context: where?</li><li>Bucket: Household role?</li></ul>
+          <small>Example: Groceries · Household · Daily Expenses</small>
+        </article>
+        <div class="arrow">→</div>
+        <article class="planning-box allocate">
+          <span class="chip bucket">2 · PLAN</span>
+          <b>Allocate eligible income</b>
+          <ul class="mini-list"><li>Daily Expenses 60%</li><li>Splurge 10%</li><li>Smile 10%</li><li>Fire Extinguisher 20%</li></ul>
+          <small>This is the target split of incoming Household money.</small>
+        </article>
+        <div class="arrow">→</div>
+        <article class="planning-box budget">
+          <span class="chip" style="color:var(--amber);background:var(--amber-soft)">3 · BUDGET</span>
+          <b>Set spending limits</b>
+          <ul class="mini-list"><li>Groceries: $1,500</li><li>Restaurants: $400</li><li>Kids: $600</li></ul>
+          <small>Budgets group one or more Purposes for a month.</small>
+        </article>
+        <div class="arrow">→</div>
+        <article class="planning-box ledger">
+          <span class="chip context">4 · TRACK</span>
+          <b>Carry balances forward</b>
+          <ul class="mini-list"><li>Opening entitlement</li><li>+ new allocation</li><li>− actual use</li><li>± audited movements</li></ul>
+          <small>This is how Rangels should answer “how much do I have?”</small>
+        </article>
+      </div>
+        <div class="plumbing-note">
+          <div class="plain-note"><strong>Allocation plan:</strong> “Of this month’s eligible Household income, how much should each Bucket receive?” It is percentage-based.</div>
+          <div class="plain-note"><strong>Budget:</strong> “How much may we spend on these Purposes this month?” It is a dollar limit inside a Context and, for Household expenses, a Bucket. Budgets normally reset monthly; entitlement balances roll forward.</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>One numerical example</h2>
+      <div class="card">
+        <p>Assume <strong>$10,000</strong> of eligible Household income is available this month. The Plan creates these target entitlements; classified expenses provide the actual use.</p>
+        <table class="money-table">
+          <thead><tr><th>Bucket</th><th>Target</th><th>Allocated</th><th>Actual use</th><th>Unspent this month</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Daily Expenses</strong></td><td>60%</td><td>$6,000</td><td>$5,700</td><td class="yes">$300</td></tr>
+            <tr><td><strong>Splurge</strong></td><td>10%</td><td>$1,000</td><td>$650</td><td class="yes">$350</td></tr>
+            <tr><td><strong>Smile</strong></td><td>10%</td><td>$1,000</td><td>$200</td><td class="yes">$800</td></tr>
+            <tr><td><strong>Fire Extinguisher</strong></td><td>20%</td><td>$2,000</td><td>$500</td><td class="yes">$1,500</td></tr>
+          </tbody>
+        </table>
+        <p class="warning"><strong>Allocated does not mean physically transferred.</strong> Rangels may show a $1,500 Fire Extinguisher entitlement even if the cash still sits in a general bank account. Physical accounts and planning balances are deliberately separate.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>How much does each person have?</h2>
+      <p class="lede">Account ownership tells us who made a purchase or contributed income. It does not, by itself, calculate personal entitlement. Splurge and Smile need an explicit member split plus a permanent roll-forward ledger.</p>
+      <div class="card">
+        <span class="example-only">ILLUSTRATION ONLY — 50/50 HAS NOT BEEN AGREED</span>
+        <div class="allowance-grid" style="margin-top:14px">
+          <article class="allowance-card"><h3><span>Anderson · Splurge</span><span>10%</span></h3><p class="muted">Opening $240 + allocation $500 − spending $180</p><div class="balance">$560 available</div></article>
+          <article class="allowance-card"><h3><span>Julia · Splurge</span><span>10%</span></h3><p class="muted">Opening $90 + allocation $500 − spending $320</p><div class="balance">$270 available</div></article>
+          <article class="allowance-card"><h3><span>Shared · Smile</span><span>10%</span></h3><p class="muted">Opening $1,400 + allocation $1,000 − holiday $200</p><div class="balance">$2,200 available</div></article>
+        </div>
+        <div class="ledger-formula">
+          <div class="ledger-cell"><span>Opening</span><strong>$240</strong></div><div class="operator">+</div>
+          <div class="ledger-cell"><span>New allocation</span><strong>$500</strong></div><div class="operator">−</div>
+          <div class="ledger-cell"><span>Bucket use</span><strong>$180</strong></div><div class="operator">±</div>
+          <div class="ledger-cell"><span>Approved movements</span><strong>$0</strong></div><div class="operator">=</div>
+          <div class="ledger-cell"><span>Available</span><strong>$560</strong></div>
+        </div>
+        <p class="plain-note"><strong>Agreed behaviour:</strong> unused individual Splurge and Smile amounts roll forward. Only the owner of an accumulated amount may move it, the movement takes effect immediately, and it must be logged. Corrections should be reversing entries rather than silently rewriting history.</p>
+        <p class="plain-note" style="margin-top:10px"><strong>Who is charged?</strong> For a Splurge or Smile expense, the source account owner supplies the default member: Anderson account → Anderson allowance; Julia account → Julia allowance; Joint account → Shared. A manual override should remain available for exceptional cases.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>How Fire Extinguisher should be tracked</h2>
+      <div class="grid examples">
+        <article class="card">
+          <h3>One shared Bucket balance</h3>
+          <p class="muted">Fire Extinguisher is a Household allocation target, not necessarily an account and not automatically an individual allowance.</p>
+          <div class="formula">Opening balance       $4,000<br />+ August allocation   $2,000<br />− Used for debt         $500<br />────────────────────────────<br />Available             $5,500</div>
+        </article>
+        <article class="card">
+          <h3>Track where it was deployed</h3>
+          <p class="muted">The Bucket answers “how much resilience have we accumulated?” A separate destination record answers “what did we do with it?”</p>
+          <table class="money-table"><tbody><tr><td>Emergency cash / Mojo</td><td>$2,000</td></tr><tr><td>Debt reduction</td><td>$1,500</td></tr><tr><td>Mortgage reduction</td><td>$2,000</td></tr><tr><td><strong>Total deployed or held</strong></td><td><strong>$5,500</strong></td></tr></tbody></table>
+        </article>
+      </div>
+      <p class="warning">The exact Fire Extinguisher destination split is still a product decision. Until it is defined, the shared balance can be calculated, but Rangels should not invent how much belongs to Mojo, debt, mortgages, or investments.</p>
+    </section>
+
+    <section>
+      <h2>What Rangels can do today—and what is missing</h2>
+      <div class="grid status-grid">
+        <article class="card"><h3>Already present</h3><ul class="status-list"><li>Shared Household allocation plan stored in Supabase</li><li>60 / 10 / 10 / 20 allocation targets</li><li>Monthly eligible income and target amounts on Plan</li><li>Monthly actual spending by classified Bucket</li><li>Monthly Budget groups made from selected Purposes</li><li>Account-owner contribution and purchase visibility</li></ul></article>
+        <article class="card"><h3>Still required for true balance tracking</h3><ul class="status-list missing"><li>Member split rules for Splurge and Smile</li><li>Opening balances for each member/Shared entitlement</li><li>Immutable allocation-ledger entries</li><li>Automatic monthly allocation credits</li><li>Roll-forward balance calculation across months</li><li>Audited entitlement transfers and reversals</li><li>Fire Extinguisher destination tracking</li><li>Budget scoping by Context and Household Bucket</li></ul></article>
+      </div>
+      <p class="plain-note" style="margin-top:14px"><strong>Important:</strong> the current Plan page shows <em>this month’s target minus this month’s classified use</em>. It does not yet prove a permanent Anderson, Julia, or shared balance. That requires the ledger items listed above.</p>
     </section>
 
     <section class="final-rule">
