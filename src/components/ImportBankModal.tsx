@@ -37,6 +37,8 @@ type RowClassification = {
   mapped: boolean
 }
 
+type ConfidenceFilter = 'all' | ConfidenceGroup
+
 interface Props {
   accounts: Account[]
   categories: Category[]
@@ -59,6 +61,8 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   const [catOpen, setCatOpen] = useState<number | null>(null)
   const [included, setIncluded] = useState<Set<number>>(new Set())
   const [collapsedGroups, setCollapsedGroups] = useState<Set<ConfidenceGroup>>(new Set())
+  const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>('all')
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
   const [loadError, setLoadError] = useState('')
   const [analysis, setAnalysis] = useState({ reading: false, found: null as number | null, duplicates: null as number | null, categorizing: false, done: false })
   const [hideDuplicates, setHideDuplicates] = useState(true)
@@ -98,6 +102,8 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
       })
       setClassifications(initialClassifications)
       setIncluded(new Set(preview.rows.filter(r => !r.duplicate).map(r => r.index)))
+      setConfidenceFilter('all')
+      setExpandedRows(new Set())
       setStep('categorize')
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'The CSV could not be analysed.')
@@ -140,6 +146,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
     { key: 'likely', label: 'Likely', range: '50–70%', rows: visibleRows.filter(row => classifyConfidence(row.confidence) === 'likely') },
     { key: 'analysis', label: 'Requires analysis', range: 'Below 50%', rows: visibleRows.filter(row => classifyConfidence(row.confidence) === 'analysis') },
   ]
+  const displayedConfidenceGroups = confidenceFilter === 'all' ? confidenceGroups : confidenceGroups.filter(group => group.key === confidenceFilter)
 
   function toggleGroup(groupRows: PreviewRow[]) {
     setIncluded(current => {
@@ -207,17 +214,22 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
           </div>
 
           <p className="text-xs text-gray-400">
-            Review and assign categories. Use <kbd className="px-1 py-0.5 bg-gray-100 rounded text-gray-600">Tab</kbd> to navigate,
-            type to filter categories, <kbd className="px-1 py-0.5 bg-gray-100 rounded text-gray-600">Enter</kbd> to confirm first match.
+            Click a transaction to review its complete classification. Checkboxes control which transactions will be imported.
           </p>
+
+          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1.5">
+            <span className="px-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Confidence</span>
+            <ConfidenceFilterButton active={confidenceFilter === 'all'} label="All" count={visibleRows.length} onClick={() => setConfidenceFilter('all')} />
+            {confidenceGroups.map(group => <ConfidenceFilterButton key={group.key} active={confidenceFilter === group.key} label={group.label} count={group.rows.length} onClick={() => setConfidenceFilter(group.key)} />)}
+          </div>
 
           {/* Table */}
           <div className="border border-gray-200 rounded-lg overflow-hidden">
-            <div className="grid grid-cols-[24px_90px_minmax(260px,1fr)_100px_minmax(520px,1.5fr)] text-xs font-medium text-gray-400 uppercase tracking-wide bg-gray-50 px-3 py-2 gap-3">
-              <span /><span>Date</span><span>Description</span><span className="text-right">Amount</span><span>Suggested categories</span>
+            <div className="grid grid-cols-[24px_18px_90px_minmax(260px,1fr)_100px_minmax(260px,0.75fr)] text-xs font-medium text-gray-400 uppercase tracking-wide bg-gray-50 px-3 py-2 gap-3">
+              <span /><span /><span>Date</span><span>Description</span><span className="text-right">Amount</span><span>Top suggestion</span>
             </div>
             <div className="max-h-[400px] overflow-y-auto divide-y divide-gray-100">
-              {confidenceGroups.map(group => group.rows.length > 0 && (
+              {displayedConfidenceGroups.map(group => group.rows.length > 0 && (
                 <div key={group.key}>
                   <div className="sticky top-0 z-10 w-full flex items-center gap-2 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
                     <input type="checkbox" checked={group.rows.filter(row => !row.duplicate).every(row => included.has(row.index))} onChange={() => toggleGroup(group.rows)} title={`Select or exclude all ${group.label.toLowerCase()} transactions`} />
@@ -228,7 +240,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
                   </div>
                   {!collapsedGroups.has(group.key) && group.rows.map(row => {
                     const i = rows.indexOf(row)
-                    return <ImportRow key={row.index} row={row} categories={categories} options={classificationOptions} classification={classifications[row.index] ?? classificationFromPurpose(null, classificationOptions)} onClassificationChange={classification => setClassifications(current => ({ ...current, [row.index]: classification }))} included={included.has(row.index)} onIncluded={() => setIncluded(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} assignedCategoryId={assignments[row.index] ?? null} focused={focusRow === i} catOpen={catOpen === i} catSearch={catSearch[i] ?? ''} onFocus={() => setFocusRow(i)} onOpenCat={() => setCatOpen(i)} onCloseCat={() => setCatOpen(null)} onCatSearch={s => setCatSearch(c => ({ ...c, [i]: s }))} onAssign={catId => setAssignment(row.index, catId)} />
+                    return <ImportRow key={row.index} row={row} categories={categories} options={classificationOptions} classification={classifications[row.index] ?? classificationFromPurpose(null, classificationOptions)} onClassificationChange={classification => setClassifications(current => ({ ...current, [row.index]: classification }))} included={included.has(row.index)} onIncluded={() => setIncluded(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} expanded={expandedRows.has(row.index)} onToggleExpanded={() => setExpandedRows(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} assignedCategoryId={assignments[row.index] ?? null} focused={focusRow === i} catOpen={catOpen === i} catSearch={catSearch[i] ?? ''} onFocus={() => setFocusRow(i)} onOpenCat={() => setCatOpen(i)} onCloseCat={() => setCatOpen(null)} onCatSearch={s => setCatSearch(c => ({ ...c, [i]: s }))} onAssign={catId => setAssignment(row.index, catId)} />
                   })}
                 </div>
               ))}
@@ -271,6 +283,10 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
       )}
     </Modal>
   )
+}
+
+function ConfidenceFilterButton({ active, label, count, onClick }: { active: boolean; label: string; count: number; onClick: () => void }) {
+  return <button onClick={onClick} className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${active ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200' : 'text-slate-500 hover:bg-white/70'}`}>{label} <span className={active ? 'text-blue-500' : 'text-slate-400'}>{count}</span></button>
 }
 
 function classificationFromPurpose(categoryId: string | null, options: ClassificationOptions): RowClassification {
@@ -337,7 +353,7 @@ function AnalysisProgress({ analysis, compact = false }: { analysis: { reading: 
   </div>
 }
 
-function ImportRow({ row, categories, options, classification, onClassificationChange, included, onIncluded, assignedCategoryId, focused, catOpen, catSearch, onFocus, onOpenCat, onCloseCat, onCatSearch, onAssign }: {
+function ImportRow({ row, categories, options, classification, onClassificationChange, included, onIncluded, expanded, onToggleExpanded, assignedCategoryId, focused, catOpen, catSearch, onFocus, onOpenCat, onCloseCat, onCatSearch, onAssign }: {
   row: PreviewRow
   categories: Category[]
   options: ClassificationOptions
@@ -346,6 +362,8 @@ function ImportRow({ row, categories, options, classification, onClassificationC
   assignedCategoryId: string | null
   included: boolean
   onIncluded: () => void
+  expanded: boolean
+  onToggleExpanded: () => void
   focused: boolean
   catOpen: boolean
   catSearch: string
@@ -375,16 +393,21 @@ function ImportRow({ row, categories, options, classification, onClassificationC
 
   return (
     <div
-      className={`grid grid-cols-[24px_90px_minmax(260px,1fr)_100px_minmax(520px,1.5fr)] gap-3 px-3 py-2 items-center text-sm hover:bg-gray-50 ${focused ? 'bg-blue-50' : ''} ${included ? '' : 'opacity-40'}`}
-      onClick={onFocus}
+      className={`grid grid-cols-[24px_18px_90px_minmax(260px,1fr)_100px_minmax(260px,0.75fr)] gap-x-3 px-3 py-2 items-center text-sm hover:bg-gray-50 ${focused ? 'bg-blue-50' : ''} ${included ? '' : 'opacity-40'}`}
+      onClick={() => { onFocus(); onToggleExpanded() }}
     >
       <input type="checkbox" checked={included} disabled={row.duplicate} onChange={onIncluded} onClick={e => e.stopPropagation()} />
+      <span className="text-slate-400">{expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
       <span className="text-xs text-gray-400">{formatDate(row.date)}</span>
       <span className="text-gray-700 truncate text-xs" title={row.duplicateReason ?? row.reason}>{row.description}{row.duplicate && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-700">Duplicate</span>}</span>
       <span className={`text-right text-xs font-semibold ${row.amount >= 0 ? 'text-green-600' : 'text-gray-700'}`}>
         {fmt(row.amount)}
       </span>
-      <div className="relative">
+      <div className="min-w-0">
+        {visibleSuggestions[0] ? <span className="flex items-center gap-1.5 truncate text-[11px] text-slate-600"><span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: categories.find(item => item.id === visibleSuggestions[0].categoryId)?.color ?? '#64748b' }} /><span className="truncate">{visibleSuggestions[0].categoryName}</span><span className="ml-auto shrink-0 text-slate-400">{visibleSuggestions[0].confidence === null ? 'Manual' : `${Math.round(visibleSuggestions[0].confidence * 100)}%`}</span></span> : <span className="text-xs italic text-gray-400">No scored suggestion</span>}
+      </div>
+
+      {expanded && <div className="relative col-start-4 col-span-3 mt-2 mb-1 rounded-lg border border-slate-200 bg-white p-2" onClick={event => event.stopPropagation()}>
         <div className="flex items-stretch gap-1.5">
           <div className="grid grid-cols-3 gap-1.5 flex-1 min-w-0">
             {visibleSuggestions.map(suggestion => {
@@ -446,7 +469,7 @@ function ImportRow({ row, categories, options, classification, onClassificationC
             </div>
           </div>
         )}
-      </div>
+      </div>}
     </div>
   )
 }
