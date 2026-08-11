@@ -111,17 +111,21 @@ export function ScheduledPage({ accounts, categories, onRefreshAccounts: onRefre
         {!analysing && !analysisError && suggestions.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-400">No new reliable recurring patterns found.</p>}
         {suggestions.length > 0 && (
           <div className="divide-y divide-slate-100">
+            <div className="grid grid-cols-[minmax(240px,1fr)_110px_135px_110px_90px_150px] items-center gap-3 bg-slate-50/60 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+              <span>Merchant</span><span>Period</span><span>Typical amount</span><span>Next run</span><span>Confidence</span><span />
+            </div>
             {suggestions.map(suggestion => {
               const expanded = expandedSuggestion === suggestion.key
               const frequencyLabel = FREQUENCIES.find(item => item.value === suggestion.frequency)?.label ?? suggestion.frequency
               return <div key={suggestion.key}>
-                <div className="grid grid-cols-[minmax(240px,1fr)_110px_135px_90px_150px] items-center gap-3 px-4 py-3 text-sm">
+                <div className="grid grid-cols-[minmax(240px,1fr)_110px_135px_110px_90px_150px] items-center gap-3 px-4 py-3 text-sm">
                   <button onClick={() => setExpandedSuggestion(expanded ? null : suggestion.key)} className="flex min-w-0 items-center gap-2 text-left">
                     {expanded ? <ChevronDown size={14} className="shrink-0 text-slate-400" /> : <ChevronRight size={14} className="shrink-0 text-slate-400" />}
                     <span className="min-w-0"><span className="block truncate font-medium text-slate-800">{suggestion.merchant}</span><span className="block truncate text-[11px] text-slate-400">{suggestion.accountName} · {suggestion.occurrenceCount} transactions</span></span>
                   </button>
                   <span className="text-xs font-medium text-slate-600">{frequencyLabel}</span>
                   <span className={`font-semibold ${suggestion.amount > 0 ? 'text-emerald-600' : 'text-slate-700'}`}>{fmt(suggestion.amount, true)}</span>
+                  <span className="text-xs font-medium text-slate-600">{formatDate(suggestion.nextDate)}</span>
                   <span className={`w-fit rounded-full px-2 py-1 text-[11px] font-semibold ${suggestion.confidence >= 80 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{suggestion.confidence}%</span>
                   <div className="flex justify-end gap-1.5"><button onClick={() => setSuggestions(current => current.filter(item => item.key !== suggestion.key))} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100" title="Dismiss suggestion"><X size={14} /></button><button onClick={() => { setEditing(null); setSuggestionDraft(suggestion); setShowForm(true) }} className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"><Check size={13} /> Review</button></div>
                 </div>
