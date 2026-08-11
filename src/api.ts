@@ -196,7 +196,7 @@ async function importAlzex(): Promise<ImportResult | null> {
   return { imported, skipped, errors: errors.slice(0, 20) }
 }
 
-const backupTables = ['household_members', 'accounts', 'categories', 'contexts', 'buckets', 'canonical_categories', 'category_classifications', 'allocation_plans', 'allocation_targets', 'merchants', 'merchant_aliases', 'imports', 'transactions', 'scheduled_transactions', 'budgets', 'budget_groups', 'budget_group_members'] as const
+const backupTables = ['household_members', 'accounts', 'categories', 'contexts', 'buckets', 'canonical_categories', 'category_classifications', 'allocation_plans', 'allocation_targets', 'merchants', 'merchant_aliases', 'imports', 'transactions', 'scheduled_transactions', 'schedule_suggestion_dismissals', 'budgets', 'budget_groups', 'budget_group_members'] as const
 
 async function downloadBackup(): Promise<{ ok: boolean; filePath?: string }> {
   const payload: Record<string, unknown[]> = {}
@@ -1448,6 +1448,17 @@ export const api = {
   },
   scheduled: {
     list: scheduledList,
+    dismissedSuggestionKeys: async (): Promise<string[]> => {
+      const { data, error } = await supabase.from('schedule_suggestion_dismissals').select('suggestion_key')
+      fail(error)
+      return (data ?? []).map(row => row.suggestion_key)
+    },
+    dismissSuggestions: async (keys: string[]): Promise<void> => {
+      if (!keys.length) return
+      const owner = await ownerId()
+      const { error } = await supabase.from('schedule_suggestion_dismissals').upsert(keys.map(key => ({ owner_id: owner, suggestion_key: key })))
+      fail(error)
+    },
     add: async (data: Record<string, any>): Promise<ScheduledTransaction> => {
       const owner = await ownerId()
       const { data: row, error } = await supabase

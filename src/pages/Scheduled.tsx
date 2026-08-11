@@ -28,13 +28,18 @@ export function ScheduledPage({ accounts, categories, onRefreshAccounts: onRefre
   const [analysing, setAnalysing] = useState(true)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
   const [expandedSuggestion, setExpandedSuggestion] = useState<string | null>(null)
+  const [selectedSuggestions, setSelectedSuggestions] = useState<Set<string>>(new Set())
 
   const analyse = useCallback((nextScheduled: ScheduledTransaction[]) => {
     setAnalysing(true)
     setAnalysisError(null)
     const activeAccountIds = new Set(accounts.filter(account => account.isActive).map(account => account.id))
-    api.transactions.list()
-      .then(history => setSuggestions(discoverScheduledSuggestions(history.filter(transaction => activeAccountIds.has(transaction.accountId)), nextScheduled)))
+    Promise.all([api.transactions.list(), api.scheduled.dismissedSuggestionKeys()])
+      .then(([history, dismissedKeys]) => {
+        const dismissed = new Set(dismissedKeys)
+        setSuggestions(discoverScheduledSuggestions(history.filter(transaction => activeAccountIds.has(transaction.accountId)), nextScheduled).filter(suggestion => !dismissed.has(suggestion.key)))
+        setSelectedSuggestions(new Set())
+      })
       .catch(error => setAnalysisError(error instanceof Error ? error.message : 'Could not analyse transaction history.'))
       .finally(() => setAnalysing(false))
   }, [accounts])
@@ -69,6 +74,43 @@ export function ScheduledPage({ accounts, categories, onRefreshAccounts: onRefre
 
   const upcoming = scheduled.filter(s => s.isActive).sort((a, b) => a.nextDate.localeCompare(b.nextDate))
   const inactive = scheduled.filter(s => !s.isActive)
+  const suggestionGroups = [...suggestions.reduce((groups, suggestion) => {
+    const name = suggestion.categoryFullName ?? 'Needs purpose'
+    groups.set(name, [...(groups.get(name) ?? []), suggestion])
+    return groups
+  }, new Map<string, ScheduledSuggestion[]>())].sort(([left], [right]) => {
+    if (left === 'Needs purpose') return 1
+    if (right === 'Needs purpose') return -1
+    return left.localeCompare(right)
+  })
+
+  function toggleSuggestion(key: string) {
+    setSelectedSuggestions(current => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  function toggleSuggestionGroup(group: ScheduledSuggestion[]) {
+    setSelectedSuggestions(current => {
+      const next = new Set(current)
+      const select = group.some(suggestion => !next.has(suggestion.key))
+      group.forEach(suggestion => select ? next.add(suggestion.key) : next.delete(suggestion.key))
+      return next
+    })
+  }
+
+  async function removeSuggestions(keys: Set<string>) {
+    try {
+      await api.scheduled.dismissSuggestions([...keys])
+      setSuggestions(current => current.filter(suggestion => !keys.has(suggestion.key)))
+      setSelectedSuggestions(current => new Set([...current].filter(key => !keys.has(key))))
+    } catch (error) {
+      setAnalysisError(error instanceof Error ? error.message : 'Could not delete the selected suggestions.')
+    }
+  }
 
   return (
     <div className="p-5 overflow-y-auto h-full space-y-5">
@@ -103,38 +145,46 @@ export function ScheduledPage({ accounts, categories, onRefreshAccounts: onRefre
               <p className="mt-0.5 text-xs text-slate-500">Repeated merchants ranked by timing, amount stability and supporting history.</p>
             </div>
           </div>
-          <button onClick={() => analyse(scheduled)} disabled={analysing} className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50">
-            <RefreshCw size={12} className={analysing ? 'animate-spin' : ''} /> {analysing ? 'Analysing…' : 'Analyse again'}
-          </button>
+          <div className="flex items-center gap-2">
+            {selectedSuggestions.size > 0 && <button onClick={() => void removeSuggestions(selectedSuggestions)} className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50" title="Permanently remove the selected suggestions. Transaction history is not changed."><Trash2 size={12} /> Delete {selectedSuggestions.size} suggestions</button>}
+            <button onClick={() => analyse(scheduled)} disabled={analysing} className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50">
+              <RefreshCw size={12} className={analysing ? 'animate-spin' : ''} /> {analysing ? 'Analysing…' : 'Analyse again'}
+            </button>
+          </div>
         </div>
         {analysisError && <p className="m-4 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{analysisError}</p>}
         {!analysing && !analysisError && suggestions.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-400">No new reliable recurring patterns found.</p>}
         {suggestions.length > 0 && (
           <div className="divide-y divide-slate-100">
             <div className="grid grid-cols-[minmax(240px,1fr)_110px_135px_110px_90px_150px] items-center gap-3 bg-slate-50/60 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-              <span>Merchant</span><span>Period</span><span>Typical amount</span><span>Next run</span><span>Confidence</span><span />
+              <label className="flex items-center gap-2"><input type="checkbox" checked={selectedSuggestions.size === suggestions.length} onChange={() => toggleSuggestionGroup(suggestions)} className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600" /> Merchant</label><span>Period</span><span>Typical amount</span><span>Next run</span><span>Confidence</span><span />
             </div>
-            {suggestions.map(suggestion => {
+            {suggestionGroups.map(([category, group]) => <div key={category}>
+              <label className="flex cursor-pointer items-center gap-2 border-y border-slate-100 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-600 first:border-t-0">
+                <input type="checkbox" checked={group.every(suggestion => selectedSuggestions.has(suggestion.key))} onChange={() => toggleSuggestionGroup(group)} className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600" />
+                <span>{category}</span><span className="font-normal text-slate-400">{group.length} {group.length === 1 ? 'suggestion' : 'suggestions'}</span>
+              </label>
+              {group.map(suggestion => {
               const expanded = expandedSuggestion === suggestion.key
               const frequencyLabel = FREQUENCIES.find(item => item.value === suggestion.frequency)?.label ?? suggestion.frequency
               return <div key={suggestion.key}>
                 <div className="grid grid-cols-[minmax(240px,1fr)_110px_135px_110px_90px_150px] items-center gap-3 px-4 py-3 text-sm">
-                  <button onClick={() => setExpandedSuggestion(expanded ? null : suggestion.key)} className="flex min-w-0 items-center gap-2 text-left">
+                  <div className="flex min-w-0 items-center gap-2"><input type="checkbox" checked={selectedSuggestions.has(suggestion.key)} onChange={() => toggleSuggestion(suggestion.key)} className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-blue-600" /><button onClick={() => setExpandedSuggestion(expanded ? null : suggestion.key)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                     {expanded ? <ChevronDown size={14} className="shrink-0 text-slate-400" /> : <ChevronRight size={14} className="shrink-0 text-slate-400" />}
                     <span className="min-w-0"><span className="block truncate font-medium text-slate-800">{suggestion.merchant}</span><span className="block truncate text-[11px] text-slate-400">{suggestion.accountName} · {suggestion.occurrenceCount} transactions</span></span>
-                  </button>
+                  </button></div>
                   <span className="text-xs font-medium text-slate-600">{frequencyLabel}</span>
                   <span className={`font-semibold ${suggestion.amount > 0 ? 'text-emerald-600' : 'text-slate-700'}`}>{fmt(suggestion.amount, true)}</span>
                   <span className="text-xs font-medium text-slate-600">{formatDate(suggestion.nextDate)}</span>
                   <span className={`w-fit rounded-full px-2 py-1 text-[11px] font-semibold ${suggestion.confidence >= 80 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{suggestion.confidence}%</span>
-                  <div className="flex justify-end gap-1.5"><button onClick={() => setSuggestions(current => current.filter(item => item.key !== suggestion.key))} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100" title="Dismiss suggestion"><X size={14} /></button><button onClick={() => { setEditing(null); setSuggestionDraft(suggestion); setShowForm(true) }} className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"><Check size={13} /> Review</button></div>
+                  <div className="flex justify-end gap-1.5"><button onClick={() => void removeSuggestions(new Set([suggestion.key]))} className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500" title="Permanently delete suggestion; transaction history is unchanged"><X size={14} /></button><button onClick={() => { setEditing(null); setSuggestionDraft(suggestion); setShowForm(true) }} className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"><Check size={13} /> Review</button></div>
                 </div>
                 {expanded && <div className="border-t border-slate-100 bg-slate-50/70 px-10 py-3">
                   <div className="mb-2 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-slate-500"><span>Typical: <strong className="text-slate-700">{fmt(suggestion.amount, true)}</strong></span><span>Range: <strong className="text-slate-700">{fmt(suggestion.minAmount, true)} to {fmt(suggestion.maxAmount, true)}</strong></span><span>Next expected: <strong className="text-slate-700">{formatDate(suggestion.nextDate)}</strong></span>{suggestion.categoryFullName && <span>Purpose: <strong className="text-slate-700">{suggestion.categoryFullName}</strong></span>}</div>
                   <div className="grid gap-1">{suggestion.evidence.map((row, index) => <div key={`${row.date}-${index}`} className="grid grid-cols-[90px_100px_1fr] gap-3 text-[11px] text-slate-500"><span>{formatDate(row.date)}</span><span className={row.amount > 0 ? 'text-emerald-600' : 'text-slate-700'}>{fmt(row.amount, true)}</span><span className="truncate">{row.description}</span></div>)}</div>
                 </div>}
               </div>
-            })}
+            })}</div>)}
           </div>
         )}
       </section>
