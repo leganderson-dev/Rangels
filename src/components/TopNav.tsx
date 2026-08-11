@@ -14,6 +14,8 @@ const TABS: { id: Page; label: string }[] = [
   { id: 'scheduled', label: 'Scheduled' },
 ]
 
+const GROUP_STARTS = new Set<Page>(['merchants', 'reports'])
+
 interface Props {
   page: Page
   onPageChange: (p: Page) => void
@@ -48,17 +50,21 @@ export function TopNav({
       {/* Tabs */}
       <nav className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto titlebar-nodrag [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {TABS.map(tab => (
-          <button
+          <div
             key={tab.id}
-            onClick={() => onPageChange(tab.id)}
-            className={`shrink-0 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              page === tab.id
-                ? 'bg-blue-600 text-white'
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
+            className={`flex shrink-0 items-center ${GROUP_STARTS.has(tab.id) ? 'ml-1 border-l border-slate-200 pl-1.5' : ''}`}
           >
-            {tab.label}
-          </button>
+            <button
+              onClick={() => onPageChange(tab.id)}
+              className={`shrink-0 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                page === tab.id
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              {tab.label}
+            </button>
+          </div>
         ))}
       </nav>
 
