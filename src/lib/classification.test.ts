@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { canUseHouseholdBucket, emptyBucketLabel } from './classification'
 
 describe('household bucket eligibility', () => {
-  it('allows expense buckets for household and property contexts', () => {
+  it('allows expense buckets only for the household context', () => {
     expect(canUseHouseholdBucket('Household', 'expense')).toBe(true)
-    expect(canUseHouseholdBucket('Property — Everton Park', 'expense')).toBe(true)
+    expect(canUseHouseholdBucket('Property — Everton Park', 'expense')).toBe(false)
+    expect(canUseHouseholdBucket('Property — Currumundi', 'expense')).toBe(false)
   })
 
   it('does not allow them for business expenses or income', () => {

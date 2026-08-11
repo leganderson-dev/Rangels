@@ -49,6 +49,8 @@ export function TransactionFormModal({ transaction, accounts, defaultDate, onClo
     setSaving(true)
     try {
       const sign = isTransfer ? -1 : (isExpense ? -1 : 1)
+      const selectedContext = options.contexts.find(item => item.id === contextId)
+      const bucketAllowed = canUseHouseholdBucket(selectedContext?.name, isExpense ? 'expense' : 'income')
       await onSave({
         description: description.trim(),
         comment,
@@ -60,7 +62,7 @@ export function TransactionFormModal({ transaction, accounts, defaultDate, onClo
         status: 'C'
         ,canonicalCategoryId: isTransfer ? null : canonicalCategoryId || null
         ,contextId: contextId || null
-        ,bucketId: isTransfer ? null : bucketId || null
+        ,bucketId: isTransfer || !bucketAllowed ? null : bucketId || null
         ,reimbursementStatus: isTransfer ? 'none' : reimbursementStatus
         ,taxTreatment: isTransfer ? 'none' : taxTreatment
         ,transferReason: isTransfer ? transferReason : null

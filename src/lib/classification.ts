@@ -1,5 +1,5 @@
 export function canUseHouseholdBucket(contextName: string | null | undefined, purposeType: 'income' | 'expense' | undefined): boolean {
-  return purposeType === 'expense' && (contextName === 'Household' || contextName?.startsWith('Property — ') === true)
+  return purposeType === 'expense' && contextName === 'Household'
 }
 
 export function emptyBucketLabel(contextName: string | null | undefined, purposeType: 'income' | 'expense' | undefined): string {
