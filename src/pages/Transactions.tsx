@@ -506,7 +506,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
                   {typeCollapsed ? <ChevronRight size={12} className={`${cfg.color} shrink-0`} /> : <ChevronDown size={12} className={`${cfg.color} shrink-0`} />}
                   <cfg.Icon size={12} className={`${cfg.color} shrink-0`} />
                   <span className={`text-xs font-bold uppercase tracking-widest ${cfg.color}`}>{cfg.label}</span>
-                  <span className={`text-xs ${cfg.color} opacity-60`}>{ts.groups.length} groups</span>
+                  <span className={`text-xs ${cfg.color} opacity-60`}>{ts.groups.length} groups · {sectionIds.length} transactions</span>
                 </button>
                 <span className="flex-1" />
                 {sectionSelectedCount > 0 && <span className={`text-[10px] font-medium ${cfg.color}`}>{sectionSelectedCount} selected</span>}
@@ -756,6 +756,11 @@ function buildHierarchyGroups(transactions: Transaction[], catMap: Map<string, C
     if (cat.parentId) {
       const parent = catMap.get(cat.parentId)
       return { parentKey: `p_${cat.parentId}`, parentLabel: parent?.name ?? cat.parentName ?? 'Unknown', parentColor: parent?.color ?? null, parentCatId: cat.parentId, childKey: `c_${cat.id}`, childLabel: cat.name, childColor: cat.color, childCatId: cat.id, isSingleLevel: false }
+    }
+
+    // Canonical purposes use their family as the visible top-level group.
+    if (cat.parentName) {
+      return { parentKey: `family_${cat.parentName}`, parentLabel: cat.parentName, parentColor: cat.color, parentCatId: null, childKey: `c_${cat.id}`, childLabel: cat.name, childColor: cat.color, childCatId: cat.id, isSingleLevel: false }
     }
 
     // Colon-named flat category (pre-migration): "Parent:Child"
