@@ -56,6 +56,30 @@
     .flow { display: grid; grid-template-columns: 1fr 44px 1fr 44px 1fr; align-items: stretch; gap: 9px; }
     .flow-step { padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: white; }
     .arrow { display: grid; place-items: center; color: #91a098; font-size: 26px; }
+    .map { padding: 24px; overflow: hidden; }
+    .map-entry { width: min(520px, 100%); margin: 0 auto 22px; padding: 16px 20px; border: 2px solid #9fcab0; border-radius: 16px; background: #f3fbf6; text-align: center; }
+    .map-entry strong { display: block; font-size: 18px; }
+    .map-entry span { color: var(--muted); font-size: 12px; }
+    .map-stem { width: 2px; height: 22px; margin: -22px auto 0; background: #aab8b1; }
+    .portfolio { display: grid; grid-template-columns: 1.05fr 1.35fr 1fr; gap: 16px; align-items: stretch; }
+    .lane { position: relative; padding: 18px; border: 1px solid var(--line); border-radius: 17px; background: #fff; }
+    .lane::before { position: absolute; top: -18px; left: 50%; width: 2px; height: 18px; background: #aab8b1; content: ""; }
+    .lane-head { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line); text-align: center; }
+    .lane-head strong { display: block; font-size: 17px; }
+    .lane-head span { color: var(--muted); font-size: 11px; }
+    .node { margin-top: 9px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #f8faf9; }
+    .node strong { display: block; font-size: 13px; }
+    .node span { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+    .household-lane { border-color: #a9d6b9; background: #f6fcf8; }
+    .property-lane { border-color: #b9d8e8; background: #f7fbfd; }
+    .business-lane { border-color: #d5c6e8; background: #fbf9fd; }
+    .bucket-stack { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .bucket-node { padding: 11px 8px; border: 1px solid #b9dfc7; border-radius: 999px; background: var(--green-soft); color: var(--green); text-align: center; font-size: 12px; font-weight: 800; }
+    .property-node { border-color: #c7dfeb; background: var(--blue-soft); }
+    .business-node { border-color: #d9cdeb; background: var(--violet-soft); }
+    .connector-note { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 18px; padding: 11px 15px; border: 1px dashed #9fc5d8; border-radius: 12px; background: #f4fafd; color: var(--blue); text-align: center; font-size: 12px; font-weight: 700; }
+    .legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; margin-top: 15px; color: var(--muted); font-size: 11px; }
+    .legend b { color: var(--ink); }
     .type-grid { grid-template-columns: repeat(3, 1fr); }
     .type-card { padding: 0; overflow: hidden; }
     .type-head { padding: 18px 20px; border-bottom: 1px solid var(--line); }
@@ -88,9 +112,10 @@
     .final-rule strong { font-size: 19px; }
     footer { margin-top: 50px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
     @media (max-width: 850px) {
-      .concepts, .type-grid, .examples { grid-template-columns: 1fr; }
+      .concepts, .type-grid, .examples, .portfolio { grid-template-columns: 1fr; }
       .flow { grid-template-columns: 1fr; }
       .arrow { transform: rotate(90deg); }
+      .lane::before { display: none; }
       .decision { overflow-x: auto; }
       .decision-row { min-width: 760px; }
     }
@@ -136,6 +161,92 @@
         <div class="flow-step"><span class="chip context">2 · CONTEXT</span><h3>Assign its reporting home</h3><p class="muted">Household, Property — Currumundi, Business — ASA…</p></div>
         <div class="arrow">→</div>
         <div class="flow-step"><span class="chip bucket">3 · BUCKET</span><h3>Ask whether it consumes a Household allocation</h3><p class="muted">Only “Household + Expense” proceeds to a Bucket.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Your financial world as a diagram</h2>
+      <div class="card map">
+        <div class="map-entry">
+          <strong>Every economic transaction</strong>
+          <span>First identify its Purpose, then route it into the correct Context</span>
+        </div>
+        <div class="map-stem"></div>
+        <div class="portfolio">
+          <article class="lane household-lane">
+            <div class="lane-head">
+              <span class="chip bucket">HOUSEHOLD CONTEXT</span>
+              <strong>Shared life and allocation plan</strong>
+              <span>Anderson + Julia · individual attribution remains visible</span>
+            </div>
+            <div class="node">
+              <strong>Eligible Household income</strong>
+              <span>Salary, declared business transfers, interest, other Household income</span>
+            </div>
+            <p style="margin:12px 0 7px;text-align:center;color:var(--muted);font-size:11px;font-weight:800">HOUSEHOLD EXPENSES CONSUME</p>
+            <div class="bucket-stack">
+              <div class="bucket-node">Daily Expenses</div>
+              <div class="bucket-node">Splurge</div>
+              <div class="bucket-node">Smile</div>
+              <div class="bucket-node">Fire Extinguisher</div>
+            </div>
+            <div class="node">
+              <strong>Principal-home living costs</strong>
+              <span>Everton Park mortgage or utilities use Household Context when they should consume a Bucket.</span>
+            </div>
+          </article>
+
+          <article class="lane property-lane">
+            <div class="lane-head">
+              <span class="chip purpose">PROPERTY CONTEXTS</span>
+              <strong>Three properties, three separate results</strong>
+              <span>Income − expenses = result for each property</span>
+            </div>
+            <div class="node property-node">
+              <strong>Everton Park</strong>
+              <span>Principal home. Asset-specific records may use this Context; Household costs that consume a Bucket use Household Context.</span>
+            </div>
+            <div class="node property-node">
+              <strong>Currumundi</strong>
+              <span>Rental income and property expenses · no Household Bucket</span>
+            </div>
+            <div class="node property-node">
+              <strong>Toogoom</strong>
+              <span>Rental income and property expenses · no Household Bucket</span>
+            </div>
+            <div class="node">
+              <strong>Property reporting</strong>
+              <span>Shows rent, operating costs, mortgage payments, and any resulting surplus or shortfall independently.</span>
+            </div>
+          </article>
+
+          <article class="lane business-lane">
+            <div class="lane-head">
+              <span class="chip context">BUSINESS CONTEXTS</span>
+              <strong>Separate operating worlds</strong>
+              <span>Revenue − business costs = business result</span>
+            </div>
+            <div class="node business-node">
+              <strong>ASA</strong>
+              <span>Anderson's business income, software, training, tax, and operating expenses</span>
+            </div>
+            <div class="node business-node">
+              <strong>Folium Studio</strong>
+              <span>Julia's business income and its own purposes, rules, and operating expenses</span>
+            </div>
+            <div class="node">
+              <strong>No Household Buckets</strong>
+              <span>Business transactions remain in their business Context. Only money made available to the Household participates in its plan.</span>
+            </div>
+          </article>
+        </div>
+
+        <div class="connector-note">⇄ Transfers connect accounts and Contexts, but remain ledger-neutral: no income, expense, tax, or Household Bucket.</div>
+        <div class="legend">
+          <span><b>Purpose</b> = what happened</span>
+          <span><b>Context</b> = whose financial result includes it</span>
+          <span><b>Bucket</b> = which Household allocation an eligible expense consumed</span>
+        </div>
       </div>
     </section>
 
