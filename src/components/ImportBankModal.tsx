@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Upload, Check, AlertCircle, Pencil, ChevronDown, ChevronRight, LoaderCircle, Circle, Eye, EyeOff } from 'lucide-react'
+import { Upload, Check, AlertCircle, Pencil, ChevronDown, ChevronRight, LoaderCircle, Circle, Eye, EyeOff, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 import { Modal } from './Modal'
 import { api } from '../api'
 import { canUseHouseholdBucket, emptyBucketLabel } from '../lib/classification'
@@ -45,6 +45,7 @@ type RowClassification = {
 
 type ConfidenceFilter = 'all' | ConfidenceGroup
 type DirectionFilter = 'all' | 'income' | 'expense'
+type ImportSortField = 'date' | 'description' | 'amount' | 'suggestion'
 
 interface Props {
   accounts: Account[]
@@ -70,6 +71,8 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   const [collapsedGroups, setCollapsedGroups] = useState<Set<ConfidenceGroup>>(new Set())
   const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>('all')
   const [directionFilter, setDirectionFilter] = useState<DirectionFilter>('all')
+  const [sortField, setSortField] = useState<ImportSortField>('date')
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
   const [expandedRow, setExpandedRow] = useState<number | null>(null)
   const [changedSuggestionRows, setChangedSuggestionRows] = useState<Set<number>>(new Set())
   const [rememberRuleRows, setRememberRuleRows] = useState<Set<number>>(new Set())
@@ -183,10 +186,26 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   const totalAmount = rows.reduce((s, r) => s + r.amount, 0)
   const visibleRows = hideDuplicates ? rows.filter(row => !row.duplicate) : rows
   const directionRows = directionFilter === 'all' ? visibleRows : visibleRows.filter(row => directionFilter === 'income' ? row.amount >= 0 : row.amount < 0)
+  const sortedDirectionRows = [...directionRows].sort((left, right) => {
+    const suggestionName = (row: PreviewRow) => {
+      const assigned = categories.find(category => category.id === assignments[row.index])
+      return assigned?.fullName ?? row.suggestions[0]?.categoryName ?? ''
+    }
+    const leftValue = sortField === 'date' ? left.date
+      : sortField === 'description' ? left.description.toLocaleLowerCase()
+      : sortField === 'amount' ? left.amount
+      : suggestionName(left).toLocaleLowerCase()
+    const rightValue = sortField === 'date' ? right.date
+      : sortField === 'description' ? right.description.toLocaleLowerCase()
+      : sortField === 'amount' ? right.amount
+      : suggestionName(right).toLocaleLowerCase()
+    const comparison = leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : left.index - right.index
+    return sortDirection === 'asc' ? comparison : -comparison
+  })
   const confidenceGroups: Array<{ key: ConfidenceGroup; label: string; range: string; rows: PreviewRow[] }> = [
-    { key: 'confident', label: 'Confident', range: '70–100%', rows: directionRows.filter(row => classifyConfidence(row.confidence) === 'confident') },
-    { key: 'likely', label: 'Likely', range: '50–70%', rows: directionRows.filter(row => classifyConfidence(row.confidence) === 'likely') },
-    { key: 'analysis', label: 'Requires analysis', range: 'Below 50%', rows: directionRows.filter(row => classifyConfidence(row.confidence) === 'analysis') },
+    { key: 'confident', label: 'Confident', range: '70–100%', rows: sortedDirectionRows.filter(row => classifyConfidence(row.confidence) === 'confident') },
+    { key: 'likely', label: 'Likely', range: '50–70%', rows: sortedDirectionRows.filter(row => classifyConfidence(row.confidence) === 'likely') },
+    { key: 'analysis', label: 'Requires analysis', range: 'Below 50%', rows: sortedDirectionRows.filter(row => classifyConfidence(row.confidence) === 'analysis') },
   ]
   const displayedConfidenceGroups = confidenceFilter === 'all' ? confidenceGroups : confidenceGroups.filter(group => group.key === confidenceFilter)
 
@@ -206,6 +225,14 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
       next.has(group) ? next.delete(group) : next.add(group)
       return next
     })
+  }
+
+  function changeSort(field: ImportSortField) {
+    if (sortField === field) setSortDirection(current => current === 'asc' ? 'desc' : 'asc')
+    else {
+      setSortField(field)
+      setSortDirection(field === 'date' || field === 'amount' ? 'desc' : 'asc')
+    }
   }
 
   return (
@@ -272,7 +299,11 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
           {/* Table */}
           <div className="border border-gray-200 rounded-lg overflow-hidden">
             <div className="grid grid-cols-[24px_18px_90px_minmax(260px,1fr)_100px_minmax(260px,0.75fr)] text-xs font-medium text-gray-400 uppercase tracking-wide bg-gray-50 px-3 py-2 gap-3">
-              <span /><span /><span>Date</span><span>Description</span><span className="text-right">Amount</span><span>Top suggestion</span>
+              <span /><span />
+              <ImportSortHeader label="Date" field="date" activeField={sortField} direction={sortDirection} onSort={changeSort} />
+              <ImportSortHeader label="Description" field="description" activeField={sortField} direction={sortDirection} onSort={changeSort} />
+              <ImportSortHeader label="Amount" field="amount" activeField={sortField} direction={sortDirection} onSort={changeSort} align="right" />
+              <ImportSortHeader label="Top suggestion" field="suggestion" activeField={sortField} direction={sortDirection} onSort={changeSort} />
             </div>
             <div className="max-h-[calc(100vh-410px)] min-h-[280px] overflow-y-auto divide-y divide-gray-100">
               {displayedConfidenceGroups.map(group => group.rows.length > 0 && (
@@ -327,6 +358,29 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
         </div>
       )}
     </Modal>
+  )
+}
+
+function ImportSortHeader({ label, field, activeField, direction, onSort, align = 'left' }: {
+  label: string
+  field: ImportSortField
+  activeField: ImportSortField
+  direction: 'asc' | 'desc'
+  onSort: (field: ImportSortField) => void
+  align?: 'left' | 'right'
+}) {
+  const active = activeField === field
+  const Icon = active ? (direction === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(field)}
+      className={`flex items-center gap-1 hover:text-slate-700 ${align === 'right' ? 'justify-end text-right' : 'text-left'}`}
+      title={`Sort by ${label.toLowerCase()}`}
+    >
+      <span className="truncate">{label}</span>
+      <Icon size={11} className={active ? 'text-blue-500' : 'text-slate-300'} />
+    </button>
   )
 }
 
