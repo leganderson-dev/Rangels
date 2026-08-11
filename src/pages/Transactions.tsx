@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Plus, Upload, Search, ChevronDown, ChevronRight, Trash2, Edit2, ArrowUp, ArrowDown, ArrowUpDown, ChevronsUpDown, ChevronsDownUp, TrendingUp, TrendingDown, ArrowLeftRight, Sparkles, SlidersHorizontal, X, Calendar } from 'lucide-react'
+import { Plus, Upload, Search, ChevronDown, ChevronRight, Trash2, Edit2, ArrowUp, ArrowDown, ArrowUpDown, ChevronsUpDown, ChevronsDownUp, TrendingUp, TrendingDown, ArrowLeftRight, Sparkles, SlidersHorizontal, X, Calendar, Scissors } from 'lucide-react'
 import { api } from '../api'
 import { fmt, formatDate, FREQUENCIES } from '../utils'
 import { CategoryPill } from '../components/CategoryPill'
@@ -73,6 +73,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const lastClickedIdx = useRef<number | null>(null)
   const [editTx, setEditTx] = useState<Transaction | null>(null)
+  const [splitTx, setSplitTx] = useState<Transaction | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [showBulkEdit, setShowBulkEdit] = useState(false)
@@ -695,7 +696,20 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
           onClose={() => setCtxMenu(null)}
           onCategoryPick={catId => { handleInlineCategory(ctxMenu.tx.id, catId); setCtxMenu(null) }}
           onEdit={() => { setEditTx(ctxMenu.tx); setCtxMenu(null) }}
+          onSplit={() => { setSplitTx(ctxMenu.tx); setCtxMenu(null) }}
           onDelete={() => { handleDelete(ctxMenu.tx.id); setCtxMenu(null) }}
+        />
+      )}
+      {splitTx && (
+        <SplitTransactionModal
+          transaction={splitTx}
+          onClose={() => setSplitTx(null)}
+          onSplit={async parts => {
+            await api.transactions.split(splitTx.id, parts)
+            setSplitTx(null)
+            refresh()
+            onRefreshAccounts()
+          }}
         />
       )}
       {(showAdd || editTx) && (
@@ -1109,12 +1123,12 @@ function suggestCategories(
 
 // ─── Transaction right-click context menu ─────────────────────────────────────
 
-function TxContextMenu({ tx, x, y, categories, catHistory, onClose, onCategoryPick, onEdit, onDelete }: {
+function TxContextMenu({ tx, x, y, categories, catHistory, onClose, onCategoryPick, onEdit, onSplit, onDelete }: {
   tx: Transaction; x: number; y: number
   categories: Category[]; catHistory: Array<{ description: string; categoryId: string }>
   onClose: () => void
   onCategoryPick: (catId: string) => void
-  onEdit: () => void; onDelete: () => void
+  onEdit: () => void; onSplit: () => void; onDelete: () => void
 }) {
   const suggestions = useMemo(() => suggestCategories(tx, categories, catHistory), [tx, categories, catHistory])
 
@@ -1169,6 +1183,10 @@ function TxContextMenu({ tx, x, y, categories, catHistory, onClose, onCategoryPi
         className="w-full text-left flex items-center gap-2.5 px-4 py-2 hover:bg-gray-50 text-sm text-gray-600 transition-colors">
         <Edit2 size={13} className="shrink-0 text-gray-400" /> Edit transaction
       </button>
+      <button onClick={() => { onSplit(); onClose() }}
+        className="w-full text-left flex items-center gap-2.5 px-4 py-2 hover:bg-gray-50 text-sm text-gray-600 transition-colors">
+        <Scissors size={13} className="shrink-0 text-gray-400" /> Split transaction…
+      </button>
       <button onClick={() => { onDelete(); onClose() }}
         className="w-full text-left flex items-center gap-2.5 px-4 py-2 hover:bg-red-50 text-sm text-red-500 transition-colors">
         <Trash2 size={13} className="shrink-0" /> Delete transaction
@@ -1178,6 +1196,54 @@ function TxContextMenu({ tx, x, y, categories, catHistory, onClose, onCategoryPi
 }
 
 // ─── Category filter button ───────────────────────────────────────────────────
+
+function splitAmounts(amount: number, parts: number): number[] {
+  const totalCents = Math.round(amount * 100)
+  const baseCents = Math.trunc(totalCents / parts)
+  const remainder = totalCents - baseCents * parts
+  return Array.from({ length: parts }, (_, index) => (baseCents + (index < Math.abs(remainder) ? Math.sign(remainder) : 0)) / 100)
+}
+
+function SplitTransactionModal({ transaction, onClose, onSplit }: {
+  transaction: Transaction; onClose: () => void; onSplit: (parts: number) => Promise<void>
+}) {
+  const [parts, setParts] = useState(2)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const amounts = splitAmounts(transaction.amount, parts)
+  const uniform = amounts.every(amount => amount === amounts[0])
+  async function submit() {
+    setBusy(true); setError('')
+    try { await onSplit(parts) }
+    catch (caught) { setError(caught instanceof Error ? caught.message : 'The transaction could not be split.'); setBusy(false) }
+  }
+  return (
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/40 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div className="flex items-center gap-2"><Scissors size={17} className="text-blue-600" /><h2 className="font-semibold text-slate-900">Split transaction</h2></div>
+          <button type="button" onClick={onClose} disabled={busy} className="rounded p-1 text-slate-400 hover:bg-slate-100" aria-label="Close"><X size={17} /></button>
+        </div>
+        <div className="space-y-4 px-5 py-4">
+          <div><p className="truncate text-sm font-medium text-slate-800" title={transaction.description}>{transaction.description}</p><p className="mt-1 text-sm font-bold text-slate-700">{fmt(transaction.amount)}</p></div>
+          <label className="block"><span className="mb-1.5 block text-xs font-medium text-slate-600">Number of transactions</span>
+            <input type="number" min={2} max={100} step={1} value={parts} onChange={event => setParts(Math.max(2, Math.min(100, Math.trunc(Number(event.target.value) || 2))))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+          </label>
+          <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-slate-600">
+            <p><strong className="text-slate-800">{parts} transactions</strong> will replace the original.</p>
+            <p className="mt-1">{uniform ? `${fmt(amounts[0])} each` : `Amounts: ${amounts.map(amount => fmt(amount)).join(', ')}`}</p>
+            <p className="mt-2 text-xs text-slate-500">All classifications, accounts, dates, tags and notes will be copied. Any rounding remainder is applied by one cent so the total remains exact.</p>
+          </div>
+          {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
+          <button type="button" onClick={onClose} disabled={busy} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">Cancel</button>
+          <button type="button" onClick={submit} disabled={busy} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{busy ? 'Splitting…' : `Split into ${parts}`}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function CategoryFilterButton({ categories, selected, onChange }: {
   categories: Category[]

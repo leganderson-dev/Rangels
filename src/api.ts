@@ -1341,6 +1341,12 @@ export const api = {
     accountLedgerSummary,
     add: addTransaction,
     update: updateTransaction,
+    split: async (id: string, parts: number): Promise<string[]> => {
+      const { data, error } = await supabase.rpc('split_transaction', { p_id: id, p_parts: parts })
+      fail(error)
+      invalidateTransactionQueries()
+      return (data ?? []) as string[]
+    },
     delete: async (id: string): Promise<void> => {
       const { error } = await supabase.from('transactions').delete().eq('id', id)
       fail(error)
