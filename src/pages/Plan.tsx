@@ -2,9 +2,15 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, ArrowDown, Check, CircleDollarSign, Flame, PiggyBank, RotateCcw, Target, Users, WalletCards } from 'lucide-react'
 import { api } from '../api'
 import type { AllocationPlanSummary, Budget, Transaction } from '../types/finance'
-import { fmt, monthName } from '../utils'
+import { fmt, formatDate, monthName } from '../utils'
 
-interface Props { month: number; year: number }
+interface Props {
+  month: number
+  year: number
+  dateMode: 'month' | 'custom'
+  customFrom: string
+  customTo: string
+}
 
 const BUCKET_TONES: Record<string, { bar: string; pale: string; text: string; icon: typeof WalletCards }> = {
   'Daily Expenses': { bar: 'bg-blue-500', pale: 'bg-blue-50', text: 'text-blue-700', icon: WalletCards },
@@ -27,7 +33,7 @@ function bucketUse(rows: Transaction[], bucketId: string) {
     .reduce((sum, row) => sum + Math.abs(row.amount), 0)
 }
 
-export function PlanPage({ month, year }: Props) {
+export function PlanPage({ month, year, dateMode, customFrom, customTo }: Props) {
   const [plan, setPlan] = useState<AllocationPlanSummary | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [ytdTransactions, setYtdTransactions] = useState<Transaction[]>([])
@@ -37,16 +43,20 @@ export function PlanPage({ month, year }: Props) {
 
   useEffect(() => {
     setLoading(true); setError('')
+    const periodFilter = dateMode === 'custom' ? { dateFrom: customFrom, dateTo: customTo } : { month, year }
+    const customEnd = new Date(`${customTo}T00:00:00`)
+    const budgetMonth = dateMode === 'custom' && !Number.isNaN(customEnd.getTime()) ? customEnd.getMonth() + 1 : month
+    const budgetYear = dateMode === 'custom' && !Number.isNaN(customEnd.getTime()) ? customEnd.getFullYear() : year
     Promise.all([
       api.allocation.plan(),
-      api.transactions.list({ month, year }),
-      api.transactions.list({ dateFrom: `${year}-01-01`, dateTo: monthEnd(month, year) }),
-      api.budgets.list(month, year),
+      api.transactions.list(periodFilter),
+      dateMode === 'custom' ? api.transactions.list(periodFilter) : api.transactions.list({ dateFrom: `${year}-01-01`, dateTo: monthEnd(month, year) }),
+      api.budgets.list(budgetMonth, budgetYear),
     ]).then(([nextPlan, nextTransactions, nextYtd, nextBudgets]) => {
       setPlan(nextPlan); setTransactions(nextTransactions); setYtdTransactions(nextYtd); setBudgets(nextBudgets)
     }).catch(reason => setError(reason instanceof Error ? reason.message : String(reason)))
       .finally(() => setLoading(false))
-  }, [month, year])
+  }, [month, year, dateMode, customFrom, customTo])
 
   const availableIncome = householdIncome(transactions)
   const ytdIncome = householdIncome(ytdTransactions)
@@ -71,20 +81,22 @@ export function PlanPage({ month, year }: Props) {
 
   const allocatedTotal = plan.targets.reduce((sum, target) => sum + availableIncome * target.targetPercentage / 100, 0)
   const targetTotal = plan.targets.reduce((sum, target) => sum + target.targetPercentage, 0)
+  const periodLabel = dateMode === 'custom' ? `${formatDate(customFrom)} – ${formatDate(customTo)}` : `${monthName(month)} ${year}`
+  const periodNoun = dateMode === 'custom' ? 'selected range' : 'month'
 
   return (
     <div className="h-full overflow-auto bg-slate-50 p-5">
       <div className="mx-auto max-w-7xl space-y-5">
         <header className="flex flex-wrap items-end justify-between gap-4">
-          <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">{plan.contextName} · {monthName(month)} {year}</p><h1 className="mt-1 text-2xl font-bold text-slate-900">Income allocation & performance</h1><p className="mt-1 text-sm text-slate-500">Targets show intent. Classified transactions show reality. Transfers remain ledger-neutral.</p></div>
+          <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">{plan.contextName} · {periodLabel}</p><h1 className="mt-1 text-2xl font-bold text-slate-900">Income allocation & performance</h1><p className="mt-1 text-sm text-slate-500">Targets show intent. Classified transactions show reality. Transfers remain ledger-neutral.</p></div>
           <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700"><Check size={14} /> {targetTotal}% allocated</div>
         </header>
 
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Metric label="Eligible household income" value={availableIncome} detail="Allocation source this month" tone="emerald" />
+          <Metric label="Eligible household income" value={availableIncome} detail={`Allocation source for the ${periodNoun}`} tone="emerald" />
           <Metric label="Target allocations" value={allocatedTotal} detail={`${targetTotal}% of eligible income`} tone="blue" />
           <Metric label="Household spending" value={totalHouseholdSpend} detail="All Household expenses" tone="slate" />
-          <Metric label="Unspent target movement" value={allocatedTotal - totalHouseholdSpend} detail="This month; not a bank balance" tone={allocatedTotal - totalHouseholdSpend >= 0 ? 'emerald' : 'red'} />
+          <Metric label="Unspent target movement" value={allocatedTotal - totalHouseholdSpend} detail={`This ${periodNoun}; not a bank balance`} tone={allocatedTotal - totalHouseholdSpend >= 0 ? 'emerald' : 'red'} />
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -99,14 +111,14 @@ export function PlanPage({ month, year }: Props) {
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4"><div><h2 className="font-semibold text-slate-900">Target versus actual use</h2><p className="text-xs text-slate-500">Actual use counts Household expenses assigned to each Bucket.</p></div><span className="text-xs text-slate-400">{monthName(month)} {year}</span></div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4"><div><h2 className="font-semibold text-slate-900">Target versus actual use</h2><p className="text-xs text-slate-500">Actual use counts Household expenses assigned to each Bucket.</p></div><span className="text-xs text-slate-400">{periodLabel}</span></div>
           <div className="grid grid-cols-[minmax(180px,1fr)_110px_110px_110px] border-b border-slate-100 px-5 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400"><span>Bucket</span><span className="text-right">Target</span><span className="text-right">Used</span><span className="text-right">Movement</span></div>
           {plan.targets.map(target => <PerformanceRow key={target.id} target={target} income={availableIncome} rows={transactions} />)}
         </section>
 
         <section className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
           <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-5 py-4"><h2 className="font-semibold text-slate-900">Year-to-date roll-forward movement</h2><p className="mt-1 text-xs text-slate-500">January through {monthName(month)}. This excludes opening entitlement balances and approved allowance movements.</p></div>
+            <div className="border-b border-slate-100 px-5 py-4"><h2 className="font-semibold text-slate-900">{dateMode === 'custom' ? 'Selected-range movement' : 'Year-to-date roll-forward movement'}</h2><p className="mt-1 text-xs text-slate-500">{dateMode === 'custom' ? periodLabel : `January through ${monthName(month)}`}. This excludes opening entitlement balances and approved allowance movements.</p></div>
             <div className="divide-y divide-slate-100">
               {plan.targets.map(target => {
                 const allocated = ytdIncome * target.targetPercentage / 100
@@ -117,14 +129,14 @@ export function PlanPage({ month, year }: Props) {
             <div className="flex gap-2 border-t border-amber-100 bg-amber-50 px-5 py-3 text-xs leading-5 text-amber-800"><AlertCircle size={16} className="mt-0.5 shrink-0" /><span><strong>Not yet an authoritative available balance.</strong> Opening balances, automatic allocation-ledger credits and audited member movements must be added before this can answer “how much do I have?”</span></div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-2"><Target size={17} className="text-blue-600" /><h2 className="font-semibold text-slate-900">Budgets are a separate control</h2></div><p className="mt-2 text-xs leading-5 text-slate-500">Allocation decides how eligible income is divided between Buckets. Budgets limit specific Purposes during this month.</p><div className="mt-4 grid grid-cols-2 gap-3"><MiniMetric label="Purpose budgets" value={String(budgets.length)} /><MiniMetric label="Budgeted" value={fmt(budgets.reduce((sum, budget) => sum + budget.amount, 0))} /><MiniMetric label="Budget spent" value={fmt(budgets.reduce((sum, budget) => sum + budget.spent, 0))} /><MiniMetric label="Remaining" value={fmt(budgets.reduce((sum, budget) => sum + budget.amount - budget.spent, 0), true)} /></div></div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-2"><Target size={17} className="text-blue-600" /><h2 className="font-semibold text-slate-900">Budgets are a separate control</h2></div><p className="mt-2 text-xs leading-5 text-slate-500">Allocation decides how eligible income is divided between Buckets. Budgets remain monthly; in Custom mode this shows the budget for the month containing the end date.</p><div className="mt-4 grid grid-cols-2 gap-3"><MiniMetric label="Purpose budgets" value={String(budgets.length)} /><MiniMetric label="Budgeted" value={fmt(budgets.reduce((sum, budget) => sum + budget.amount, 0))} /><MiniMetric label="Budget spent" value={fmt(budgets.reduce((sum, budget) => sum + budget.spent, 0))} /><MiniMetric label="Remaining" value={fmt(budgets.reduce((sum, budget) => sum + budget.amount - budget.spent, 0), true)} /></div></div>
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 px-5 py-4"><div className="flex items-center gap-2"><Users size={17} className="text-violet-600" /><h2 className="font-semibold text-slate-900">Who contributed and who made the purchase</h2></div><p className="mt-1 text-xs text-slate-500">Account ownership provides attribution. It does not yet divide Splurge or Smile entitlement.</p></div>
           <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-3">
             {attributedMembers.map(member => <MemberCard key={member.name} member={member} plan={plan} />)}
-            {attributedMembers.length === 0 && <p className="text-sm text-slate-400">No attributed Household activity this month.</p>}
+            {attributedMembers.length === 0 && <p className="text-sm text-slate-400">No attributed Household activity in this period.</p>}
           </div>
           <div className="flex gap-2 border-t border-violet-100 bg-violet-50 px-5 py-3 text-xs leading-5 text-violet-800"><RotateCcw size={15} className="mt-0.5 shrink-0" /><span>Before individual available balances can be shown, Rangels still needs the agreed Anderson / Julia / Shared split, opening balances, and an immutable movement ledger.</span></div>
         </section>

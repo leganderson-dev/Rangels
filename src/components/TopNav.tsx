@@ -38,7 +38,7 @@ export function TopNav({
   customTo, onCustomToChange,
   onHelp,
 }: Props) {
-  const showDateNav = ['overview', 'transactions', 'calendar', 'reports', 'budget'].includes(page)
+  const showDateNav = ['overview', 'transactions', 'calendar', 'reports', 'plan', 'budget'].includes(page)
 
   return (
     <header className="bg-white border-b border-gray-200 flex items-center gap-2 px-3 h-11 shrink-0 overflow-hidden titlebar-drag">
