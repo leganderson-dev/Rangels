@@ -156,6 +156,10 @@ function FinanceApp() {
           {page === 'scheduled' && <ScheduledPage {...pageProps} />}
           {page === 'calendar' && <CalendarPage {...pageProps} />}
         </main>
+        <footer className="flex h-7 shrink-0 items-center justify-between border-t border-slate-200 bg-white px-4 text-[10px] text-slate-400">
+          <span>Rangels V0.11</span>
+          <span>Merchant first · Import first · Your finances, clearly.</span>
+        </footer>
       </div>
       {showHelp && <HelpInfoModal onClose={() => setShowHelp(false)} />}
     </div>
