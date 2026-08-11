@@ -7,7 +7,7 @@ import { TransactionFormModal } from '../components/TransactionFormModal'
 import { BulkTransactionEditModal } from '../components/BulkTransactionEditModal'
 import { ImportBankModal } from '../components/ImportBankModal'
 import { ImportAlzexButton } from '../components/ImportAlzexButton'
-import type { Transaction, Account, Category, ScheduledTransaction, AccountLedgerSummary } from '../types/finance'
+import type { Transaction, Account, Category, ScheduledTransaction, AccountLedgerSummary, ClassificationOptions } from '../types/finance'
 import { transferReasonLabel } from '../lib/transfers'
 import { canUseHouseholdBucket, emptyBucketLabel } from '../lib/classification'
 
@@ -83,6 +83,11 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   const dragTxId = useRef<string | null>(null)
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
   const [catHistory, setCatHistory] = useState<Array<{ description: string; categoryId: string }>>([])
+  const [classificationOptions, setClassificationOptions] = useState<ClassificationOptions>({ contexts: [], buckets: [], categories: [] })
+
+  useEffect(() => {
+    api.classification.options().then(setClassificationOptions).catch(console.error)
+  }, [])
 
   // ─── Undo / Redo ─────────────────────────────────────────────────────────────
   type HistoryEntry = { undo: () => Promise<void>; redo: () => Promise<void> }
@@ -365,6 +370,29 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
     refresh()
   }
 
+  async function handleInlineContext(tx: Transaction, contextId: string | null) {
+    const previous = { contextId: tx.contextId ?? null, bucketId: tx.bucketId ?? null }
+    const contextName = classificationOptions.contexts.find(option => option.id === contextId)?.name
+    const purposeType = tx.amount > 0 ? 'income' : 'expense'
+    const bucketId = tx.isTransfer || !canUseHouseholdBucket(contextName, purposeType) ? null : tx.bucketId ?? null
+    await api.transactions.update(tx.id, { contextId, bucketId })
+    pushHistory({
+      undo: async () => { await api.transactions.update(tx.id, previous) },
+      redo: async () => { await api.transactions.update(tx.id, { contextId, bucketId }) },
+    })
+    refresh()
+  }
+
+  async function handleInlineBucket(tx: Transaction, bucketId: string | null) {
+    const previousBucketId = tx.bucketId ?? null
+    await api.transactions.update(tx.id, { bucketId })
+    pushHistory({
+      undo: async () => { await api.transactions.update(tx.id, { bucketId: previousBucketId }) },
+      redo: async () => { await api.transactions.update(tx.id, { bucketId }) },
+    })
+    refresh()
+  }
+
   const allSelected = filtered.length > 0 && filtered.every(transaction => selected.has(transaction.id))
   const someSelected = selected.size > 0
   const selectedPurposeCount = [...selected].filter(id => !transactions.find(transaction => transaction.id === id)?.isTransfer).length
@@ -610,12 +638,14 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
 
                           {!subCollapsed && child.rows.map(tx => (
                             <TransactionRow key={tx.id} tx={tx} selected={selected.has(tx.id)} selectedCount={selected.size} selectedAccountId={selectedAccountId}
-                              categories={categories} colWidths={colWidths}
+                              categories={categories} classificationOptions={classificationOptions} colWidths={colWidths}
                               indent={group.isSingleLevel ? 'single' : 'double'}
                               onSelect={(shiftKey, metaKey) => toggleSelect(tx.id, shiftKey, metaKey)}
                               onEdit={() => setEditTx(tx)}
                               onDelete={() => handleDelete(tx.id)}
                               onCategoryChange={catId => handleInlineCategory(tx.id, catId)}
+                              onContextChange={contextId => handleInlineContext(tx, contextId)}
+                              onBucketChange={bucketId => handleInlineBucket(tx, bucketId)}
                               onRightClick={e => setCtxMenu({ x: e.clientX, y: e.clientY, tx })}
                               onDragStart={() => { dragTxId.current = tx.id }}
                               onDragEnd={() => { dragTxId.current = null }}
@@ -647,11 +677,13 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
               </button>
               {!isCollapsed && group.rows.map(tx => (
                 <TransactionRow key={tx.id} tx={tx} selected={selected.has(tx.id)} selectedCount={selected.size} selectedAccountId={selectedAccountId}
-                  categories={categories} colWidths={colWidths} indent="none"
+                  categories={categories} classificationOptions={classificationOptions} colWidths={colWidths} indent="none"
                   onSelect={(shiftKey, metaKey) => toggleSelect(tx.id, shiftKey, metaKey)}
                   onEdit={() => setEditTx(tx)}
                   onDelete={() => handleDelete(tx.id)}
                   onCategoryChange={catId => handleInlineCategory(tx.id, catId)}
+                  onContextChange={contextId => handleInlineContext(tx, contextId)}
+                  onBucketChange={bucketId => handleInlineBucket(tx, bucketId)}
                   onRightClick={e => setCtxMenu({ x: e.clientX, y: e.clientY, tx })}
                   onDragStart={() => { dragTxId.current = tx.id }}
                   onDragEnd={() => { dragTxId.current = null }}
@@ -663,11 +695,13 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
         {/* ── No grouping ── */}
         {!loading && groupBy === 'none' && filtered.map(tx => (
           <TransactionRow key={tx.id} tx={tx} selected={selected.has(tx.id)} selectedCount={selected.size} selectedAccountId={selectedAccountId}
-            categories={categories} colWidths={colWidths} indent="none"
+            categories={categories} classificationOptions={classificationOptions} colWidths={colWidths} indent="none"
             onSelect={(shiftKey, metaKey) => toggleSelect(tx.id, shiftKey, metaKey)}
             onEdit={() => setEditTx(tx)}
             onDelete={() => handleDelete(tx.id)}
             onCategoryChange={catId => handleInlineCategory(tx.id, catId)}
+            onContextChange={contextId => handleInlineContext(tx, contextId)}
+            onBucketChange={bucketId => handleInlineBucket(tx, bucketId)}
             onRightClick={e => setCtxMenu({ x: e.clientX, y: e.clientY, tx })}
             onDragStart={() => { dragTxId.current = tx.id }}
             onDragEnd={() => { dragTxId.current = null }}
@@ -847,12 +881,14 @@ function buildHierarchyGroups(transactions: Transaction[], catMap: Map<string, C
 
 type ColWidths = { amount: number; context: number; purpose: number; bucket: number; date: number; account: number }
 
-function TransactionRow({ tx, selected, selectedCount, selectedAccountId, categories, colWidths, indent = 'single', onSelect, onEdit, onDelete, onCategoryChange, onRightClick, onDragStart, onDragEnd }: {
-  tx: Transaction; selected: boolean; selectedCount: number; categories: Category[]
+function TransactionRow({ tx, selected, selectedCount, selectedAccountId, categories, classificationOptions, colWidths, indent = 'single', onSelect, onEdit, onDelete, onCategoryChange, onContextChange, onBucketChange, onRightClick, onDragStart, onDragEnd }: {
+  tx: Transaction; selected: boolean; selectedCount: number; categories: Category[]; classificationOptions: ClassificationOptions
   selectedAccountId: string | null
   colWidths: ColWidths; indent?: 'none' | 'single' | 'double'
   onSelect: (shiftKey: boolean, metaKey?: boolean) => void; onEdit: () => void; onDelete: () => void
   onCategoryChange: (catId: string | null) => void
+  onContextChange: (contextId: string | null) => void
+  onBucketChange: (bucketId: string | null) => void
   onRightClick: (e: React.MouseEvent) => void
   onDragStart?: () => void; onDragEnd?: () => void
 }) {
@@ -935,9 +971,15 @@ function TransactionRow({ tx, selected, selectedCount, selectedAccountId, catego
         {tx.isTransfer ? fmt(displayAmount, true) : fmt(displayAmount)}
       </span>
 
-      <span className="text-xs text-slate-500 truncate shrink-0" style={{ width: colWidths.context }} title={tx.contextName ?? undefined}>
-        {tx.contextName ?? <span className="text-slate-300">—</span>}
-      </span>
+      <div className="shrink-0" style={{ width: colWidths.context }}>
+        <InlineDimensionSelect
+          value={tx.contextId ?? null}
+          label={tx.contextName ?? '—'}
+          emptyLabel="Not classified"
+          options={classificationOptions.contexts}
+          onChange={onContextChange}
+        />
+      </div>
 
       {/* Purpose for income/expenses; transfer reason for transfers. */}
       <div ref={cellRef} className="shrink-0 relative" style={{ width: colWidths.purpose }}>
@@ -978,9 +1020,20 @@ function TransactionRow({ tx, selected, selectedCount, selectedAccountId, catego
         )}
       </div>
 
-      <span className={`text-xs truncate shrink-0 ${bucketDisplay.muted ? 'text-slate-300' : 'text-slate-500'}`} style={{ width: colWidths.bucket }} title={bucketDisplay.label}>
-        {bucketDisplay.label}
-      </span>
+      <div className="shrink-0" style={{ width: colWidths.bucket }}>
+        {!tx.isTransfer && canUseHouseholdBucket(tx.contextName, tx.amount > 0 ? 'income' : 'expense') ? (
+          <InlineDimensionSelect
+            value={tx.bucketId ?? null}
+            label={bucketDisplay.label}
+            emptyLabel="No bucket"
+            options={classificationOptions.buckets}
+            onChange={onBucketChange}
+            muted={bucketDisplay.muted}
+          />
+        ) : (
+          <span className="block truncate text-xs text-slate-300" title={bucketDisplay.label}>{bucketDisplay.label}</span>
+        )}
+      </div>
 
       <span className="text-xs text-gray-400 shrink-0" style={{ width: colWidths.date }}>{formatDate(tx.date)}</span>
       <span className="text-xs text-gray-400 truncate shrink-0" style={{ width: colWidths.account }} title={`${tx.accountName}${tx.isTransfer && tx.targetAccountName ? ` → ${tx.targetAccountName}` : ''} · ${tx.memberName}`}>
@@ -990,6 +1043,47 @@ function TransactionRow({ tx, selected, selectedCount, selectedAccountId, catego
         <button onClick={onEdit} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700"><Edit2 size={12} /></button>
         <button onClick={onDelete} className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-600"><Trash2 size={12} /></button>
       </div>
+    </div>
+  )
+}
+
+function InlineDimensionSelect({ value, label, emptyLabel, options, onChange, muted = false }: {
+  value: string | null
+  label: string
+  emptyLabel: string
+  options: Array<{ id: string; name: string }>
+  onChange: (value: string | null) => void
+  muted?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const [position, setPosition] = useState({ top: 0, left: 0, width: 180 })
+
+  function openPicker() {
+    const rect = buttonRef.current?.getBoundingClientRect()
+    if (rect) {
+      const height = Math.min(240, (options.length + 1) * 32)
+      const top = rect.bottom + height > window.innerHeight ? Math.max(8, rect.top - height - 2) : rect.bottom + 2
+      setPosition({ top, left: rect.left, width: Math.max(180, rect.width) })
+    }
+    setOpen(true)
+  }
+
+  return (
+    <div>
+      <button ref={buttonRef} type="button" onClick={event => { event.stopPropagation(); open ? setOpen(false) : openPicker() }} title={`Click to change ${emptyLabel.toLowerCase()}`} className={`block w-full truncate rounded px-1 py-0.5 text-left text-xs hover:bg-white hover:ring-1 hover:ring-slate-200 ${muted ? 'text-slate-300' : 'text-slate-500'}`}>
+        {label}
+      </button>
+      {open && (
+        <div tabIndex={-1} onBlur={() => setTimeout(() => setOpen(false), 120)} className="fixed z-[9999] max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-xl" style={position}>
+          <button type="button" autoFocus onClick={() => { onChange(null); setOpen(false) }} className={`w-full px-3 py-2 text-left text-xs hover:bg-blue-50 ${value === null ? 'bg-blue-50 font-semibold text-blue-700' : 'text-slate-400'}`}>{emptyLabel}</button>
+          {options.map(option => (
+            <button key={option.id} type="button" onMouseDown={event => event.preventDefault()} onClick={() => { onChange(option.id); setOpen(false) }} className={`w-full px-3 py-2 text-left text-xs hover:bg-blue-50 ${option.id === value ? 'bg-blue-50 font-semibold text-blue-700' : 'text-slate-700'}`}>
+              {option.name}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
