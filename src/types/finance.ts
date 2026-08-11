@@ -186,6 +186,29 @@ export interface ScheduledTransaction {
   isActive: boolean
 }
 
+export interface ScheduledSuggestion {
+  key: string
+  merchant: string
+  description: string
+  amount: number
+  minAmount: number
+  maxAmount: number
+  accountId: string
+  accountName: string
+  categoryId: string | null
+  categoryFullName: string | null
+  contextId: string | null
+  contextName: string | null
+  bucketId: string | null
+  bucketName: string | null
+  taxTreatment: 'none' | 'deductible' | 'review'
+  frequency: ScheduledTransaction['frequency']
+  nextDate: string
+  confidence: number
+  occurrenceCount: number
+  evidence: Array<{ date: string; amount: number; description: string }>
+}
+
 export interface Budget {
   id: string
   categoryId: string

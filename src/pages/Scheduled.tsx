@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, Calendar, RefreshCw } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Plus, Pencil, Trash2, Calendar, RefreshCw, Sparkles, ChevronDown, ChevronRight, Check, X } from 'lucide-react'
 import { Modal } from '../components/Modal'
 import { api } from '../api'
 import { fmt, formatDate, today, FREQUENCIES } from '../utils'
-import type { Account, Category, ClassificationOptions, ScheduledTransaction } from '../types/finance'
+import type { Account, Category, ClassificationOptions, ScheduledSuggestion, ScheduledTransaction } from '../types/finance'
 import { canUseHouseholdBucket, emptyBucketLabel } from '../lib/classification'
+import { discoverScheduledSuggestions } from '../lib/recurrence'
 
 interface Props {
   accounts: Account[]
@@ -21,15 +22,43 @@ interface Props {
 export function ScheduledPage({ accounts, categories, onRefreshAccounts: onRefresh }: Props) {
   const [scheduled, setScheduled] = useState<ScheduledTransaction[]>([])
   const [editing, setEditing] = useState<ScheduledTransaction | null>(null)
+  const [suggestionDraft, setSuggestionDraft] = useState<ScheduledSuggestion | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [suggestions, setSuggestions] = useState<ScheduledSuggestion[]>([])
+  const [analysing, setAnalysing] = useState(true)
+  const [analysisError, setAnalysisError] = useState<string | null>(null)
+  const [expandedSuggestion, setExpandedSuggestion] = useState<string | null>(null)
 
-  function load() { api.scheduled.list().then(setScheduled) }
-  useEffect(() => { load() }, [])
+  const analyse = useCallback((nextScheduled: ScheduledTransaction[]) => {
+    setAnalysing(true)
+    setAnalysisError(null)
+    const activeAccountIds = new Set(accounts.filter(account => account.isActive).map(account => account.id))
+    api.transactions.list()
+      .then(history => setSuggestions(discoverScheduledSuggestions(history.filter(transaction => activeAccountIds.has(transaction.accountId)), nextScheduled)))
+      .catch(error => setAnalysisError(error instanceof Error ? error.message : 'Could not analyse transaction history.'))
+      .finally(() => setAnalysing(false))
+  }, [accounts])
+
+  function load(refreshSuggestions = false) {
+    api.scheduled.list().then(nextScheduled => {
+      setScheduled(nextScheduled)
+      if (refreshSuggestions) analyse(nextScheduled)
+    })
+  }
+  useEffect(() => {
+    api.scheduled.list().then(nextScheduled => {
+      setScheduled(nextScheduled)
+      analyse(nextScheduled)
+    }).catch(error => {
+      setAnalysisError(error instanceof Error ? error.message : 'Could not load scheduled transactions.')
+      setAnalysing(false)
+    })
+  }, [analyse])
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this scheduled transaction?')) return
     await api.scheduled.delete(id)
-    load()
+    load(true)
   }
 
   async function handleProcessDue() {
@@ -64,6 +93,47 @@ export function ScheduledPage({ accounts, categories, onRefreshAccounts: onRefre
           </button>
         </div>
       </div>
+
+      <section className="overflow-hidden rounded-xl border border-blue-100 bg-white">
+        <div className="flex items-center justify-between gap-4 border-b border-blue-100 bg-blue-50/60 px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-600"><Sparkles size={16} /></span>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800">Suggested from transaction history</h3>
+              <p className="mt-0.5 text-xs text-slate-500">Repeated merchants ranked by timing, amount stability and supporting history.</p>
+            </div>
+          </div>
+          <button onClick={() => analyse(scheduled)} disabled={analysing} className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50">
+            <RefreshCw size={12} className={analysing ? 'animate-spin' : ''} /> {analysing ? 'Analysing…' : 'Analyse again'}
+          </button>
+        </div>
+        {analysisError && <p className="m-4 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{analysisError}</p>}
+        {!analysing && !analysisError && suggestions.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-400">No new reliable recurring patterns found.</p>}
+        {suggestions.length > 0 && (
+          <div className="divide-y divide-slate-100">
+            {suggestions.map(suggestion => {
+              const expanded = expandedSuggestion === suggestion.key
+              const frequencyLabel = FREQUENCIES.find(item => item.value === suggestion.frequency)?.label ?? suggestion.frequency
+              return <div key={suggestion.key}>
+                <div className="grid grid-cols-[minmax(240px,1fr)_110px_135px_90px_150px] items-center gap-3 px-4 py-3 text-sm">
+                  <button onClick={() => setExpandedSuggestion(expanded ? null : suggestion.key)} className="flex min-w-0 items-center gap-2 text-left">
+                    {expanded ? <ChevronDown size={14} className="shrink-0 text-slate-400" /> : <ChevronRight size={14} className="shrink-0 text-slate-400" />}
+                    <span className="min-w-0"><span className="block truncate font-medium text-slate-800">{suggestion.merchant}</span><span className="block truncate text-[11px] text-slate-400">{suggestion.accountName} · {suggestion.occurrenceCount} transactions</span></span>
+                  </button>
+                  <span className="text-xs font-medium text-slate-600">{frequencyLabel}</span>
+                  <span className={`font-semibold ${suggestion.amount > 0 ? 'text-emerald-600' : 'text-slate-700'}`}>{fmt(suggestion.amount, true)}</span>
+                  <span className={`w-fit rounded-full px-2 py-1 text-[11px] font-semibold ${suggestion.confidence >= 80 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{suggestion.confidence}%</span>
+                  <div className="flex justify-end gap-1.5"><button onClick={() => setSuggestions(current => current.filter(item => item.key !== suggestion.key))} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100" title="Dismiss suggestion"><X size={14} /></button><button onClick={() => { setEditing(null); setSuggestionDraft(suggestion); setShowForm(true) }} className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"><Check size={13} /> Review</button></div>
+                </div>
+                {expanded && <div className="border-t border-slate-100 bg-slate-50/70 px-10 py-3">
+                  <div className="mb-2 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-slate-500"><span>Typical: <strong className="text-slate-700">{fmt(suggestion.amount, true)}</strong></span><span>Range: <strong className="text-slate-700">{fmt(suggestion.minAmount, true)} to {fmt(suggestion.maxAmount, true)}</strong></span><span>Next expected: <strong className="text-slate-700">{formatDate(suggestion.nextDate)}</strong></span>{suggestion.categoryFullName && <span>Purpose: <strong className="text-slate-700">{suggestion.categoryFullName}</strong></span>}</div>
+                  <div className="grid gap-1">{suggestion.evidence.map((row, index) => <div key={`${row.date}-${index}`} className="grid grid-cols-[90px_100px_1fr] gap-3 text-[11px] text-slate-500"><span>{formatDate(row.date)}</span><span className={row.amount > 0 ? 'text-emerald-600' : 'text-slate-700'}>{fmt(row.amount, true)}</span><span className="truncate">{row.description}</span></div>)}</div>
+                </div>}
+              </div>
+            })}
+          </div>
+        )}
+      </section>
 
       {upcoming.length === 0 && inactive.length === 0 && (
         <div className="text-center py-14 text-gray-400 text-sm">
@@ -106,17 +176,19 @@ export function ScheduledPage({ accounts, categories, onRefreshAccounts: onRefre
       {showForm && (
         <ScheduledFormModal
           item={editing ?? undefined}
+          suggestion={suggestionDraft ?? undefined}
           accounts={accounts}
           categories={categories}
-          onClose={() => setShowForm(false)}
+          onClose={() => { setShowForm(false); setSuggestionDraft(null) }}
           onSave={async data => {
             if (editing && (editing as ScheduledTransaction).id) {
               await api.scheduled.update((editing as ScheduledTransaction).id, data)
             } else {
               await api.scheduled.add(data)
             }
-            load()
+            load(true)
             setShowForm(false)
+            setSuggestionDraft(null)
           }}
         />
       )}
@@ -162,25 +234,27 @@ function ScheduledRow({ item, onEdit, onDelete }: {
   )
 }
 
-function ScheduledFormModal({ item, accounts, categories, onClose, onSave }: {
+function ScheduledFormModal({ item, suggestion, accounts, categories, onClose, onSave }: {
   item?: ScheduledTransaction
+  suggestion?: ScheduledSuggestion
   accounts: Account[]
   categories: Category[]
   onClose: () => void
   onSave: (data: any) => Promise<void>
 }) {
   const availableAccounts = accounts.filter(account => account.isActive || account.id === item?.accountId)
-  const [description, setDescription] = useState(item?.description ?? '')
-  const [amount, setAmount] = useState(item ? String(Math.abs(item.amount)) : '')
-  const [isExpense, setIsExpense] = useState(!item || item.amount < 0)
-  const [accountId, setAccountId] = useState(item?.accountId ?? accounts.find(account => account.isActive)?.id ?? '')
-  const [categoryId, setCategoryId] = useState<string | null>(item?.categoryId ?? null)
-  const [contextId, setContextId] = useState(item?.contextId ?? '')
-  const [bucketId, setBucketId] = useState(item?.bucketId ?? '')
-  const [taxTreatment, setTaxTreatment] = useState<ScheduledTransaction['taxTreatment']>(item?.taxTreatment ?? 'none')
+  const seed = item ?? suggestion
+  const [description, setDescription] = useState(seed?.description ?? '')
+  const [amount, setAmount] = useState(seed ? String(Math.abs(seed.amount)) : '')
+  const [isExpense, setIsExpense] = useState(!seed || seed.amount < 0)
+  const [accountId, setAccountId] = useState(seed?.accountId ?? accounts.find(account => account.isActive)?.id ?? '')
+  const [categoryId, setCategoryId] = useState<string | null>(seed?.categoryId ?? null)
+  const [contextId, setContextId] = useState(seed?.contextId ?? '')
+  const [bucketId, setBucketId] = useState(seed?.bucketId ?? '')
+  const [taxTreatment, setTaxTreatment] = useState<ScheduledTransaction['taxTreatment']>(seed?.taxTreatment ?? 'none')
   const [classificationOptions, setClassificationOptions] = useState<ClassificationOptions>({ contexts: [], buckets: [], categories: [] })
-  const [frequency, setFrequency] = useState(item?.frequency ?? 'monthly')
-  const [nextDate, setNextDate] = useState(item?.nextDate ?? today())
+  const [frequency, setFrequency] = useState(seed?.frequency ?? 'monthly')
+  const [nextDate, setNextDate] = useState(seed?.nextDate ?? today())
   const [isActive, setIsActive] = useState(item?.isActive ?? true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -224,7 +298,7 @@ function ScheduledFormModal({ item, accounts, categories, onClose, onSave }: {
   }
 
   return (
-    <Modal title={item ? 'Edit Scheduled' : 'New Scheduled Transaction'} onClose={onClose}>
+    <Modal title={item ? 'Edit Scheduled' : suggestion ? 'Review Suggested Schedule' : 'New Scheduled Transaction'} onClose={onClose}>
       <div className="space-y-3">
         <div className="flex gap-1 p-1 bg-gray-100 rounded-lg">
           {['Expense', 'Income'].map(t => (

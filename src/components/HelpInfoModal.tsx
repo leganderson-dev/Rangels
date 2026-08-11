@@ -163,7 +163,7 @@ export function HelpInfoModal({ onClose }: { onClose: () => void }) {
           </div>
         </section>
 
-        <div className="flex items-center justify-between border-t border-slate-200 pt-4 text-[11px] text-slate-400"><span>Rangels V0.11 · Household allocation reporting.</span><span>Ledger first · Import first · Canonical classification</span></div>
+        <div className="flex items-center justify-between border-t border-slate-200 pt-4 text-[11px] text-slate-400"><span>Rangels V0.12 · Recurring schedule discovery.</span><span>Ledger first · Import first · Canonical classification</span></div>
       </div>
       )}
     </Modal>
