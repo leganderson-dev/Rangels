@@ -327,7 +327,8 @@ async function bankPreview(token: string, accountId: string, onProgress?: Import
       const { duplicate, duplicateReason } = duplicateMetadata[index]
       // Rank every non-zero match. Even low-confidence analysis rows should
       // begin with their highest score selected and remain editable.
-      const ruleCategoryId = matchMerchantRule(row.description, merchantRules)?.categoryId
+      const matchedRule = matchMerchantRule(row.description, merchantRules)
+      const ruleCategoryId = matchedRule?.categoryId
       const ruleCategory = ruleCategoryId ? byId.get(ruleCategoryId) : null
       const suggestions = relevantCategorySuggestions(matchHistory(row.description, Number.EPSILON))
       const learnedSuggestions = suggestions
@@ -357,12 +358,39 @@ async function bankPreview(token: string, accountId: string, onProgress?: Import
         confidence: best?.confidence ?? 0,
         reason: best?.reason ?? 'No previous merchant match',
         suggestions: rankedSuggestions,
+        rememberedClassification: matchedRule ? {
+          canonicalCategoryId: matchedRule.canonicalCategoryId,
+          contextId: matchedRule.contextId,
+          bucketId: matchedRule.bucketId,
+          taxTreatment: matchedRule.taxTreatment,
+        } : null,
         duplicate,
         duplicateReason,
       }
     })
   onProgress?.({ stage: 'done' })
   return { format: parsed.format, rows }
+}
+
+async function rememberBankClassificationRule(description: string, classification: {
+  canonicalCategoryId: string
+  contextId: string | null
+  bucketId: string | null
+  taxTreatment: 'none' | 'deductible' | 'review'
+}): Promise<void> {
+  const name = merchantDisplayName(description)
+  await saveMerchantRule({
+    merchantId: null,
+    key: merchantKey(description),
+    name,
+    phrases: [...new Set([name, description])],
+    categoryId: classification.canonicalCategoryId,
+    canonicalCategoryId: classification.canonicalCategoryId,
+    contextId: classification.contextId,
+    bucketId: classification.bucketId,
+    taxTreatment: classification.taxTreatment,
+    transactionIds: [],
+  })
 }
 
 type BankImportAssignment = { categoryId: string | null; canonicalCategoryId?: string | null; contextId?: string | null; bucketId?: string | null; taxTreatment?: string; reimbursementStatus?: string; tags?: string[] }
@@ -1496,6 +1524,7 @@ export const api = {
     ): Promise<ImportResult> => {
       return importBank(_path, _accountId, _assignments)
     },
+    rememberClassificationRule: rememberBankClassificationRule,
   },
   db: {
     backup: downloadBackup,

@@ -23,6 +23,12 @@ interface PreviewRow {
     confidence: number
     reason: string
   }>
+  rememberedClassification: {
+    canonicalCategoryId: string | null
+    contextId: string | null
+    bucketId: string | null
+    taxTreatment: string
+  } | null
   duplicate: boolean
   duplicateReason: string | null
 }
@@ -38,6 +44,7 @@ type RowClassification = {
 }
 
 type ConfidenceFilter = 'all' | ConfidenceGroup
+type DirectionFilter = 'all' | 'income' | 'expense'
 
 interface Props {
   accounts: Account[]
@@ -62,7 +69,10 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   const [included, setIncluded] = useState<Set<number>>(new Set())
   const [collapsedGroups, setCollapsedGroups] = useState<Set<ConfidenceGroup>>(new Set())
   const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>('all')
+  const [directionFilter, setDirectionFilter] = useState<DirectionFilter>('all')
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+  const [changedSuggestionRows, setChangedSuggestionRows] = useState<Set<number>>(new Set())
+  const [rememberRuleRows, setRememberRuleRows] = useState<Set<number>>(new Set())
   const [loadError, setLoadError] = useState('')
   const [analysis, setAnalysis] = useState({ reading: false, found: null as number | null, duplicates: null as number | null, categorizing: false, done: false })
   const [hideDuplicates, setHideDuplicates] = useState(true)
@@ -98,12 +108,23 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
       if (!classificationOptions.categories.length) setClassificationOptions(activeOptions)
       const initialClassifications: Record<number, RowClassification> = {}
       preview.rows.forEach(row => {
-        initialClassifications[row.index] = classificationFromPurpose(row.suggestedCategoryId, activeOptions)
+        const fallback = classificationFromPurpose(row.suggestedCategoryId, activeOptions)
+        initialClassifications[row.index] = row.rememberedClassification ? {
+          ...fallback,
+          canonicalCategoryId: row.rememberedClassification.canonicalCategoryId,
+          contextId: row.rememberedClassification.contextId,
+          bucketId: row.rememberedClassification.bucketId,
+          taxTreatment: row.rememberedClassification.taxTreatment as RowClassification['taxTreatment'],
+          mapped: true,
+        } : fallback
       })
       setClassifications(initialClassifications)
       setIncluded(new Set(preview.rows.filter(r => !r.duplicate).map(r => r.index)))
       setConfidenceFilter('all')
+      setDirectionFilter('all')
       setExpandedRows(new Set())
+      setChangedSuggestionRows(new Set())
+      setRememberRuleRows(new Set())
       setStep('categorize')
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'The CSV could not be analysed.')
@@ -116,6 +137,16 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
     if (!filePath || !accountId) return
     setLoading(true)
     try {
+      for (const row of rows.filter(row => included.has(row.index) && rememberRuleRows.has(row.index))) {
+        const classification = classifications[row.index]
+        if (!classification?.canonicalCategoryId) continue
+        await api.import.rememberClassificationRule(row.description, {
+          canonicalCategoryId: classification.canonicalCategoryId,
+          contextId: classification.contextId,
+          bucketId: classification.bucketId,
+          taxTreatment: classification.taxTreatment,
+        })
+      }
       const selected: Record<number, { categoryId: string | null; canonicalCategoryId: string | null; contextId: string | null; bucketId: string | null; taxTreatment: string; reimbursementStatus: string; tags: string[] } | '__skip__'> = {}
       rows.forEach(row => {
         const classification = classifications[row.index] ?? classificationFromPurpose(null, classificationOptions)
@@ -134,17 +165,28 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
     setClassifications(current => ({ ...current, [rowIndex]: classificationFromPurpose(categoryId, classificationOptions) }))
     setCatSearch(current => ({ ...current, [rowIndex]: '' }))
     setCatOpen(null)
-    setFocusRow(r => r + 1)
+    setFocusRow(rowIndex)
+  }
+
+  function changeSuggestion(row: PreviewRow, categoryId: string | null) {
+    setAssignment(row.index, categoryId)
+    setChangedSuggestionRows(current => {
+      const next = new Set(current)
+      categoryId === row.suggestedCategoryId ? next.delete(row.index) : next.add(row.index)
+      return next
+    })
+    if (categoryId === row.suggestedCategoryId) setRememberRuleRows(current => { const next = new Set(current); next.delete(row.index); return next })
   }
 
   const uncategorisedCount = rows.filter(row => !row.duplicate && assignments[row.index] == null).length
   const duplicateCount = rows.filter(row => row.duplicate).length
   const totalAmount = rows.reduce((s, r) => s + r.amount, 0)
   const visibleRows = hideDuplicates ? rows.filter(row => !row.duplicate) : rows
+  const directionRows = directionFilter === 'all' ? visibleRows : visibleRows.filter(row => directionFilter === 'income' ? row.amount >= 0 : row.amount < 0)
   const confidenceGroups: Array<{ key: ConfidenceGroup; label: string; range: string; rows: PreviewRow[] }> = [
-    { key: 'confident', label: 'Confident', range: '70–100%', rows: visibleRows.filter(row => classifyConfidence(row.confidence) === 'confident') },
-    { key: 'likely', label: 'Likely', range: '50–70%', rows: visibleRows.filter(row => classifyConfidence(row.confidence) === 'likely') },
-    { key: 'analysis', label: 'Requires analysis', range: 'Below 50%', rows: visibleRows.filter(row => classifyConfidence(row.confidence) === 'analysis') },
+    { key: 'confident', label: 'Confident', range: '70–100%', rows: directionRows.filter(row => classifyConfidence(row.confidence) === 'confident') },
+    { key: 'likely', label: 'Likely', range: '50–70%', rows: directionRows.filter(row => classifyConfidence(row.confidence) === 'likely') },
+    { key: 'analysis', label: 'Requires analysis', range: 'Below 50%', rows: directionRows.filter(row => classifyConfidence(row.confidence) === 'analysis') },
   ]
   const displayedConfidenceGroups = confidenceFilter === 'all' ? confidenceGroups : confidenceGroups.filter(group => group.key === confidenceFilter)
 
@@ -167,7 +209,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   }
 
   return (
-    <Modal title="Import Bank CSV" onClose={onClose} wide closeOnBackdrop={false} closeOnEscape={false}>
+    <Modal title="Import Bank CSV" onClose={onClose} wide maximizable closeOnBackdrop={false} closeOnEscape={false}>
       {step === 'pick' && (
         <div className="flex flex-col items-center justify-center py-10 gap-4">
           <Upload size={40} className="text-gray-300" />
@@ -219,8 +261,12 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
 
           <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1.5">
             <span className="px-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Confidence</span>
-            <ConfidenceFilterButton active={confidenceFilter === 'all'} label="All" count={visibleRows.length} onClick={() => setConfidenceFilter('all')} />
-            {confidenceGroups.map(group => <ConfidenceFilterButton key={group.key} active={confidenceFilter === group.key} label={group.label} count={group.rows.length} onClick={() => setConfidenceFilter(group.key)} />)}
+            <FilterButton active={confidenceFilter === 'all'} label="All" count={directionRows.length} onClick={() => setConfidenceFilter('all')} />
+            {confidenceGroups.map(group => <FilterButton key={group.key} active={confidenceFilter === group.key} label={group.label} count={group.rows.length} onClick={() => setConfidenceFilter(group.key)} />)}
+            <span className="ml-3 border-l border-slate-200 pl-4 pr-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Direction</span>
+            <FilterButton active={directionFilter === 'all'} label="All" count={visibleRows.length} onClick={() => setDirectionFilter('all')} />
+            <FilterButton active={directionFilter === 'income'} label="Income" count={visibleRows.filter(row => row.amount >= 0).length} onClick={() => setDirectionFilter('income')} />
+            <FilterButton active={directionFilter === 'expense'} label="Expenses" count={visibleRows.filter(row => row.amount < 0).length} onClick={() => setDirectionFilter('expense')} />
           </div>
 
           {/* Table */}
@@ -228,7 +274,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
             <div className="grid grid-cols-[24px_18px_90px_minmax(260px,1fr)_100px_minmax(260px,0.75fr)] text-xs font-medium text-gray-400 uppercase tracking-wide bg-gray-50 px-3 py-2 gap-3">
               <span /><span /><span>Date</span><span>Description</span><span className="text-right">Amount</span><span>Top suggestion</span>
             </div>
-            <div className="max-h-[400px] overflow-y-auto divide-y divide-gray-100">
+            <div className="max-h-[calc(100vh-410px)] min-h-[280px] overflow-y-auto divide-y divide-gray-100">
               {displayedConfidenceGroups.map(group => group.rows.length > 0 && (
                 <div key={group.key}>
                   <div className="sticky top-0 z-10 w-full flex items-center gap-2 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
@@ -239,8 +285,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
                     </button>
                   </div>
                   {!collapsedGroups.has(group.key) && group.rows.map(row => {
-                    const i = rows.indexOf(row)
-                    return <ImportRow key={row.index} row={row} categories={categories} options={classificationOptions} classification={classifications[row.index] ?? classificationFromPurpose(null, classificationOptions)} onClassificationChange={classification => setClassifications(current => ({ ...current, [row.index]: classification }))} included={included.has(row.index)} onIncluded={() => setIncluded(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} expanded={expandedRows.has(row.index)} onToggleExpanded={() => setExpandedRows(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} assignedCategoryId={assignments[row.index] ?? null} focused={focusRow === i} catOpen={catOpen === i} catSearch={catSearch[i] ?? ''} onFocus={() => setFocusRow(i)} onOpenCat={() => setCatOpen(i)} onCloseCat={() => setCatOpen(null)} onCatSearch={s => setCatSearch(c => ({ ...c, [i]: s }))} onAssign={catId => setAssignment(row.index, catId)} />
+                    return <ImportRow key={row.index} row={row} categories={categories} options={classificationOptions} classification={classifications[row.index] ?? classificationFromPurpose(null, classificationOptions)} onClassificationChange={classification => { setClassifications(current => ({ ...current, [row.index]: classification })); setChangedSuggestionRows(current => new Set(current).add(row.index)) }} included={included.has(row.index)} onIncluded={() => setIncluded(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} expanded={expandedRows.has(row.index)} onToggleExpanded={() => setExpandedRows(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} assignedCategoryId={assignments[row.index] ?? null} suggestionChanged={changedSuggestionRows.has(row.index)} rememberRule={rememberRuleRows.has(row.index)} onRememberRule={() => setRememberRuleRows(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} focused={focusRow === row.index} catOpen={catOpen === row.index} catSearch={catSearch[row.index] ?? ''} onFocus={() => setFocusRow(row.index)} onOpenCat={() => setCatOpen(row.index)} onCloseCat={() => setCatOpen(null)} onCatSearch={s => setCatSearch(c => ({ ...c, [row.index]: s }))} onAssign={catId => changeSuggestion(row, catId)} />
                   })}
                 </div>
               ))}
@@ -285,7 +330,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   )
 }
 
-function ConfidenceFilterButton({ active, label, count, onClick }: { active: boolean; label: string; count: number; onClick: () => void }) {
+function FilterButton({ active, label, count, onClick }: { active: boolean; label: string; count: number; onClick: () => void }) {
   return <button onClick={onClick} className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${active ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200' : 'text-slate-500 hover:bg-white/70'}`}>{label} <span className={active ? 'text-blue-500' : 'text-slate-400'}>{count}</span></button>
 }
 
@@ -353,13 +398,16 @@ function AnalysisProgress({ analysis, compact = false }: { analysis: { reading: 
   </div>
 }
 
-function ImportRow({ row, categories, options, classification, onClassificationChange, included, onIncluded, expanded, onToggleExpanded, assignedCategoryId, focused, catOpen, catSearch, onFocus, onOpenCat, onCloseCat, onCatSearch, onAssign }: {
+function ImportRow({ row, categories, options, classification, onClassificationChange, included, onIncluded, expanded, onToggleExpanded, assignedCategoryId, suggestionChanged, rememberRule, onRememberRule, focused, catOpen, catSearch, onFocus, onOpenCat, onCloseCat, onCatSearch, onAssign }: {
   row: PreviewRow
   categories: Category[]
   options: ClassificationOptions
   classification: RowClassification
   onClassificationChange: (classification: RowClassification) => void
   assignedCategoryId: string | null
+  suggestionChanged: boolean
+  rememberRule: boolean
+  onRememberRule: () => void
   included: boolean
   onIncluded: () => void
   expanded: boolean
@@ -432,8 +480,10 @@ function ImportRow({ row, categories, options, classification, onClassificationC
         </div>
         <ClassificationEditor classification={classification} options={options} editingField={editingField} onEdit={setEditingField} onChange={next => { onClassificationChange({ ...next, mapped: false }); setEditingField(null) }} />
 
+        {suggestionChanged && classification.canonicalCategoryId && <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800"><input type="checkbox" checked={rememberRule} onChange={onRememberRule} className="mt-0.5" /><span><strong>Remember this for future imports</strong><span className="mt-0.5 block text-[10px] text-emerald-700">Save this merchant’s Purpose, Context, Bucket and Tax defaults when the import is completed.</span></span></label>}
+
         {catOpen && (
-          <div className="absolute top-full right-0 mt-1 w-[420px] bg-white border border-gray-200 rounded-lg shadow-xl z-40">
+          <div className="mt-2 w-full bg-white border border-gray-200 rounded-lg shadow-sm">
             <div className="p-1.5 border-b border-gray-100">
               <input
                 ref={inputRef}
