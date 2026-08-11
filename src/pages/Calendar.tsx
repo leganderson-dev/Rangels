@@ -237,10 +237,11 @@ function DayPanel({ date, accounts, categories, selectedAccountId, onClose, onCh
 
   // Close on Escape
   useEffect(() => {
+    if (showAdd || editTx) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, showAdd, editTx])
 
   function refresh() { setRefreshKey(k => k + 1); onChanged() }
 

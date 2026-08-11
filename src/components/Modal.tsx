@@ -27,7 +27,7 @@ export function Modal({ title, onClose, children, large, wide, closeOnBackdrop =
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40"
       onClick={e => { if (closeOnBackdrop && e.target === overlayRef.current) onClose() }}
     >
       <div className={`bg-white shadow-2xl flex flex-col transition-[width,height] ${maximized ? 'w-[calc(100vw-16px)] h-[calc(100vh-16px)] max-h-none rounded-lg' : `max-h-[94vh] rounded-xl ${wide ? 'w-[min(96vw,1500px)]' : large ? 'w-[min(92vw,720px)]' : 'w-[min(92vw,420px)]'}`}`}>
