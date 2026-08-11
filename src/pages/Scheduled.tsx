@@ -34,7 +34,10 @@ export function ScheduledPage({ accounts, categories, onRefreshAccounts: onRefre
     setAnalysing(true)
     setAnalysisError(null)
     const activeAccountIds = new Set(accounts.filter(account => account.isActive).map(account => account.id))
-    Promise.all([api.transactions.list(), api.scheduled.dismissedSuggestionKeys()])
+    const currentYear = new Date().getFullYear()
+    const dateFrom = `${currentYear}-01-01`
+    const dateTo = today()
+    Promise.all([api.transactions.list({ dateFrom, dateTo }), api.scheduled.dismissedSuggestionKeys()])
       .then(([history, dismissedKeys]) => {
         const dismissed = new Set(dismissedKeys)
         setSuggestions(discoverScheduledSuggestions(history.filter(transaction => activeAccountIds.has(transaction.accountId)), nextScheduled).filter(suggestion => !dismissed.has(suggestion.key)))
@@ -142,7 +145,7 @@ export function ScheduledPage({ accounts, categories, onRefreshAccounts: onRefre
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-600"><Sparkles size={16} /></span>
             <div>
               <h3 className="text-sm font-semibold text-slate-800">Suggested from transaction history</h3>
-              <p className="mt-0.5 text-xs text-slate-500">Repeated merchants ranked by timing, amount stability and supporting history.</p>
+              <p className="mt-0.5 text-xs text-slate-500">Repeated merchants ranked by timing, amount stability and supporting history since 1 January {new Date().getFullYear()}.</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
