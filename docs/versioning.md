@@ -2,9 +2,9 @@
 
 Rangels uses semantic versions in project metadata and shorter display versions in the interface.
 
-- Display name: `Rangels V0.10`
-- Semantic version: `0.10.0`
-- Git release tag: `v0.10.0`
+- Display name: `Rangels V0.11`
+- Semantic version: `0.11.0`
+- Git release tag: `v0.11.0`
 
 ## Version policy
 

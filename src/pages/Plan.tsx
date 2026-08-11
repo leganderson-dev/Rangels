@@ -1,123 +1,157 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, RotateCcw, Users } from 'lucide-react'
+import { AlertCircle, ArrowDown, Check, CircleDollarSign, Flame, PiggyBank, RotateCcw, Target, Users, WalletCards } from 'lucide-react'
 import { api } from '../api'
-import type { AllocationPlanSummary, Transaction } from '../types/finance'
+import type { AllocationPlanSummary, Budget, Transaction } from '../types/finance'
 import { fmt, monthName } from '../utils'
 
-interface Props {
-  month: number
-  year: number
+interface Props { month: number; year: number }
+
+const BUCKET_TONES: Record<string, { bar: string; pale: string; text: string; icon: typeof WalletCards }> = {
+  'Daily Expenses': { bar: 'bg-blue-500', pale: 'bg-blue-50', text: 'text-blue-700', icon: WalletCards },
+  Splurge: { bar: 'bg-violet-500', pale: 'bg-violet-50', text: 'text-violet-700', icon: CircleDollarSign },
+  Smile: { bar: 'bg-pink-500', pale: 'bg-pink-50', text: 'text-pink-700', icon: PiggyBank },
+  'Fire Extinguisher': { bar: 'bg-orange-500', pale: 'bg-orange-50', text: 'text-orange-700', icon: Flame },
+}
+
+function monthEnd(month: number, year: number) {
+  return new Date(year, month, 0).toISOString().slice(0, 10)
+}
+
+function householdIncome(rows: Transaction[]) {
+  return rows.filter(row => !row.isTransfer && row.status === 'C' && row.contextName === 'Household' && row.amount > 0)
+    .reduce((sum, row) => sum + row.amount, 0)
+}
+
+function bucketUse(rows: Transaction[], bucketId: string) {
+  return rows.filter(row => !row.isTransfer && row.status === 'C' && row.contextName === 'Household' && row.bucketId === bucketId && row.amount < 0)
+    .reduce((sum, row) => sum + Math.abs(row.amount), 0)
 }
 
 export function PlanPage({ month, year }: Props) {
   const [plan, setPlan] = useState<AllocationPlanSummary | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [ytdTransactions, setYtdTransactions] = useState<Transaction[]>([])
+  const [budgets, setBudgets] = useState<Budget[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    setLoading(true)
-    setError('')
+    setLoading(true); setError('')
     Promise.all([
       api.allocation.plan(),
       api.transactions.list({ month, year }),
-    ]).then(([nextPlan, nextTransactions]) => {
-      setPlan(nextPlan)
-      setTransactions(nextTransactions)
+      api.transactions.list({ dateFrom: `${year}-01-01`, dateTo: monthEnd(month, year) }),
+      api.budgets.list(month, year),
+    ]).then(([nextPlan, nextTransactions, nextYtd, nextBudgets]) => {
+      setPlan(nextPlan); setTransactions(nextTransactions); setYtdTransactions(nextYtd); setBudgets(nextBudgets)
     }).catch(reason => setError(reason instanceof Error ? reason.message : String(reason)))
       .finally(() => setLoading(false))
   }, [month, year])
 
-  const householdTransactions = useMemo(
-    () => transactions.filter(transaction => !transaction.isTransfer && transaction.contextName === 'Household'),
-    [transactions],
-  )
-  const availableIncome = householdTransactions
-    .filter(transaction => transaction.amount > 0)
-    .reduce((sum, transaction) => sum + transaction.amount, 0)
-  const actualByBucket = useMemo(() => {
-    const result = new Map<string, number>()
-    for (const transaction of transactions) {
-      if (transaction.amount >= 0 || !transaction.bucketId) continue
-      result.set(transaction.bucketId, (result.get(transaction.bucketId) ?? 0) + Math.abs(transaction.amount))
-    }
-    return result
-  }, [transactions])
+  const availableIncome = householdIncome(transactions)
+  const ytdIncome = householdIncome(ytdTransactions)
+  const householdRows = useMemo(() => transactions.filter(row => !row.isTransfer && row.status === 'C' && row.contextName === 'Household'), [transactions])
+  const totalHouseholdSpend = householdRows.filter(row => row.amount < 0).reduce((sum, row) => sum + Math.abs(row.amount), 0)
+  const attributedMembers = useMemo(() => {
+    const names = [...new Set(householdRows.map(row => row.memberName).filter(Boolean))]
+    return names.map(name => {
+      const rows = householdRows.filter(row => row.memberName === name)
+      return {
+        name,
+        income: rows.filter(row => row.amount > 0).reduce((sum, row) => sum + row.amount, 0),
+        spending: rows.filter(row => row.amount < 0).reduce((sum, row) => sum + Math.abs(row.amount), 0),
+        bucketSpend: new Map((plan?.targets ?? []).map(target => [target.bucketId, bucketUse(rows, target.bucketId)])),
+      }
+    })
+  }, [householdRows, plan])
 
-  if (loading) return <div className="h-full overflow-auto p-6 text-sm text-slate-500">Loading the shared household plan…</div>
+  if (loading) return <div className="h-full overflow-auto p-6 text-sm text-slate-500">Loading allocation reporting…</div>
   if (error) return <div className="m-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
   if (!plan) return <div className="m-6 rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">No active allocation plan is configured.</div>
 
+  const allocatedTotal = plan.targets.reduce((sum, target) => sum + availableIncome * target.targetPercentage / 100, 0)
+  const targetTotal = plan.targets.reduce((sum, target) => sum + target.targetPercentage, 0)
+
   return (
-    <div className="h-full overflow-auto bg-slate-50 p-6">
-      <div className="mx-auto max-w-6xl space-y-5">
-        <div className="flex items-end justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">{plan.contextName}</p>
-            <h1 className="mt-1 text-2xl font-bold text-slate-900">Shared allocation plan</h1>
-            <p className="mt-1 text-sm text-slate-500">One household plan for Anderson and Julia, with individual allowances and contribution visibility.</p>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-right shadow-sm">
-            <p className="text-xs text-slate-400">Available income · {monthName(month)} {year}</p>
-            <p className="mt-0.5 text-xl font-bold text-emerald-700">{fmt(availableIncome)}</p>
-            <p className="mt-1 text-[10px] text-slate-400">Household-classified income only</p>
-          </div>
-        </div>
+    <div className="h-full overflow-auto bg-slate-50 p-5">
+      <div className="mx-auto max-w-7xl space-y-5">
+        <header className="flex flex-wrap items-end justify-between gap-4">
+          <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">{plan.contextName} · {monthName(month)} {year}</p><h1 className="mt-1 text-2xl font-bold text-slate-900">Income allocation & performance</h1><p className="mt-1 text-sm text-slate-500">Targets show intent. Classified transactions show reality. Transfers remain ledger-neutral.</p></div>
+          <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700"><Check size={14} /> {targetTotal}% allocated</div>
+        </header>
 
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-            <div>
-              <h2 className="font-semibold text-slate-800">{plan.name}</h2>
-              <p className="text-xs text-slate-400">Targets describe shares of incoming eligible household income.</p>
-            </div>
-            <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">
-              <Check size={14} /> {plan.targets.reduce((sum, target) => sum + target.targetPercentage, 0)}% allocated
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Metric label="Eligible household income" value={availableIncome} detail="Allocation source this month" tone="emerald" />
+          <Metric label="Target allocations" value={allocatedTotal} detail={`${targetTotal}% of eligible income`} tone="blue" />
+          <Metric label="Household spending" value={totalHouseholdSpend} detail="All Household expenses" tone="slate" />
+          <Metric label="Unspent target movement" value={allocatedTotal - totalHouseholdSpend} detail="This month; not a bank balance" tone={allocatedTotal - totalHouseholdSpend >= 0 ? 'emerald' : 'red'} />
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold text-slate-900">Where the household income flows</h2><p className="mt-1 text-xs text-slate-500">Every target receives its percentage in parallel from the same eligible income—not one Bucket after another.</p></div><span className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs text-slate-600">Transfers excluded</span></div>
+          <div className="mt-5 grid items-stretch gap-3 lg:grid-cols-[220px_42px_1fr]">
+            <div className="flex flex-col justify-center rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-5 text-center"><span className="text-xs font-semibold uppercase tracking-wider text-emerald-700">All eligible income</span><strong className="mt-2 text-2xl text-emerald-800">{fmt(availableIncome)}</strong><span className="mt-1 text-[11px] text-emerald-700">Household context</span></div>
+            <div className="hidden items-center justify-center lg:flex"><ArrowDown className="-rotate-90 text-slate-300" /></div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {plan.targets.map(target => <FlowBucket key={target.id} target={target} income={availableIncome} />)}
             </div>
           </div>
+        </section>
 
-          <div className="grid grid-cols-[1fr_120px_150px_150px] border-b border-slate-100 px-5 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            <span>Allocation</span><span className="text-right">Target</span><span className="text-right">Actual</span><span className="text-right">Variance</span>
+        <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4"><div><h2 className="font-semibold text-slate-900">Target versus actual use</h2><p className="text-xs text-slate-500">Actual use counts Household expenses assigned to each Bucket.</p></div><span className="text-xs text-slate-400">{monthName(month)} {year}</span></div>
+          <div className="grid grid-cols-[minmax(180px,1fr)_110px_110px_110px] border-b border-slate-100 px-5 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400"><span>Bucket</span><span className="text-right">Target</span><span className="text-right">Used</span><span className="text-right">Movement</span></div>
+          {plan.targets.map(target => <PerformanceRow key={target.id} target={target} income={availableIncome} rows={transactions} />)}
+        </section>
+
+        <section className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-100 px-5 py-4"><h2 className="font-semibold text-slate-900">Year-to-date roll-forward movement</h2><p className="mt-1 text-xs text-slate-500">January through {monthName(month)}. This excludes opening entitlement balances and approved allowance movements.</p></div>
+            <div className="divide-y divide-slate-100">
+              {plan.targets.map(target => {
+                const allocated = ytdIncome * target.targetPercentage / 100
+                const used = bucketUse(ytdTransactions, target.bucketId)
+                return <div key={target.id} className="grid grid-cols-[1fr_auto] gap-4 px-5 py-3"><div><p className="text-sm font-medium text-slate-700">{target.name}</p><p className="mt-0.5 text-[11px] text-slate-400">{fmt(allocated)} allocated − {fmt(used)} used</p></div><strong className={allocated - used >= 0 ? 'text-emerald-600' : 'text-red-500'}>{fmt(allocated - used, true)}</strong></div>
+              })}
+            </div>
+            <div className="flex gap-2 border-t border-amber-100 bg-amber-50 px-5 py-3 text-xs leading-5 text-amber-800"><AlertCircle size={16} className="mt-0.5 shrink-0" /><span><strong>Not yet an authoritative available balance.</strong> Opening balances, automatic allocation-ledger credits and audited member movements must be added before this can answer “how much do I have?”</span></div>
           </div>
-          {plan.targets.map(target => {
-            const targetAmount = availableIncome * target.targetPercentage / 100
-            const actual = actualByBucket.get(target.bucketId) ?? 0
-            const variance = targetAmount - actual
-            return (
-              <div key={target.id} className="grid grid-cols-[1fr_120px_150px_150px] items-center border-b border-slate-100 px-5 py-4 last:border-0">
-                <div>
-                  <p className="font-semibold text-slate-800">{target.name}</p>
-                  {(target.name === 'Splurge' || target.name === 'Smile') && (
-                    <p className="mt-1 flex items-center gap-1 text-xs text-blue-600"><Users size={12} /> Individual allowances · Anderson and Julia</p>
-                  )}
-                  {(target.name === 'Splurge' || target.name === 'Smile') && (
-                    <p className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-400"><RotateCcw size={10} /> Unused allowance rolls forward</p>
-                  )}
-                </div>
-                <div className="text-right"><p className="font-semibold text-slate-700">{fmt(targetAmount)}</p><p className="text-xs text-slate-400">{target.targetPercentage}%</p></div>
-                <p className="text-right font-semibold text-slate-700">{fmt(actual)}</p>
-                <p className={`text-right font-semibold ${variance >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{variance >= 0 ? '+' : ''}{fmt(variance)}</p>
-              </div>
-            )
-          })}
-        </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          {['Anderson', 'Julia'].map(member => {
-            const memberTransactions = householdTransactions.filter(transaction => transaction.memberName === member)
-            const contributed = memberTransactions.filter(transaction => transaction.amount > 0).reduce((sum, transaction) => sum + transaction.amount, 0)
-            const spent = memberTransactions.filter(transaction => transaction.amount < 0).reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0)
-            return (
-              <div key={member} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-50 text-sm font-bold text-blue-700">{member[0]}</span><h3 className="font-semibold text-slate-800">{member}</h3></div>
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div><p className="text-xs text-slate-400">Income contributed</p><p className="mt-1 font-semibold text-emerald-700">{fmt(contributed)}</p></div>
-                  <div><p className="text-xs text-slate-400">Purchases effectuated</p><p className="mt-1 font-semibold text-slate-700">{fmt(spent)}</p></div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-2"><Target size={17} className="text-blue-600" /><h2 className="font-semibold text-slate-900">Budgets are a separate control</h2></div><p className="mt-2 text-xs leading-5 text-slate-500">Allocation decides how eligible income is divided between Buckets. Budgets limit specific Purposes during this month.</p><div className="mt-4 grid grid-cols-2 gap-3"><MiniMetric label="Purpose budgets" value={String(budgets.length)} /><MiniMetric label="Budgeted" value={fmt(budgets.reduce((sum, budget) => sum + budget.amount, 0))} /><MiniMetric label="Budget spent" value={fmt(budgets.reduce((sum, budget) => sum + budget.spent, 0))} /><MiniMetric label="Remaining" value={fmt(budgets.reduce((sum, budget) => sum + budget.amount - budget.spent, 0), true)} /></div></div>
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-5 py-4"><div className="flex items-center gap-2"><Users size={17} className="text-violet-600" /><h2 className="font-semibold text-slate-900">Who contributed and who made the purchase</h2></div><p className="mt-1 text-xs text-slate-500">Account ownership provides attribution. It does not yet divide Splurge or Smile entitlement.</p></div>
+          <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-3">
+            {attributedMembers.map(member => <MemberCard key={member.name} member={member} plan={plan} />)}
+            {attributedMembers.length === 0 && <p className="text-sm text-slate-400">No attributed Household activity this month.</p>}
+          </div>
+          <div className="flex gap-2 border-t border-violet-100 bg-violet-50 px-5 py-3 text-xs leading-5 text-violet-800"><RotateCcw size={15} className="mt-0.5 shrink-0" /><span>Before individual available balances can be shown, Rangels still needs the agreed Anderson / Julia / Shared split, opening balances, and an immutable movement ledger.</span></div>
+        </section>
       </div>
     </div>
   )
+}
+
+function Metric({ label, value, detail, tone }: { label: string; value: number; detail: string; tone: 'emerald' | 'blue' | 'slate' | 'red' }) {
+  const colors = { emerald: 'text-emerald-700', blue: 'text-blue-700', slate: 'text-slate-800', red: 'text-red-600' }
+  return <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs text-slate-400">{label}</p><p className={`mt-1 text-xl font-bold ${colors[tone]}`}>{fmt(value, tone === 'red')}</p><p className="mt-1 text-[10px] text-slate-400">{detail}</p></div>
+}
+
+function FlowBucket({ target, income }: { target: AllocationPlanSummary['targets'][number]; income: number }) {
+  const tone = BUCKET_TONES[target.name] ?? BUCKET_TONES['Daily Expenses']; const Icon = tone.icon
+  return <div className={`rounded-xl p-4 ${tone.pale}`}><div className="flex items-center justify-between"><Icon size={17} className={tone.text} /><strong className={`text-sm ${tone.text}`}>{target.targetPercentage}%</strong></div><p className="mt-3 text-sm font-semibold text-slate-800">{target.name}</p><p className="mt-1 text-lg font-bold text-slate-900">{fmt(income * target.targetPercentage / 100)}</p></div>
+}
+
+function PerformanceRow({ target, income, rows }: { target: AllocationPlanSummary['targets'][number]; income: number; rows: Transaction[] }) {
+  const targetAmount = income * target.targetPercentage / 100; const used = bucketUse(rows, target.bucketId); const movement = targetAmount - used
+  const progress = targetAmount > 0 ? Math.min(100, used / targetAmount * 100) : used > 0 ? 100 : 0
+  const tone = BUCKET_TONES[target.name] ?? BUCKET_TONES['Daily Expenses']
+  return <div className="grid grid-cols-[minmax(180px,1fr)_110px_110px_110px] items-center border-b border-slate-100 px-5 py-4 last:border-0"><div className="pr-5"><div className="flex items-center justify-between gap-3"><span className="text-sm font-semibold text-slate-800">{target.name}</span><span className="text-[10px] text-slate-400">{Math.round(progress)}%</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${movement < 0 ? 'bg-red-500' : tone.bar}`} style={{ width: `${progress}%` }} /></div></div><span className="text-right text-sm font-semibold text-slate-700">{fmt(targetAmount)}</span><span className="text-right text-sm font-semibold text-slate-700">{fmt(used)}</span><span className={`text-right text-sm font-bold ${movement >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmt(movement, true)}</span></div>
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) { return <div className="rounded-lg bg-slate-50 p-3"><p className="text-[10px] uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 text-sm font-semibold text-slate-800">{value}</p></div> }
+
+function MemberCard({ member, plan }: { member: { name: string; income: number; spending: number; bucketSpend: Map<string, number> }; plan: AllocationPlanSummary }) {
+  return <div className="rounded-xl border border-slate-200 p-4"><div className="flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-50 text-sm font-bold text-violet-700">{member.name[0]}</span><h3 className="font-semibold text-slate-800">{member.name}</h3></div><div className="mt-3 grid grid-cols-2 gap-2 text-xs"><div><p className="text-slate-400">Income contributed</p><p className="mt-1 font-semibold text-emerald-700">{fmt(member.income)}</p></div><div><p className="text-slate-400">Purchases made</p><p className="mt-1 font-semibold text-slate-700">{fmt(member.spending)}</p></div></div><div className="mt-3 space-y-1.5 border-t border-slate-100 pt-3">{plan.targets.filter(target => target.name === 'Splurge' || target.name === 'Smile').map(target => <div key={target.id} className="flex justify-between text-xs"><span className="text-slate-500">{target.name} used</span><strong className="text-slate-700">{fmt(member.bucketSpend.get(target.bucketId) ?? 0)}</strong></div>)}</div></div>
 }
