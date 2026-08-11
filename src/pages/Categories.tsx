@@ -35,13 +35,15 @@ export function CategoriesPage({ categories, onRefreshCategories }: Props) {
   const families = [...new Set(visible.map(item => item.parentName ?? 'Other'))]
   const allFamilies = [...new Set(categories.map(item => item.parentName ?? 'Other'))]
 
-  const openPurpose = (category?: Category) => {
+  const openPurpose = (category?: Category, family?: string) => {
     setError('')
     setNewGroup(false)
     setEditing(category ?? null)
+    const selectedFamily = family ?? allFamilies[0] ?? ''
+    const familyDefaultType = categories.find(item => (item.parentName ?? 'Other') === selectedFamily)?.type === 'income' ? 'income' : 'expense'
     setDraft(category
       ? { name: category.name, family: category.parentName ?? 'Other', type: category.type === 'income' ? 'income' : 'expense' }
-      : { ...emptyDraft, family: allFamilies[0] ?? '' })
+      : { ...emptyDraft, family: selectedFamily, type: familyDefaultType })
   }
 
   const openGroup = () => {
@@ -115,7 +117,10 @@ export function CategoriesPage({ categories, onRefreshCategories }: Props) {
             <section key={family} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
               <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-3">
                 <h2 className="text-sm font-semibold text-slate-800">{family}</h2>
-                <button onClick={() => { setError(''); setRenamingFamily(family); setRenameValue(family) }} className="rounded p-1 text-slate-400 hover:bg-white hover:text-slate-700" title="Rename group"><Pencil size={14} /></button>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => openPurpose(undefined, family)} className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50" title={`Add a Purpose to ${family}`}><Plus size={13} /> Add</button>
+                  <button onClick={() => { setError(''); setRenamingFamily(family); setRenameValue(family) }} className="rounded p-1 text-slate-400 hover:bg-white hover:text-slate-700" title="Rename group"><Pencil size={14} /></button>
+                </div>
               </div>
               <div className="divide-y divide-slate-100">
                 {visible.filter(item => (item.parentName ?? 'Other') === family).map(item => (
