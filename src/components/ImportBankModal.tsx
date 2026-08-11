@@ -70,7 +70,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   const [collapsedGroups, setCollapsedGroups] = useState<Set<ConfidenceGroup>>(new Set())
   const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>('all')
   const [directionFilter, setDirectionFilter] = useState<DirectionFilter>('all')
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+  const [expandedRow, setExpandedRow] = useState<number | null>(null)
   const [changedSuggestionRows, setChangedSuggestionRows] = useState<Set<number>>(new Set())
   const [rememberRuleRows, setRememberRuleRows] = useState<Set<number>>(new Set())
   const [loadError, setLoadError] = useState('')
@@ -122,7 +122,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
       setIncluded(new Set(preview.rows.filter(r => !r.duplicate).map(r => r.index)))
       setConfidenceFilter('all')
       setDirectionFilter('all')
-      setExpandedRows(new Set())
+      setExpandedRow(null)
       setChangedSuggestionRows(new Set())
       setRememberRuleRows(new Set())
       setStep('categorize')
@@ -285,7 +285,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
                     </button>
                   </div>
                   {!collapsedGroups.has(group.key) && group.rows.map(row => {
-                    return <ImportRow key={row.index} row={row} categories={categories} options={classificationOptions} classification={classifications[row.index] ?? classificationFromPurpose(null, classificationOptions)} onClassificationChange={classification => { setClassifications(current => ({ ...current, [row.index]: classification })); setChangedSuggestionRows(current => new Set(current).add(row.index)) }} included={included.has(row.index)} onIncluded={() => setIncluded(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} expanded={expandedRows.has(row.index)} onToggleExpanded={() => setExpandedRows(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} assignedCategoryId={assignments[row.index] ?? null} suggestionChanged={changedSuggestionRows.has(row.index)} rememberRule={rememberRuleRows.has(row.index)} onRememberRule={() => setRememberRuleRows(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} focused={focusRow === row.index} catOpen={catOpen === row.index} catSearch={catSearch[row.index] ?? ''} onFocus={() => setFocusRow(row.index)} onOpenCat={() => setCatOpen(row.index)} onCloseCat={() => setCatOpen(null)} onCatSearch={s => setCatSearch(c => ({ ...c, [row.index]: s }))} onAssign={catId => changeSuggestion(row, catId)} />
+                    return <ImportRow key={row.index} row={row} categories={categories} options={classificationOptions} classification={classifications[row.index] ?? classificationFromPurpose(null, classificationOptions)} onClassificationChange={classification => { setClassifications(current => ({ ...current, [row.index]: classification })); setChangedSuggestionRows(current => new Set(current).add(row.index)) }} included={included.has(row.index)} onIncluded={() => setIncluded(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} expanded={expandedRow === row.index} onToggleExpanded={() => { setExpandedRow(current => current === row.index ? null : row.index); setCatOpen(null) }} assignedCategoryId={assignments[row.index] ?? null} suggestionChanged={changedSuggestionRows.has(row.index)} rememberRule={rememberRuleRows.has(row.index)} onRememberRule={() => setRememberRuleRows(current => { const next = new Set(current); next.has(row.index) ? next.delete(row.index) : next.add(row.index); return next })} focused={focusRow === row.index} catOpen={catOpen === row.index} catSearch={catSearch[row.index] ?? ''} onFocus={() => setFocusRow(row.index)} onOpenCat={() => setCatOpen(row.index)} onCloseCat={() => setCatOpen(null)} onCatSearch={s => setCatSearch(c => ({ ...c, [row.index]: s }))} onAssign={catId => changeSuggestion(row, catId)} />
                   })}
                 </div>
               ))}
@@ -363,12 +363,13 @@ function ClassificationEditor({ classification, options, editingField, onEdit, o
     { key: 'reimbursement' as const, label: 'Reimbursement', value: classification.reimbursementStatus === 'to_be_reimbursed' ? 'To be reimbursed' : classification.reimbursementStatus === 'reimbursed' ? 'Reimbursed' : 'None', score: 'Manual' },
     { key: 'tags' as const, label: 'Tags', value: classification.tags.length ? classification.tags.join(', ') : '—', score: classification.tags.length ? 'Manual' : '—' },
   ]
-  return <div className="mt-2 overflow-hidden rounded-md border border-slate-100 bg-slate-50/80">
-    {rows.map(row => <div key={row.key} className="border-b border-slate-100 last:border-0">
-      <div className="grid grid-cols-[92px_minmax(0,1fr)_46px_24px] items-center gap-1 px-2 py-1 text-[9px]">
-        <span className="font-semibold text-slate-400">{row.label}</span><span className={`truncate ${row.value === 'Requires review' ? 'text-amber-600' : 'text-slate-600'}`}>{row.value}</span><span className="text-right tabular-nums text-slate-400">{row.score}</span><button onClick={event => { event.stopPropagation(); onEdit(editingField === row.key ? null : row.key) }} className="rounded p-1 text-slate-400 hover:bg-white hover:text-blue-600" title={`Edit ${row.label.toLowerCase()}`}><Pencil size={10} /></button>
+  return <div className="mt-2 grid grid-cols-3 gap-1.5 rounded-md bg-slate-50/80 p-1.5">
+    {rows.map(row => <div key={row.key} className={`min-w-0 rounded-md border px-2 py-1.5 ${editingField === row.key ? 'border-blue-200 bg-white ring-1 ring-blue-100' : 'border-slate-100 bg-white/70'}`}>
+      <div className="flex items-center gap-1 text-[9px]">
+        <span className="font-semibold uppercase tracking-wide text-slate-400">{row.label}</span><span className="ml-auto tabular-nums text-slate-400">{row.score}</span><button onClick={event => { event.stopPropagation(); onEdit(editingField === row.key ? null : row.key) }} className="rounded p-0.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600" title={`Edit ${row.label.toLowerCase()}`}><Pencil size={10} /></button>
       </div>
-      {editingField === row.key && <div className="border-t border-blue-100 bg-white p-1.5" onClick={event => event.stopPropagation()}>
+      <p className={`mt-0.5 truncate text-[10px] ${row.value === 'Requires review' ? 'text-amber-600' : 'text-slate-600'}`} title={row.value}>{row.value}</p>
+      {editingField === row.key && <div className="mt-1 border-t border-blue-50 pt-1" onClick={event => event.stopPropagation()}>
         {row.key === 'purpose' && <select autoFocus value={classification.canonicalCategoryId ?? ''} onChange={event => { const canonicalCategoryId = event.target.value || null; const nextPurpose = options.categories.find(item => item.id === canonicalCategoryId); onChange({ ...classification, canonicalCategoryId, bucketId: nextPurpose?.type === 'income' ? null : classification.bucketId }) }} className="w-full rounded border border-blue-300 px-2 py-1 text-[10px]"><option value="">Requires review</option>{[...new Set(options.categories.map(item => item.family))].map(family => <optgroup key={family} label={family}>{options.categories.filter(item => item.family === family).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>)}</select>}
         {row.key === 'context' && <select autoFocus value={classification.contextId ?? ''} onChange={event => { const contextId = event.target.value || null; const nextContext = options.contexts.find(item => item.id === contextId); onChange({ ...classification, contextId, bucketId: canUseHouseholdBucket(nextContext?.name, purpose?.type) ? classification.bucketId : null }) }} className="w-full rounded border border-blue-300 px-2 py-1 text-[10px]"><option value="">Requires review</option>{options.contexts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
         {row.key === 'bucket' && <select autoFocus value={classification.bucketId ?? ''} disabled={!householdExpense} onChange={event => onChange({ ...classification, bucketId: event.target.value || null })} className="w-full rounded border border-blue-300 px-2 py-1 text-[10px] disabled:bg-slate-100"><option value="">{emptyBucketLabel(context?.name, purpose?.type)}</option>{householdExpense && options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
@@ -483,8 +484,9 @@ function ImportRow({ row, categories, options, classification, onClassificationC
         {suggestionChanged && classification.canonicalCategoryId && <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800"><input type="checkbox" checked={rememberRule} onChange={onRememberRule} className="mt-0.5" /><span><strong>Remember this for future imports</strong><span className="mt-0.5 block text-[10px] text-emerald-700">Save this merchant’s Purpose, Context, Bucket and Tax defaults when the import is completed.</span></span></label>}
 
         {catOpen && (
-          <div className="mt-2 w-full bg-white border border-gray-200 rounded-lg shadow-sm">
-            <div className="p-1.5 border-b border-gray-100">
+          <div className="absolute right-0 top-10 z-40 w-[min(560px,80vw)] bg-white border border-gray-200 rounded-lg shadow-xl">
+            <div className="border-b border-gray-100 px-2.5 py-2">
+              <p className="mb-1 truncate text-[10px] font-semibold text-slate-500" title={row.description}>Set purpose for: {row.description}</p>
               <input
                 ref={inputRef}
                 value={catSearch}
@@ -502,7 +504,7 @@ function ImportRow({ row, categories, options, classification, onClassificationC
                 }}
               />
             </div>
-            <div className="max-h-40 overflow-y-auto">
+            <div className="max-h-48 overflow-y-auto">
               <button onMouseDown={() => onAssign(null)} className="w-full text-left px-2 py-1.5 text-xs text-gray-400 hover:bg-gray-50">
                 No category
               </button>
