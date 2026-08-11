@@ -1376,7 +1376,7 @@ export const api = {
             : 0
           const total = income + expenses + transferMovement
           running += total
-          return { date, total, income, expenses, balance: running }
+          return { date, total, income, expenses, balance: running, transactionCount: rows.length }
         })
       return { startBalance, days }
     },

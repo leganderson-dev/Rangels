@@ -12,6 +12,7 @@ interface CalendarDay {
   income: number
   expenses: number
   balance: number
+  transactionCount: number
 }
 
 interface Props {
@@ -154,7 +155,15 @@ export function CalendarPage({ accounts, categories, selectedAccountId, month, y
                     isToday && !isSelected ? 'ring-2 ring-inset ring-blue-300' : '',
                   ].filter(Boolean).join(' ')}
                 >
-                  <div className="flex justify-end">
+                  <div className="flex items-center justify-between gap-2">
+                    {cell.isCurrentMonth && cell.data && cell.data.transactionCount > 1 ? (
+                      <span
+                        className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500"
+                        title={`${cell.data.transactionCount} transactions`}
+                      >
+                        {cell.data.transactionCount} txns
+                      </span>
+                    ) : <span />}
                     {isToday ? (
                       <span className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">
                         {cell.day}
