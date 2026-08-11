@@ -8,7 +8,6 @@ import { BulkTransactionEditModal } from '../components/BulkTransactionEditModal
 import { ImportBankModal } from '../components/ImportBankModal'
 import { ImportAlzexButton } from '../components/ImportAlzexButton'
 import type { Transaction, Account, Category, ScheduledTransaction, AccountLedgerSummary } from '../types/finance'
-import { merchantDisplayName } from '../lib/merchants'
 import { transferReasonLabel } from '../lib/transfers'
 
 interface Props {
@@ -114,7 +113,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
 
   const [sortCol, setSortCol] = useState<string>('date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
-  const [colWidths, setColWidths] = useState({ amount: 112, category: 160, date: 80, account: 112 })
+  const [colWidths, setColWidths] = useState({ amount: 112, context: 132, purpose: 176, bucket: 120, date: 80, account: 132 })
 
   function startResize(col: keyof typeof colWidths, e: React.MouseEvent) {
     e.preventDefault()
@@ -212,7 +211,9 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
     const getVal = (t: Transaction) => {
       if (sortCol === 'amount') return t.amount
       if (sortCol === 'date') return t.date
-      if (sortCol === 'category') return t.categoryFullName ?? ''
+      if (sortCol === 'context') return t.contextName ?? ''
+      if (sortCol === 'purpose') return t.isTransfer ? transferReasonLabel(t.transferReason) : (t.canonicalCategoryName ?? t.categoryName ?? '')
+      if (sortCol === 'bucket') return t.bucketName ?? ''
       if (sortCol === 'account') return t.accountName ?? ''
       return t.description
     }
@@ -447,7 +448,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
       </div>
 
       {/* Transaction list */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-auto">
         {loading && <div className="flex items-center justify-center h-32 text-gray-400 text-sm">Loading…</div>}
         {!loading && transactions.length === 0 && (
           <div className="flex flex-col items-center justify-center h-48 text-gray-400">
@@ -463,7 +464,9 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
               className="rounded shrink-0" />
             <ColHeader label="Description" col="description" flex sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
             <ColHeader label="Amount" col="amount" width={colWidths.amount} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} onResize={e => startResize('amount', e)} />
-            <ColHeader label="Purpose / Transfer reason" col="category" width={colWidths.category} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} onResize={e => startResize('category', e)} />
+            <ColHeader label="Context" col="context" width={colWidths.context} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} onResize={e => startResize('context', e)} />
+            <ColHeader label="Purpose" col="purpose" width={colWidths.purpose} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} onResize={e => startResize('purpose', e)} />
+            <ColHeader label="Bucket" col="bucket" width={colWidths.bucket} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} onResize={e => startResize('bucket', e)} />
             <ColHeader label="Date" col="date" width={colWidths.date} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} onResize={e => startResize('date', e)} />
             <ColHeader label="Account" col="account" width={colWidths.account} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} onResize={e => startResize('account', e)} />
             <div className="w-16 shrink-0" />
@@ -792,7 +795,7 @@ function buildHierarchyGroups(transactions: Transaction[], catMap: Map<string, C
 
 // ─── Transaction row ─────────────────────────────────────────────────────────
 
-type ColWidths = { amount: number; category: number; date: number; account: number }
+type ColWidths = { amount: number; context: number; purpose: number; bucket: number; date: number; account: number }
 
 function TransactionRow({ tx, selected, selectedCount, categories, colWidths, indent = 'single', onSelect, onEdit, onDelete, onCategoryChange, onRightClick, onDragStart, onDragEnd }: {
   tx: Transaction; selected: boolean; selectedCount: number; categories: Category[]
@@ -809,8 +812,6 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
   const dropRef = useRef<HTMLDivElement>(null)
   const [dropPos, setDropPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
   const applyingToMany = selected && selectedCount > 1
-  const displayDescription = merchantDisplayName(tx.description)
-  const showSourceDescription = displayDescription.toLocaleLowerCase() !== tx.description.trim().toLocaleLowerCase()
   // No slice limit — show all categories; filter as user types
   const filteredCats = categories.filter(c => !q || c.fullName.toLowerCase().includes(q.toLowerCase()))
 
@@ -865,7 +866,7 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
       draggable
       onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; onDragStart?.() }}
       onDragEnd={onDragEnd}
-      className={`flex items-center gap-3 py-2.5 border-b border-gray-100/70 hover:bg-blue-50 group transition-colors cursor-grab active:cursor-grabbing ${selected ? 'bg-indigo-50/60' : ''} ${pl} ${pr}`}
+      className={`flex items-center gap-3 py-1.5 border-b border-gray-100/70 hover:bg-blue-50 group transition-colors cursor-grab active:cursor-grabbing ${selected ? 'bg-indigo-50/60' : ''} ${pl} ${pr}`}
       onContextMenu={e => { e.preventDefault(); onRightClick(e) }}
       onClick={e => { if (e.shiftKey || e.metaKey) { e.preventDefault(); onSelect(e.shiftKey, e.metaKey) } }}
       onDoubleClick={onEdit}
@@ -873,29 +874,20 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
       <input type="checkbox" checked={selected} onChange={() => {}}
         onClick={e => { e.stopPropagation(); onSelect(e.shiftKey, e.metaKey) }}
         className="rounded shrink-0 cursor-pointer" />
-      <div className="flex-1 min-w-0 py-0.5">
-        <p className="text-sm font-medium text-slate-700 truncate">{displayDescription}</p>
-        {showSourceDescription && (
-          <p className="mt-0.5 text-[10px] leading-tight text-slate-400 truncate" title={tx.description}>{tx.description}</p>
-        )}
-        {!tx.isTransfer && (tx.contextName || tx.canonicalCategoryName || tx.bucketName) && (
-          <p className="mt-0.5 text-[10px] leading-tight text-slate-400 truncate">
-            {[tx.contextName, tx.canonicalCategoryName && `${tx.canonicalCategoryFamily}: ${tx.canonicalCategoryName}`, tx.bucketName].filter(Boolean).join(' · ')}
-          </p>
-        )}
-        {tx.isTransfer && (
-          <p className="mt-0.5 text-[10px] leading-tight text-sky-600 truncate">
-            {[transferReasonLabel(tx.transferReason), tx.contextName].filter(Boolean).join(' · ')}
-          </p>
-        )}
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-medium text-slate-700 truncate" title={tx.description}>{tx.description}</p>
       </div>
       <span className={`text-sm font-bold text-right shrink-0 ${tx.amount > 0 && !tx.isTransfer ? 'text-emerald-600' : tx.isTransfer ? 'text-sky-600' : 'text-slate-700'}`}
         style={{ width: colWidths.amount }}>
         {tx.isTransfer ? fmt(Math.abs(tx.amount)) : fmt(tx.amount)}
       </span>
 
+      <span className="text-xs text-slate-500 truncate shrink-0" style={{ width: colWidths.context }} title={tx.contextName ?? undefined}>
+        {tx.contextName ?? <span className="text-slate-300">—</span>}
+      </span>
+
       {/* Purpose for income/expenses; transfer reason for transfers. */}
-      <div ref={cellRef} className="shrink-0 relative" style={{ width: colWidths.category }}>
+      <div ref={cellRef} className="shrink-0 relative" style={{ width: colWidths.purpose }}>
         {tx.isTransfer ? (
           <div className="truncate text-xs font-medium text-sky-700" title={[transferReasonLabel(tx.transferReason), tx.contextName].filter(Boolean).join(' · ')}>
             <span className="inline-flex max-w-full items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5">
@@ -910,7 +902,7 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
               onKeyDown={handleInputKey} />
             <div ref={dropRef}
               className="bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto"
-              style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, width: Math.max(224, colWidths.category), zIndex: 9999 }}
+              style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, width: Math.max(224, colWidths.purpose), zIndex: 9999 }}
             >
               {applyingToMany && <div className="px-3 py-1.5 text-xs text-blue-600 bg-blue-50 border-b border-blue-100 font-medium">Applying to {selectedCount} selected</div>}
               <button onMouseDown={() => pickCat(null)} className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-50">Remove purpose</button>
@@ -927,16 +919,19 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
         ) : (
           <button onClick={openCat} className="w-full text-left rounded px-1 -mx-1 hover:bg-white/80 overflow-hidden"
             title={applyingToMany ? `Set purpose for ${selectedCount} selected` : 'Click to set purpose'}>
-            <CategoryPill name={tx.categoryFullName} color={tx.categoryColor} />
+            <CategoryPill name={tx.canonicalCategoryName ?? tx.categoryName ?? tx.categoryFullName} color={tx.categoryColor} />
             {applyingToMany && <span className="ml-1 text-[10px] text-blue-500 font-medium">×{selectedCount}</span>}
           </button>
         )}
       </div>
 
+      <span className="text-xs text-slate-500 truncate shrink-0" style={{ width: colWidths.bucket }} title={tx.bucketName ?? undefined}>
+        {tx.isTransfer ? <span className="text-slate-300">Not applicable</span> : (tx.bucketName ?? <span className="text-slate-300">—</span>)}
+      </span>
+
       <span className="text-xs text-gray-400 shrink-0" style={{ width: colWidths.date }}>{formatDate(tx.date)}</span>
       <span className="text-xs text-gray-400 truncate shrink-0" style={{ width: colWidths.account }} title={`${tx.accountName}${tx.isTransfer && tx.targetAccountName ? ` → ${tx.targetAccountName}` : ''} · ${tx.memberName}`}>
-        <span className="block truncate">{tx.isTransfer && tx.targetAccountName ? `${tx.accountName} → ${tx.targetAccountName}` : tx.accountName}</span>
-        <span className="block text-[10px] text-slate-300">{tx.memberName}</span>
+        {tx.isTransfer && tx.targetAccountName ? `${tx.accountName} → ${tx.targetAccountName}` : tx.accountName}
       </span>
       <div className="w-16 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
         <button onClick={onEdit} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700"><Edit2 size={12} /></button>
@@ -951,7 +946,7 @@ function TransactionRow({ tx, selected, selectedCount, categories, colWidths, in
 function ScheduledGhostRow({ s, colWidths }: { s: ScheduledTransaction; colWidths: ColWidths }) {
   const freqLabel = FREQUENCIES.find(f => f.value === s.frequency)?.label ?? s.frequency
   return (
-    <div className="flex items-center gap-3 px-4 pr-4 py-2.5 border-b border-dashed border-gray-100 opacity-50 hover:opacity-70 transition-opacity">
+    <div className="flex items-center gap-3 px-4 pr-4 py-1.5 border-b border-dashed border-gray-100 opacity-50 hover:opacity-70 transition-opacity">
       <div className="w-4 shrink-0" />
       <Calendar size={12} className="text-gray-400 shrink-0" />
       <span className="flex-1 text-sm text-gray-500 truncate min-w-0 italic">{s.description}</span>
@@ -959,8 +954,14 @@ function ScheduledGhostRow({ s, colWidths }: { s: ScheduledTransaction; colWidth
         style={{ width: colWidths.amount }}>
         {fmt(s.amount)}
       </span>
-      <div className="shrink-0 text-xs text-gray-400" style={{ width: colWidths.category }}>
-        {s.categoryFullName ?? <span className="text-gray-300">—</span>}
+      <div className="shrink-0 text-xs text-gray-400 truncate" style={{ width: colWidths.context }}>
+        {s.contextName ?? <span className="text-gray-300">—</span>}
+      </div>
+      <div className="shrink-0 text-xs text-gray-400 truncate" style={{ width: colWidths.purpose }}>
+        {s.isTransfer ? transferReasonLabel(s.transferReason) : (s.categoryName ?? s.categoryFullName ?? <span className="text-gray-300">—</span>)}
+      </div>
+      <div className="shrink-0 text-xs text-gray-400 truncate" style={{ width: colWidths.bucket }}>
+        {s.isTransfer ? <span className="text-gray-300">Not applicable</span> : (s.bucketName ?? <span className="text-gray-300">—</span>)}
       </div>
       <span className="text-xs text-gray-400 shrink-0" style={{ width: colWidths.date }}>{formatDate(s.nextDate)}</span>
       <span className="text-xs text-gray-400 truncate shrink-0" style={{ width: colWidths.account }}>{s.accountName}</span>
