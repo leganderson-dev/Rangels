@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rangels — Classification Guide</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17211d;
+      --muted: #62706a;
+      --line: #dce4df;
+      --paper: #fbfcfa;
+      --green: #176b4a;
+      --green-soft: #e9f7ef;
+      --blue: #176b91;
+      --blue-soft: #eaf5fb;
+      --amber: #a85b12;
+      --amber-soft: #fff5df;
+      --violet: #7047a8;
+      --violet-soft: #f4effb;
+      --red: #a63b3b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 15% 0%, #eef8f1 0, transparent 32rem),
+        radial-gradient(circle at 90% 12%, #edf5fa 0, transparent 35rem),
+        var(--paper);
+      font: 15px/1.55 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 54px 0 80px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 800px; margin-bottom: 14px; font-size: clamp(38px, 6vw, 70px); line-height: .98; letter-spacing: -.055em; }
+    h2 { margin-bottom: 18px; font-size: 25px; letter-spacing: -.025em; }
+    h3 { margin-bottom: 7px; font-size: 17px; }
+    .eyebrow { margin-bottom: 18px; color: var(--green); font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    .lede { max-width: 780px; color: var(--muted); font-size: 18px; }
+    .hero-note { display: inline-flex; gap: 8px; margin-top: 10px; padding: 9px 13px; border: 1px solid #bfe0cc; border-radius: 999px; background: rgba(255,255,255,.72); color: var(--green); font-size: 12px; font-weight: 700; }
+    section { margin-top: 46px; }
+    .grid { display: grid; gap: 16px; }
+    .concepts { grid-template-columns: repeat(3, 1fr); }
+    .card { padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: rgba(255,255,255,.88); box-shadow: 0 8px 30px rgba(31,52,42,.05); }
+    .concept { position: relative; overflow: hidden; min-height: 210px; }
+    .concept::after { position: absolute; right: -18px; bottom: -38px; color: rgba(23,107,74,.06); font-size: 130px; font-weight: 900; content: attr(data-number); }
+    .chip { display: inline-flex; align-items: center; min-height: 27px; margin-bottom: 14px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 800; }
+    .purpose { color: var(--blue); background: var(--blue-soft); }
+    .context { color: var(--violet); background: var(--violet-soft); }
+    .bucket { color: var(--green); background: var(--green-soft); }
+    .question { margin-bottom: 13px; font-size: 22px; font-weight: 750; letter-spacing: -.025em; }
+    .muted { color: var(--muted); }
+    .example { margin: 14px 0 0; padding-top: 13px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+    .example strong { color: var(--ink); }
+    .flow { display: grid; grid-template-columns: 1fr 44px 1fr 44px 1fr; align-items: stretch; gap: 9px; }
+    .flow-step { padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: white; }
+    .arrow { display: grid; place-items: center; color: #91a098; font-size: 26px; }
+    .type-grid { grid-template-columns: repeat(3, 1fr); }
+    .type-card { padding: 0; overflow: hidden; }
+    .type-head { padding: 18px 20px; border-bottom: 1px solid var(--line); }
+    .type-head p { margin: 3px 0 0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+    .income .type-head { background: var(--green-soft); color: var(--green); }
+    .expense .type-head { background: #fff0f0; color: var(--red); }
+    .transfer .type-head { background: var(--blue-soft); color: var(--blue); }
+    .rules { padding: 19px 20px 22px; }
+    .rule { display: grid; grid-template-columns: 24px 1fr; gap: 8px; margin: 0 0 12px; }
+    .tick { color: var(--green); font-weight: 900; }
+    .dash { color: #94a29b; font-weight: 900; }
+    .warning { margin-top: 14px; padding: 12px 13px; border: 1px solid #efd098; border-radius: 11px; background: var(--amber-soft); color: #805019; font-size: 13px; }
+    .decision { overflow: hidden; }
+    .decision-row { display: grid; grid-template-columns: 1.2fr 1fr 1fr 1fr; border-top: 1px solid var(--line); }
+    .decision-row:first-child { border-top: 0; }
+    .decision-row > div { padding: 13px 15px; }
+    .decision-row > div:not(:first-child) { border-left: 1px solid var(--line); }
+    .decision-head { color: var(--muted); background: #f4f7f5; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .yes { color: var(--green); font-weight: 750; }
+    .no { color: #8a9690; }
+    .examples { grid-template-columns: repeat(2, 1fr); }
+    .transaction { display: grid; grid-template-columns: 145px 1fr; gap: 6px 14px; margin-top: 16px; font-size: 13px; }
+    .transaction dt { color: var(--muted); }
+    .transaction dd { margin: 0; font-weight: 650; }
+    .logic { border-left: 4px solid var(--green); }
+    .logic ol { margin: 10px 0 0; padding-left: 22px; }
+    .logic li { margin-bottom: 10px; }
+    .formula { margin: 16px 0; padding: 16px; border-radius: 12px; background: #f3f6f4; font: 700 15px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .final-rule { padding: 22px; border: 1px solid #b8dac5; border-radius: 18px; background: linear-gradient(135deg, #eaf8ef, #f8fcf9); }
+    .final-rule strong { font-size: 19px; }
+    footer { margin-top: 50px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+    @media (max-width: 850px) {
+      .concepts, .type-grid, .examples { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: 1fr; }
+      .arrow { transform: rotate(90deg); }
+      .decision { overflow-x: auto; }
+      .decision-row { min-width: 760px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">Rangels V0.10 · visual classification guide</p>
+      <h1>Every transaction answers three different questions.</h1>
+      <p class="lede">Purpose, Context, and Bucket are deliberately separate. They describe what happened, where it belongs financially, and—only when relevant—which part of the Household plan it consumed.</p>
+      <div class="hero-note">This is an explanatory document only. It does not change the Rangels application.</div>
+    </header>
+
+    <section>
+      <div class="grid concepts">
+        <article class="card concept" data-number="1">
+          <span class="chip purpose">PURPOSE</span>
+          <p class="question">What was the money for?</p>
+          <p class="muted">The economic nature of the transaction. Examples: Groceries, Mortgage payment, Rental income, Electricity, Software, Salary.</p>
+          <p class="example"><strong>ATHENA MORTGAGE</strong><br />Purpose → Mortgage payment</p>
+        </article>
+        <article class="card concept" data-number="2">
+          <span class="chip context">CONTEXT</span>
+          <p class="question">Which financial world owns it?</p>
+          <p class="muted">The part of your life whose results should include the transaction: Household, a specific Property, ASA, or Folium Studio.</p>
+          <p class="example"><strong>Currumundi mortgage</strong><br />Context → Property — Currumundi</p>
+        </article>
+        <article class="card concept" data-number="3">
+          <span class="chip bucket">HOUSEHOLD BUCKET</span>
+          <p class="question">Which Household allocation did it consume?</p>
+          <p class="muted">Daily Expenses, Splurge, Smile, or Fire Extinguisher. This applies only to Household expenses—not income, Property, Business, or transfers.</p>
+          <p class="example"><strong>Household groceries</strong><br />Bucket → Daily Expenses</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>The classification sequence</h2>
+      <div class="flow">
+        <div class="flow-step"><span class="chip purpose">1 · PURPOSE</span><h3>Name the economic event</h3><p class="muted">Mortgage payment, groceries, rent received, software, salary…</p></div>
+        <div class="arrow">→</div>
+        <div class="flow-step"><span class="chip context">2 · CONTEXT</span><h3>Assign its reporting home</h3><p class="muted">Household, Property — Currumundi, Business — ASA…</p></div>
+        <div class="arrow">→</div>
+        <div class="flow-step"><span class="chip bucket">3 · BUCKET</span><h3>Ask whether it consumes a Household allocation</h3><p class="muted">Only “Household + Expense” proceeds to a Bucket.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Rules by transaction type</h2>
+      <div class="grid type-grid">
+        <article class="card type-card income">
+          <div class="type-head"><h3>Income</h3><p>Money economically earned or received</p></div>
+          <div class="rules">
+            <p class="rule"><span class="tick">✓</span><span><strong>Purpose required</strong><br /><span class="muted">Salary, Rental income, Business income, Interest…</span></span></p>
+            <p class="rule"><span class="tick">✓</span><span><strong>Context required</strong><br /><span class="muted">Who or what generated it?</span></span></p>
+            <p class="rule"><span class="dash">—</span><span><strong>No Household Bucket</strong><br /><span class="muted">Income funds the plan; it does not consume a spending allocation.</span></span></p>
+          </div>
+        </article>
+        <article class="card type-card expense">
+          <div class="type-head"><h3>Expense</h3><p>An economic cost</p></div>
+          <div class="rules">
+            <p class="rule"><span class="tick">✓</span><span><strong>Purpose required</strong><br /><span class="muted">Groceries, Mortgage payment, Electricity, Software…</span></span></p>
+            <p class="rule"><span class="tick">✓</span><span><strong>Context required</strong><br /><span class="muted">Where should the cost be reported?</span></span></p>
+            <p class="rule"><span class="tick">✓</span><span><strong>Bucket only for Household</strong><br /><span class="muted">Property and Business expenses have no Household Bucket.</span></span></p>
+            <div class="warning">If the principal-home mortgage should consume Daily Expenses, classify it as <strong>Household</strong>. A transaction classified under <strong>Property — …</strong> has no Bucket under the current rule.</div>
+          </div>
+        </article>
+        <article class="card type-card transfer">
+          <div class="type-head"><h3>Transfer</h3><p>Money changing location</p></div>
+          <div class="rules">
+            <p class="rule"><span class="tick">✓</span><span><strong>Transfer reason required</strong><br /><span class="muted">Property funding, Savings movement, Debt reduction…</span></span></p>
+            <p class="rule"><span class="tick">✓</span><span><strong>Funding Context when relevant</strong><br /><span class="muted">For example, Property — Currumundi.</span></span></p>
+            <p class="rule"><span class="dash">—</span><span><strong>Never income or expense</strong></span></p>
+            <p class="rule"><span class="dash">—</span><span><strong>Never tax or Household Bucket</strong></span></p>
+            <div class="warning">The selected account shows <strong>+AUD</strong> when money enters and <strong>−AUD</strong> when it leaves. That direction changes its balance—not its ledger-neutral classification.</div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>Quick decision table</h2>
+      <div class="card decision">
+        <div class="decision-row decision-head"><div>Transaction</div><div>Purpose / reason</div><div>Context</div><div>Household Bucket</div></div>
+        <div class="decision-row"><div>Household groceries</div><div>Groceries</div><div>Household</div><div class="yes">Daily Expenses</div></div>
+        <div class="decision-row"><div>Household holiday</div><div>Travel</div><div>Household</div><div class="yes">Smile or Splurge</div></div>
+        <div class="decision-row"><div>Currumundi rent received</div><div>Rental income</div><div>Property — Currumundi</div><div class="no">No Bucket</div></div>
+        <div class="decision-row"><div>Currumundi mortgage debit</div><div>Mortgage payment</div><div>Property — Currumundi</div><div class="no">No Bucket</div></div>
+        <div class="decision-row"><div>ASA software</div><div>Software</div><div>Business — ASA</div><div class="no">No Bucket</div></div>
+        <div class="decision-row"><div>Leg CW → ING Currumundi</div><div>Property funding</div><div>Property — Currumundi</div><div class="no">Never a Bucket</div></div>
+        <div class="decision-row"><div>ING Currumundi → Fire Extinguisher</div><div>Savings movement</div><div>As applicable</div><div class="no">Never a Bucket</div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Worked examples</h2>
+      <div class="grid examples">
+        <article class="card">
+          <h3>Investment property</h3>
+          <p class="muted">The property earns $1,000 rent but incurs $1,500 in costs.</p>
+          <div class="formula">Rental income     +$1,000<br />Property expenses −$1,500<br />────────────────────────<br />Property result     −$500</div>
+          <p>The result is a <strong>$500 property operating shortfall</strong>. A $500 transfer from a Household account can be shown as <strong>Property funding</strong>, but it stays ledger-neutral. This avoids counting the $500 twice: once as the real property expense and again as a transfer.</p>
+        </article>
+        <article class="card">
+          <h3>Principal home mortgage</h3>
+          <dl class="transaction">
+            <dt>Transaction</dt><dd>Everton Park mortgage debit</dd>
+            <dt>Purpose</dt><dd>Mortgage payment</dd>
+            <dt>Context</dt><dd>Household</dd>
+            <dt>Bucket</dt><dd>Daily Expenses</dd>
+          </dl>
+          <p class="warning">Why Household? Under the current simplified rule, only Household expenses may consume a Household Bucket. If it is classified as Property — Everton Park instead, the Bucket must be empty.</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>Why these rules exist</h2>
+      <article class="card logic">
+        <ol>
+          <li><strong>Purpose and Context answer different questions.</strong> Electricity can be a Household cost, a Property cost, or a Business cost without inventing three unrelated purposes.</li>
+          <li><strong>Buckets remain a Household planning tool.</strong> Property and Business performance stay clear instead of being mixed into Daily Expenses or Splurge.</li>
+          <li><strong>Transfers remain ledger-neutral.</strong> Moving cash between your own accounts cannot create wealth or spending by itself.</li>
+          <li><strong>Actual costs are counted where they occur.</strong> The mortgage debit is the expense; the transfer that supplied cash for it is not another expense.</li>
+          <li><strong>The model can still explain cash movement.</strong> Transfer reason, Funding Context, source account, destination account, and +/− direction show where the money went.</li>
+        </ol>
+      </article>
+    </section>
+
+    <section class="final-rule">
+      <strong>The shortest possible rule</strong>
+      <p style="margin:8px 0 0">Classify the economic event with <strong>Purpose + Context</strong>. Add a <strong>Bucket only when it is a Household expense</strong>. If it is a <strong>Transfer</strong>, record the reason and relevant Funding Context, then keep it out of income, expenses, tax, and Buckets.</p>
+    </section>
+
+    <footer>Standalone guide generated for Rangels V0.10. Current policy snapshot; reporting and allocation rules can be revisited later without changing historical transaction meaning.</footer>
+  </main>
+</body>
+</html>
