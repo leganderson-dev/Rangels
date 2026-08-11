@@ -1,9 +1,24 @@
+import { useState } from 'react'
 import { ArrowDown, ArrowRight, Building2, CircleHelp, Database, Home, Landmark, Users } from 'lucide-react'
 import { Modal } from './Modal'
+import classificationGuide from '../../docs/classification-guide.html?raw'
 
 export function HelpInfoModal({ onClose }: { onClose: () => void }) {
+  const [view, setView] = useState<'quick' | 'visual'>('quick')
+
   return (
-    <Modal title="How Rangels works" onClose={onClose} wide>
+    <Modal title="How Rangels works" onClose={onClose} wide maximizable>
+      <div className="mb-4 flex w-fit rounded-lg border border-slate-200 bg-slate-50 p-1 text-sm">
+        <button onClick={() => setView('quick')} className={`rounded-md px-3 py-1.5 font-medium ${view === 'quick' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Quick guide</button>
+        <button onClick={() => setView('visual')} className={`rounded-md px-3 py-1.5 font-medium ${view === 'visual' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Visual guide</button>
+      </div>
+      {view === 'visual' ? (
+        <iframe
+          title="Rangels visual classification guide"
+          srcDoc={classificationGuide}
+          className="h-[76vh] w-full rounded-xl border border-slate-200 bg-white"
+        />
+      ) : (
       <div className="mx-auto max-w-6xl space-y-6 text-slate-700">
         <section>
           <p className="text-sm leading-6 text-slate-500">Rangels keeps the bank ledger, who made the transaction, what it was for, and how it affects the financial plan as separate—but connected—facts.</p>
@@ -150,6 +165,7 @@ export function HelpInfoModal({ onClose }: { onClose: () => void }) {
 
         <div className="flex items-center justify-between border-t border-slate-200 pt-4 text-[11px] text-slate-400"><span>Rangels V0.11 · Household allocation reporting.</span><span>Ledger first · Import first · Canonical classification</span></div>
       </div>
+      )}
     </Modal>
   )
 }
