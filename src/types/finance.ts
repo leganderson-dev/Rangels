@@ -180,10 +180,15 @@ export interface ScheduledTransaction {
   transferReason: TransferReason | null
   isTransfer: boolean
   frequency: 'daily' | 'weekly' | 'fortnightly' | 'monthly' | 'yearly'
+  interval: number
+  weekdays: number[]
+  months: number[]
+  monthDay: number
   startDate: string
   nextDate: string
   endDate: string | null
   isActive: boolean
+  isVirtual: boolean
 }
 
 export interface ScheduledSuggestion {

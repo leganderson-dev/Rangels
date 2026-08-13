@@ -2,9 +2,9 @@
 
 Rangels is a cross-platform personal finance application built with React, TypeScript, Vite, and Supabase. It preserves the proven Finance App workflow while replacing its Electron/Express/SQLite stack with a browser UI connected directly to Supabase.
 
-Current version: **Rangels V0.12** (`0.12.0`)
+Current version: **Rangels V0.13** (`0.13.0`)
 
-V0.12 adds review-first scheduled transaction discovery from recurring merchant history, including inferred frequency, typical amount, confidence, evidence and inherited classification. V0.11's Household allocation reporting remains unchanged.
+V0.13 adds flexible recurrence rules, optional end dates and forecast-only virtual schedules. V0.12's review-first schedule discovery remains available and analyses only the current year's history.
 
 ## Prerequisites
 

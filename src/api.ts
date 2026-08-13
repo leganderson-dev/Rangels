@@ -20,6 +20,7 @@ import { createCategoryMatcher, normalizeDescription, relevantCategorySuggestion
 import { parseDelimited } from './lib/csv'
 import { merchantDisplayName, merchantKey, normalizeMerchantRulePhrase } from './lib/merchants'
 import { inferTransferClassification } from './lib/transfers'
+import { nextScheduledDate } from './lib/schedule'
 
 const pickedFiles = new Map<string, { name: string; text: string }>()
 let classificationOptionsCache: Promise<ClassificationOptions> | null = null
@@ -843,16 +844,6 @@ async function accountLedgerSummary(
   }
 }
 
-function nextDate(current: string, frequency: ScheduledTransaction['frequency']): string {
-  const date = new Date(`${current}T00:00:00`)
-  if (frequency === 'daily') date.setDate(date.getDate() + 1)
-  if (frequency === 'weekly') date.setDate(date.getDate() + 7)
-  if (frequency === 'fortnightly') date.setDate(date.getDate() + 14)
-  if (frequency === 'monthly') date.setMonth(date.getMonth() + 1)
-  if (frequency === 'yearly') date.setFullYear(date.getFullYear() + 1)
-  return date.toISOString().slice(0, 10)
-}
-
 async function scheduledList(): Promise<ScheduledTransaction[]> {
   const [result, accounts, categories, classification] = await Promise.all([
     supabase.from('scheduled_transactions').select('*').order('next_date'),
@@ -885,10 +876,15 @@ async function scheduledList(): Promise<ScheduledTransaction[]> {
     transferReason: row.transfer_reason ?? null,
     isTransfer: row.is_transfer,
     frequency: row.frequency,
+    interval: row.recurrence_interval ?? 1,
+    weekdays: row.weekdays ?? [],
+    months: row.months ?? [],
+    monthDay: row.month_day ?? 1,
     startDate: row.start_date,
     nextDate: row.next_date,
     endDate: row.end_date,
     isActive: row.is_active,
+    isVirtual: row.is_virtual ?? false,
   }))
 }
 
@@ -905,10 +901,15 @@ function scheduledPayload(data: Record<string, any>): Row {
     transferReason: 'transfer_reason',
     isTransfer: 'is_transfer',
     frequency: 'frequency',
+    interval: 'recurrence_interval',
+    weekdays: 'weekdays',
+    months: 'months',
+    monthDay: 'month_day',
     startDate: 'start_date',
     nextDate: 'next_date',
     endDate: 'end_date',
     isActive: 'is_active',
+    isVirtual: 'is_virtual',
   }
   return Object.fromEntries(
     Object.entries(mapping)
@@ -1488,7 +1489,7 @@ export const api = {
       )
       const created: Transaction[] = []
       for (const item of due) {
-        created.push(
+        if (!item.isVirtual) created.push(
           await addTransaction({
             description: item.description,
             date: item.nextDate,
@@ -1503,7 +1504,7 @@ export const api = {
             isTransfer: item.isTransfer,
           }),
         )
-        const following = nextDate(item.nextDate, item.frequency)
+        const following = nextScheduledDate(item.nextDate, item)
         await api.scheduled.update(item.id, {
           nextDate: following,
           isActive: !item.endDate || following <= item.endDate,

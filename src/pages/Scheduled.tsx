@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Plus, Pencil, Trash2, Calendar, RefreshCw, Sparkles, ChevronDown, ChevronRight, Check, X } from 'lucide-react'
 import { Modal } from '../components/Modal'
 import { api } from '../api'
-import { fmt, formatDate, today, FREQUENCIES } from '../utils'
+import { fmt, formatDate, today, FREQUENCIES, MONTH_NAMES } from '../utils'
 import type { Account, Category, ClassificationOptions, ScheduledSuggestion, ScheduledTransaction } from '../types/finance'
 import { canUseHouseholdBucket, emptyBucketLabel } from '../lib/classification'
 import { discoverScheduledSuggestions } from '../lib/recurrence'
@@ -260,6 +260,13 @@ function ScheduledRow({ item, onEdit, onDelete }: {
 }) {
   const freqLabel = FREQUENCIES.find(f => f.value === item.frequency)?.label ?? item.frequency
   const isOverdue = item.isActive && item.nextDate < today()
+  const cadence = item.frequency === 'daily'
+    ? `Every ${item.interval} ${item.interval === 1 ? 'day' : 'days'}`
+    : item.frequency === 'weekly' || item.frequency === 'fortnightly'
+      ? `${freqLabel}${item.weekdays.length ? ` · ${item.weekdays.map(day => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][day]).join(', ')}` : ''}`
+      : item.frequency === 'monthly'
+        ? `Day ${item.monthDay}${item.months.length && item.months.length < 12 ? ` · ${item.months.map(month => MONTH_NAMES[month - 1].slice(0, 3)).join(', ')}` : ' · every month'}`
+        : freqLabel
 
   return (
     <div className={`bg-white rounded-xl border p-4 flex items-center gap-3 ${item.isActive ? 'border-gray-200' : 'border-gray-100 opacity-60'}`}>
@@ -269,7 +276,8 @@ function ScheduledRow({ item, onEdit, onDelete }: {
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-800 truncate">{item.description}</p>
         <p className="text-xs text-gray-400 mt-0.5">
-          {freqLabel} · Next: <span className={isOverdue ? 'text-red-500 font-medium' : ''}>{formatDate(item.nextDate)}</span>
+          {cadence} · Next: <span className={isOverdue ? 'text-red-500 font-medium' : ''}>{formatDate(item.nextDate)}</span>
+          {item.endDate && ` · Ends ${formatDate(item.endDate)}`}{item.isVirtual && ' · Forecast only'}
           {item.categoryFullName && ` · ${item.categoryFullName}`}
         </p>
       </div>
@@ -311,7 +319,14 @@ function ScheduledFormModal({ item, suggestion, accounts, categories, onClose, o
   const [taxTreatment, setTaxTreatment] = useState<ScheduledTransaction['taxTreatment']>(seed?.taxTreatment ?? 'none')
   const [classificationOptions, setClassificationOptions] = useState<ClassificationOptions>({ contexts: [], buckets: [], categories: [] })
   const [frequency, setFrequency] = useState(seed?.frequency ?? 'monthly')
+  const [interval, setInterval] = useState(item?.interval ?? 1)
+  const [weekdays, setWeekdays] = useState<number[]>(item?.weekdays ?? [])
+  const [months, setMonths] = useState<number[]>(item?.months?.length ? item.months : Array.from({ length: 12 }, (_, index) => index + 1))
+  const [monthDay, setMonthDay] = useState(item?.monthDay ?? (seed?.nextDate ? Number(seed.nextDate.slice(8, 10)) : 1))
   const [nextDate, setNextDate] = useState(seed?.nextDate ?? today())
+  const [hasEndDate, setHasEndDate] = useState(Boolean(item?.endDate))
+  const [endDate, setEndDate] = useState(item?.endDate ?? '')
+  const [isVirtual, setIsVirtual] = useState(item?.isVirtual ?? false)
   const [isActive, setIsActive] = useState(item?.isActive ?? true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -330,7 +345,7 @@ function ScheduledFormModal({ item, suggestion, accounts, categories, onClose, o
   }, [])
 
   async function handleSave() {
-    if (!description.trim() || !amount || !accountId || !categoryId || !contextId || taxTreatment === 'review' || (canUseHouseholdBucket(selectedContext?.name, selectedPurpose?.type) && !bucketId)) return
+    if (!description.trim() || !amount || !accountId || !categoryId || !contextId || taxTreatment === 'review' || ((frequency === 'weekly' || frequency === 'fortnightly') && !weekdays.length) || (frequency === 'monthly' && !months.length) || (hasEndDate && (!endDate || endDate < nextDate)) || (canUseHouseholdBucket(selectedContext?.name, selectedPurpose?.type) && !bucketId)) return
     setSaving(true)
     setError(null)
     try {
@@ -343,8 +358,14 @@ function ScheduledFormModal({ item, suggestion, accounts, categories, onClose, o
         bucketId: canUseHouseholdBucket(selectedContext?.name, selectedPurpose?.type) ? bucketId || null : null,
         taxTreatment,
         frequency,
+        interval,
+        weekdays,
+        months,
+        monthDay,
         startDate: nextDate,
         nextDate,
+        endDate: hasEndDate ? endDate : null,
+        isVirtual,
         isActive
       })
     } catch (e: any) {
@@ -355,7 +376,7 @@ function ScheduledFormModal({ item, suggestion, accounts, categories, onClose, o
   }
 
   return (
-    <Modal title={item ? 'Edit Scheduled' : suggestion ? 'Review Suggested Schedule' : 'New Scheduled Transaction'} onClose={onClose}>
+    <Modal title={item ? 'Edit Scheduled' : suggestion ? 'Review Suggested Schedule' : 'New Scheduled Transaction'} onClose={onClose} large closeOnBackdrop={false}>
       <div className="space-y-3">
         <div className="flex gap-1 p-1 bg-gray-100 rounded-lg">
           {['Expense', 'Income'].map(t => (
@@ -382,7 +403,7 @@ function ScheduledFormModal({ item, suggestion, accounts, categories, onClose, o
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Amount (AUD)</label>
             <input
@@ -395,15 +416,17 @@ function ScheduledFormModal({ item, suggestion, accounts, categories, onClose, o
               min="0"
             />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Next Date</label>
-            <input
-              type="date"
-              value={nextDate}
-              onChange={e => setNextDate(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+        </div>
+
+        <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 space-y-3">
+          <div className="flex rounded-lg bg-slate-100 p-1">
+            {(['daily', 'weekly', 'monthly'] as const).map(mode => <button type="button" key={mode} onClick={() => setFrequency(mode)} className={`flex-1 rounded-md py-1.5 text-sm font-medium capitalize ${frequency === mode || (mode === 'weekly' && frequency === 'fortnightly') ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500'}`}>{mode}</button>)}
           </div>
+          {frequency === 'daily' && <label className="flex items-center gap-2 text-sm text-slate-600">Repeat every <input type="number" min="1" max="365" value={interval} onChange={event => setInterval(Math.max(1, Number(event.target.value)))} className="w-20 rounded-lg border border-slate-300 px-2 py-1.5" /> day(s)</label>}
+          {(frequency === 'weekly' || frequency === 'fortnightly') && <div className="space-y-2"><label className="flex items-center gap-2 text-sm text-slate-600">Repeat every <input type="number" min="1" max="52" value={frequency === 'fortnightly' ? 2 : interval} onChange={event => { const value = Math.max(1, Number(event.target.value)); setFrequency(value === 2 ? 'fortnightly' : 'weekly'); setInterval(value === 2 ? 1 : value) }} className="w-20 rounded-lg border border-slate-300 px-2 py-1.5" /> week(s)</label><div className="grid grid-cols-4 gap-2">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day, index) => <label key={day} className="flex items-center gap-1.5 text-xs text-slate-600"><input type="checkbox" checked={weekdays.includes(index)} onChange={() => setWeekdays(current => current.includes(index) ? current.filter(value => value !== index) : [...current, index])} />{day}</label>)}</div></div>}
+          {frequency === 'monthly' && <div className="space-y-2"><label className="flex items-center gap-2 text-sm text-slate-600">On day <input type="number" min="1" max="31" value={monthDay} onChange={event => setMonthDay(Math.min(31, Math.max(1, Number(event.target.value))))} className="w-20 rounded-lg border border-slate-300 px-2 py-1.5" /> of selected months</label><div className="grid grid-cols-4 gap-2">{MONTH_NAMES.map((month, index) => <label key={month} className="flex items-center gap-1.5 text-xs text-slate-600"><input type="checkbox" checked={months.includes(index + 1)} onChange={() => setMonths(current => current.includes(index + 1) ? current.filter(value => value !== index + 1) : [...current, index + 1])} />{month.slice(0, 3)}</label>)}</div></div>}
+          <div className="grid grid-cols-2 gap-3"><div><label className="block text-xs font-medium text-slate-500 mb-1">Start / next run</label><input type="date" value={nextDate} onChange={event => { setNextDate(event.target.value); if (frequency === 'monthly') setMonthDay(Number(event.target.value.slice(8, 10))) }} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></div><div><label className="flex items-center gap-2 text-xs font-medium text-slate-500 mb-1"><input type="checkbox" checked={hasEndDate} onChange={event => setHasEndDate(event.target.checked)} /> End date</label><input type="date" value={endDate} disabled={!hasEndDate} min={nextDate} onChange={event => setEndDate(event.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100" /></div></div>
+          <label className="flex items-start gap-2 text-sm text-slate-600"><input type="checkbox" checked={isVirtual} onChange={event => setIsVirtual(event.target.checked)} className="mt-0.5" /><span><strong className="font-medium text-slate-700">Virtual — forecast only</strong><span className="block text-xs text-slate-500">Show and advance this schedule without creating ledger transactions.</span></span></label>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -481,7 +504,7 @@ function ScheduledFormModal({ item, suggestion, accounts, categories, onClose, o
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !description.trim() || !amount || !categoryId || !contextId || taxTreatment === 'review' || (canUseHouseholdBucket(selectedContext?.name, selectedPurpose?.type) && !bucketId)}
+            disabled={saving || !description.trim() || !amount || !categoryId || !contextId || taxTreatment === 'review' || ((frequency === 'weekly' || frequency === 'fortnightly') && !weekdays.length) || (frequency === 'monthly' && !months.length) || (hasEndDate && (!endDate || endDate < nextDate)) || (canUseHouseholdBucket(selectedContext?.name, selectedPurpose?.type) && !bucketId)}
             className="flex-1 bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? 'Saving…' : (item ? 'Update' : 'Add')}
