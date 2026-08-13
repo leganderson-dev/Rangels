@@ -58,7 +58,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   const [scheduledTxns, setScheduledTxns] = useState<ScheduledTransaction[]>([])
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [groupBy, setGroupBy] = useState<'category' | 'date' | 'none'>('category')
+  const [groupBy, setGroupBy] = useState<'category' | 'context' | 'bucket' | 'date' | 'none'>('category')
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense' | 'transfer'>('all')
   const [filterCatIds, setFilterCatIds] = useState<Set<string>>(new Set())
   const [needsCategoryOnly, setNeedsCategoryOnly] = useState(false)
@@ -263,8 +263,10 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   const catMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories])
 
   const typeSections = useMemo(() => {
-    if (groupBy !== 'category') return []
-    const sections = buildHierarchyGroups(filtered, catMap, selectedAccountId)
+    if (!['category', 'context', 'bucket'].includes(groupBy)) return []
+    const sections = groupBy === 'category'
+      ? buildHierarchyGroups(filtered, catMap, selectedAccountId)
+      : buildDimensionGroups(filtered, groupBy as 'context' | 'bucket', selectedAccountId)
     if (sortCol === 'amount') {
       for (const ts of sections) {
         ts.groups.sort((a, b) => {
@@ -425,6 +427,8 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
         <select value={groupBy} onChange={e => setGroupBy(e.target.value as any)}
           className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-600 bg-gray-50 focus:outline-none">
           <option value="category">Group by Purpose</option>
+          <option value="context">Group by Context</option>
+          <option value="bucket">Group by Bucket</option>
           <option value="date">Group by Date</option>
           <option value="none">No grouping</option>
         </select>
@@ -442,7 +446,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
             Needs purpose <span className="text-amber-500">{needsCategoryCount}</span>
           </button>
         )}
-        {groupBy === 'category' && (
+        {['category', 'context', 'bucket'].includes(groupBy) && (
           <button onClick={toggleCollapseAll}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50">
             {allParentsCollapsed ? <ChevronsDownUp size={13} /> : <ChevronsUpDown size={13} />}
@@ -533,7 +537,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
         )}
 
         {/* ── 3-level category hierarchy ── */}
-        {!loading && groupBy === 'category' && typeSections.map(ts => {
+        {!loading && ['category', 'context', 'bucket'].includes(groupBy) && typeSections.map(ts => {
           const cfg = TYPE_CONFIG[ts.type]
           const typeCollapsed = collapsedTypes.has(ts.type)
           const sectionIds = ts.groups.flatMap(group => group.children.flatMap(child => child.rows.map(row => row.id)))
@@ -575,9 +579,9 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
                   <div key={group.key}>
                     {/* Level 2: Parent category header */}
                     <div
-                      onDragOver={e => { e.preventDefault(); setDragOverKey(group.key) }}
+                      onDragOver={e => { if (groupBy === 'category') { e.preventDefault(); setDragOverKey(group.key) } }}
                       onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverKey(null) }}
-                      onDrop={e => { e.preventDefault(); setDragOverKey(null); if (dragTxId.current !== null && group.catId !== null) { handleInlineCategory(dragTxId.current, group.catId); dragTxId.current = null } }}
+                      onDrop={e => { if (groupBy === 'category') { e.preventDefault(); setDragOverKey(null); if (dragTxId.current !== null && group.catId !== null) { handleInlineCategory(dragTxId.current, group.catId); dragTxId.current = null } } }}
                       className={`w-full flex items-center gap-2 pl-8 pr-4 py-2.5 transition-colors border-y shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] ${group.key === '__none' ? 'border-amber-200/70 bg-amber-50/80 hover:bg-amber-100/70' : 'border-slate-200/80 bg-slate-100/80 hover:bg-slate-200/70'} ${dragOverKey === group.key ? 'ring-2 ring-inset ring-blue-400' : ''}`}
                       style={{ borderLeft: group.color ? `3px solid ${group.color}` : '3px solid #e5e7eb' }}
                     >
@@ -875,6 +879,33 @@ function buildHierarchyGroups(transactions: Transaction[], catMap: Map<string, C
   return (['income', 'expense', 'transfer'] as const)
     .map(t => typeSections.get(t))
     .filter(Boolean) as TypeSection[]
+}
+
+function buildDimensionGroups(transactions: Transaction[], dimension: 'context' | 'bucket', selectedAccountId: string | null): TypeSection[] {
+  const sections = new Map<TypeSection['type'], TypeSection>()
+  for (const transaction of transactions) {
+    const type: TypeSection['type'] = transaction.isTransfer ? 'transfer' : transaction.amount > 0 ? 'income' : 'expense'
+    const displayAmount = transactionDisplayAmount(transaction, selectedAccountId)
+    const bucket = transactionBucketDisplay(transaction)
+    const label = dimension === 'context'
+      ? transaction.contextName ?? 'Not classified'
+      : bucket.label === '—' ? 'Not classified' : bucket.label
+    const key = `${dimension}_${label.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`
+    if (!sections.has(type)) sections.set(type, { type, total: 0, groups: [] })
+    const section = sections.get(type)!
+    section.total += displayAmount
+    let group = section.groups.find(item => item.key === key)
+    if (!group) {
+      group = { key, label, color: TYPE_CONFIG[type].dot, catId: null, total: 0, txCount: 0, isSingleLevel: true, children: [{ key, label, color: TYPE_CONFIG[type].dot, catId: null, total: 0, rows: [] }] }
+      section.groups.push(group)
+    }
+    group.total += displayAmount
+    group.txCount += 1
+    group.children[0].total += displayAmount
+    group.children[0].rows.push(transaction)
+  }
+  for (const section of sections.values()) section.groups.sort((left, right) => left.label.localeCompare(right.label))
+  return (['income', 'expense', 'transfer'] as const).map(type => sections.get(type)).filter(Boolean) as TypeSection[]
 }
 
 // ─── Transaction row ─────────────────────────────────────────────────────────
