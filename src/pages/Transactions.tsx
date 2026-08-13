@@ -398,6 +398,9 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   const allSelected = filtered.length > 0 && filtered.every(transaction => selected.has(transaction.id))
   const someSelected = selected.size > 0
   const selectedPurposeCount = [...selected].filter(id => !transactions.find(transaction => transaction.id === id)?.isTransfer).length
+  const selectedTotal = transactions
+    .filter(transaction => selected.has(transaction.id))
+    .reduce((total, transaction) => total + transactionDisplayAmount(transaction, selectedAccountId), 0)
 
   const TYPE_FILTERS = [
     { key: 'all', label: 'All' }, { key: 'income', label: 'Income' },
@@ -507,6 +510,12 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
           </>
         )}
         <div className="flex-1" />
+        {someSelected && (
+          <div className="mr-4 flex items-baseline gap-2 border-l border-slate-200 pl-4">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Selected total</span>
+            <span className={`text-sm font-bold tabular-nums ${selectedTotal > 0 ? 'text-emerald-600' : selectedTotal < 0 ? 'text-slate-700' : 'text-slate-400'}`}>{fmt(selectedTotal, true)}</span>
+          </div>
+        )}
         <span className="text-xs text-gray-300">{filtered.length} transactions</span>
       </div>
 
