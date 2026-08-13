@@ -8,6 +8,7 @@ import { fmt, fmtShort, monthShort, monthName } from '../utils'
 import type { Account, Category, Transaction } from '../types/finance'
 import { TrendingUp, TrendingDown, DollarSign, ChevronRight, ArrowLeft, ArrowLeftRight, BarChart2, PieChart as PieIcon, TrendingUp as TrendIcon, Layers } from 'lucide-react'
 import { transferReasonLabel } from '../lib/transfers'
+import { TransactionFormModal } from '../components/TransactionFormModal'
 
 interface Props {
   accounts: Account[]
@@ -34,7 +35,7 @@ interface DrillState {
   color?: string
 }
 
-export function ReportsPage({ categories, month, year, selectedAccountId, dateMode = 'month', customFrom, customTo }: Props) {
+export function ReportsPage({ accounts, categories, month, year, selectedAccountId, dateMode = 'month', customFrom, customTo, onRefreshAccounts }: Props) {
   const [yearly, setYearly] = useState<any[]>([])
   const [catBreakdown, setCatBreakdown] = useState<any[]>([])
   const [view, setView] = useState<View>('cashflow')
@@ -43,6 +44,8 @@ export function ReportsPage({ categories, month, year, selectedAccountId, dateMo
   const [trendCats, setTrendCats] = useState<string[]>([])
   const [trendData, setTrendData] = useState<any[]>([])
   const [fundingTransfers, setFundingTransfers] = useState<Transaction[]>([])
+  const [editTransaction, setEditTransaction] = useState<Transaction | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const isCustom = dateMode === 'custom' && !!customFrom && !!customTo
 
@@ -69,7 +72,7 @@ export function ReportsPage({ categories, month, year, selectedAccountId, dateMo
         if (s) setCatBreakdown(s.byCategory)
       })
     }
-  }, [year, month, isCustom, customFrom, customTo, selectedAccountId])
+  }, [year, month, isCustom, customFrom, customTo, selectedAccountId, refreshKey])
 
   async function drillMonth(m: number) {
     const s = await api.transactions.monthSummary(m, year, selectedAccountId)
@@ -449,7 +452,7 @@ export function ReportsPage({ categories, month, year, selectedAccountId, dateMo
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {drillTxns.map(t => (
-                    <tr key={t.id} className="hover:bg-gray-50">
+                    <tr key={t.id} onClick={() => setEditTransaction(t)} className="cursor-pointer hover:bg-blue-50/60" title="Click to edit transaction">
                       <td className="px-5 py-2.5 text-gray-700 max-w-xs truncate">{t.description}</td>
                       <td className="px-5 py-2.5 text-gray-400 text-xs">{t.accountName}</td>
                       <td className="px-5 py-2.5 text-right text-gray-400 text-xs">{t.date}</td>
@@ -550,6 +553,25 @@ export function ReportsPage({ categories, month, year, selectedAccountId, dateMo
           </div>
         )}
       </div>
+      {editTransaction && (
+        <TransactionFormModal
+          transaction={editTransaction}
+          accounts={accounts}
+          categories={categories}
+          defaultAccountId={selectedAccountId}
+          onClose={() => setEditTransaction(null)}
+          onSave={async data => {
+            await api.transactions.update(editTransaction.id, data)
+            const currentDrill = drill
+            setEditTransaction(null)
+            setRefreshKey(value => value + 1)
+            onRefreshAccounts?.()
+            if (currentDrill?.type === 'category') {
+              await drillCategory(currentDrill.categoryId ?? null, currentDrill.categoryName ?? 'Uncategorised', currentDrill.color ?? '#94a3b8')
+            }
+          }}
+        />
+      )}
     </div>
   )
 }
