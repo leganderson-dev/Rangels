@@ -47,3 +47,21 @@ export function nextScheduledDate(current: string, rule: ScheduleRule): string {
   date.setUTCFullYear(date.getUTCFullYear() + interval)
   return iso(date)
 }
+
+export function scheduledDatesBetween(
+  item: Pick<ScheduledTransaction, 'isActive' | 'nextDate' | 'endDate'> & ScheduleRule,
+  from: string,
+  to: string,
+): string[] {
+  if (!item.isActive || item.nextDate > to || (item.endDate && item.nextDate > item.endDate)) return []
+  const dates: string[] = []
+  let date = item.nextDate
+  for (let occurrence = 0; occurrence < 1000 && date <= to; occurrence += 1) {
+    if ((!item.endDate || date <= item.endDate) && date >= from) dates.push(date)
+    const next = nextScheduledDate(date, item)
+    if (next <= date) break
+    date = next
+    if (item.endDate && date > item.endDate) break
+  }
+  return dates
+}

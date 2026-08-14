@@ -156,6 +156,12 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   function refresh() { setRefreshKey(k => k + 1) }
 
   useEffect(() => {
+    const onTransactionsChanged = () => setRefreshKey(key => key + 1)
+    window.addEventListener('rangels:transactions-changed', onTransactionsChanged)
+    return () => window.removeEventListener('rangels:transactions-changed', onTransactionsChanged)
+  }, [])
+
+  useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedSearch(search.trim()), 250)
     return () => window.clearTimeout(timeout)
   }, [search])

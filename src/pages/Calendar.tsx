@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { X, Plus, Edit2, Trash2 } from 'lucide-react'
+import { X, Plus, Edit2, Trash2, Calendar } from 'lucide-react'
 import { api } from '../api'
 import { fmt } from '../utils'
 import { TransactionFormModal } from '../components/TransactionFormModal'
 import { CategoryPill } from '../components/CategoryPill'
-import type { Transaction, Account, Category } from '../types/finance'
+import { scheduledDatesBetween } from '../lib/schedule'
+import type { Transaction, Account, Category, ScheduledTransaction } from '../types/finance'
 
 interface CalendarDay {
   date: string
@@ -13,6 +14,7 @@ interface CalendarDay {
   expenses: number
   balance: number
   transactionCount: number
+  projectedCount: number
 }
 
 interface Props {
@@ -87,6 +89,12 @@ export function CalendarPage({ accounts, categories, selectedAccountId, month, y
 
   useEffect(() => loadCalendar(), [loadCalendar])
 
+  useEffect(() => {
+    const refresh = () => setCalKey(key => key + 1)
+    window.addEventListener('rangels:transactions-changed', refresh)
+    return () => window.removeEventListener('rangels:transactions-changed', refresh)
+  }, [])
+
   const dayMap = useMemo(() => {
     if (!calData) return new Map<string, CalendarDay>()
     return new Map(calData.days.map(d => [d.date, d]))
@@ -156,7 +164,14 @@ export function CalendarPage({ accounts, categories, selectedAccountId, month, y
                   ].filter(Boolean).join(' ')}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    {cell.isCurrentMonth && cell.data && cell.data.transactionCount > 1 ? (
+                    {cell.isCurrentMonth && cell.data && cell.data.projectedCount > 0 ? (
+                      <span
+                        className="flex items-center gap-1 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-500"
+                        title={`${cell.data.projectedCount} scheduled ${cell.data.projectedCount === 1 ? 'transaction' : 'transactions'}`}
+                      >
+                        <Calendar size={9} /> {cell.data.projectedCount}
+                      </span>
+                    ) : cell.isCurrentMonth && cell.data && cell.data.transactionCount > 1 ? (
                       <span
                         className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500"
                         title={`${cell.data.transactionCount} transactions`}
@@ -220,6 +235,7 @@ function DayPanel({ date, accounts, categories, selectedAccountId, onClose, onCh
   onChanged: () => void
 }) {
   const [txs, setTxs] = useState<Transaction[]>([])
+  const [scheduledForDay, setScheduledForDay] = useState<ScheduledTransaction[]>([])
   const [loading, setLoading] = useState(true)
   const [editTx, setEditTx] = useState<Transaction | null>(null)
   const [showAdd, setShowAdd] = useState(false)
@@ -228,9 +244,19 @@ function DayPanel({ date, accounts, categories, selectedAccountId, onClose, onCh
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    api.transactions
-      .list({ dateFrom: date, dateTo: date, accountId: selectedAccountId ?? undefined })
-      .then(data => { if (!cancelled) { setTxs(data); setLoading(false) } })
+    Promise.all([
+      api.transactions.list({ dateFrom: date, dateTo: date, accountId: selectedAccountId ?? undefined }),
+      api.scheduled.list(),
+    ])
+      .then(([data, schedules]) => { if (!cancelled) {
+        setTxs(data)
+        setScheduledForDay(schedules.filter(schedule =>
+          schedule.isActive &&
+          (!selectedAccountId || schedule.accountId === selectedAccountId || schedule.targetAccountId === selectedAccountId) &&
+          scheduledDatesBetween(schedule, date, date).includes(date)
+        ))
+        setLoading(false)
+      } })
       .catch(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [date, selectedAccountId, refreshKey])
@@ -298,7 +324,7 @@ function DayPanel({ date, accounts, categories, selectedAccountId, onClose, onCh
           {loading && (
             <div className="flex items-center justify-center h-32 text-gray-400 text-sm">Loading…</div>
           )}
-          {!loading && txs.length === 0 && (
+          {!loading && txs.length === 0 && scheduledForDay.length === 0 && (
             <div className="flex flex-col items-center justify-center h-40 gap-3 text-gray-400">
               <p className="text-sm">No transactions on this day</p>
               <button
@@ -338,6 +364,9 @@ function DayPanel({ date, accounts, categories, selectedAccountId, onClose, onCh
               onDelete={handleDelete}
             />
           )}
+          {!loading && scheduledForDay.length > 0 && (
+            <ScheduledDayGroup transactions={scheduledForDay} selectedAccountId={selectedAccountId} />
+          )}
         </div>
       </div>
 
@@ -359,6 +388,30 @@ function DayPanel({ date, accounts, categories, selectedAccountId, onClose, onCh
       )}
     </>
   )
+}
+
+function ScheduledDayGroup({ transactions, selectedAccountId }: {
+  transactions: ScheduledTransaction[]
+  selectedAccountId: string | null
+}) {
+  const total = transactions.reduce((sum, item) => {
+    if (!item.isTransfer) return sum + item.amount
+    if (!selectedAccountId) return sum
+    if (item.targetAccountId === selectedAccountId) return sum + Math.abs(item.amount)
+    if (item.accountId === selectedAccountId) return sum - Math.abs(item.amount)
+    return sum
+  }, 0)
+  return <section>
+    <div className="flex items-center justify-between border-y border-violet-100 bg-violet-50 px-5 py-2 text-violet-700">
+      <span className="text-[11px] font-bold uppercase tracking-widest">Scheduled <span className="font-medium opacity-60">{transactions.length}</span></span>
+      <span className="text-xs font-bold tabular-nums">{fmt(total, true)}</span>
+    </div>
+    {transactions.map(item => <div key={item.id} className="flex items-center gap-3 border-b border-violet-50 bg-violet-50/20 px-5 py-3">
+      <Calendar size={14} className="shrink-0 text-violet-400" />
+      <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium italic text-slate-600">{item.description}</p><p className="mt-0.5 text-[11px] text-violet-400">Projected · {item.categoryFullName ?? item.transferReason?.replaceAll('_', ' ') ?? 'Needs purpose'}</p></div>
+      <span className={`shrink-0 text-sm font-bold tabular-nums ${item.amount > 0 ? 'text-emerald-600' : 'text-slate-700'}`}>{fmt(item.amount, true)}</span>
+    </div>)}
+  </section>
 }
 
 function DayTxGroup({ label, transactions, total, tone, onEdit, onDelete }: {

@@ -20,7 +20,8 @@ import { createCategoryMatcher, normalizeDescription, relevantCategorySuggestion
 import { parseDelimited } from './lib/csv'
 import { merchantDisplayName, merchantKey, normalizeMerchantRulePhrase } from './lib/merchants'
 import { inferTransferClassification } from './lib/transfers'
-import { nextScheduledDate } from './lib/schedule'
+import { nextScheduledDate, scheduledDatesBetween } from './lib/schedule'
+import { today as localToday } from './utils'
 
 const pickedFiles = new Map<string, { name: string; text: string }>()
 let classificationOptionsCache: Promise<ClassificationOptions> | null = null
@@ -1403,11 +1404,12 @@ export const api = {
       const previousDay = new Date(`${monthStart}T00:00:00`)
       previousDay.setDate(previousDay.getDate() - 1)
       const previousDate = previousDay.toISOString().slice(0, 10)
-      const [accounts, before, current, selectedLedger] = await Promise.all([
+      const [accounts, before, current, selectedLedger, schedules] = await Promise.all([
         listAccounts(),
         accountId ? Promise.resolve([]) : listTransactions({ dateTo: previousDate }),
         listTransactions({ month, year, accountId }),
         accountId ? accountLedgerSummary(accountId, { dateFrom: monthStart, dateTo: monthEnd }) : Promise.resolve(null),
+        scheduledList(),
       ])
       const startBalance = selectedLedger
         ? selectedLedger.openingBalance
@@ -1421,20 +1423,36 @@ export const api = {
         rows.push(transaction)
         grouped.set(transaction.date, rows)
       })
+      const projected = new Map<string, ScheduledTransaction[]>()
+      schedules.filter(schedule => schedule.isActive && (
+        !accountId || schedule.accountId === accountId || schedule.targetAccountId === accountId
+      )).forEach(schedule => {
+        scheduledDatesBetween(schedule, monthStart, monthEnd).forEach(date => {
+          const rows = projected.get(date) ?? []
+          rows.push(schedule)
+          projected.set(date, rows)
+        })
+      })
       let running = startBalance
       const lastDate = new Date(year, month, 0).getDate()
       const days = Array.from({ length: lastDate }, (_, index) => {
           const date = `${year}-${String(month).padStart(2, '0')}-${String(index + 1).padStart(2, '0')}`
           const rows = grouped.get(date) ?? []
+          const projectedRows = projected.get(date) ?? []
           const normal = rows.filter((row) => !row.isTransfer && row.status === 'C')
+          const projectedNormal = projectedRows.filter(row => !row.isTransfer)
           const income = normal
             .filter((row) => row.amount > 0)
-            .reduce((sum, row) => sum + row.amount, 0)
+            .reduce((sum, row) => sum + row.amount, 0) + projectedNormal
+              .filter(row => row.amount > 0)
+              .reduce((sum, row) => sum + row.amount, 0)
           const expenses = normal
             .filter((row) => row.amount < 0)
-            .reduce((sum, row) => sum + row.amount, 0)
+            .reduce((sum, row) => sum + row.amount, 0) + projectedNormal
+              .filter(row => row.amount < 0)
+              .reduce((sum, row) => sum + row.amount, 0)
           const transferMovement = accountId
-            ? rows.filter(row => row.isTransfer && row.status === 'C').reduce((sum, row) => {
+            ? [...rows.filter(row => row.isTransfer && row.status === 'C'), ...projectedRows.filter(row => row.isTransfer)].reduce((sum, row) => {
                 if (row.targetAccountId === accountId) return sum + Math.abs(row.amount)
                 if (row.accountId === accountId) return sum - Math.abs(row.amount)
                 return sum
@@ -1442,7 +1460,7 @@ export const api = {
             : 0
           const total = income + expenses + transferMovement
           running += total
-          return { date, total, income, expenses, balance: running, transactionCount: rows.length }
+          return { date, total, income, expenses, balance: running, transactionCount: rows.length + projectedRows.length, projectedCount: projectedRows.length }
         })
       return { startBalance, days }
     },
@@ -1483,33 +1501,49 @@ export const api = {
       fail(error)
     },
     processDue: async (): Promise<Transaction[]> => {
-      const today = new Date().toISOString().slice(0, 10)
+      const today = localToday()
       const due = (await scheduledList()).filter(
         (item) => item.isActive && item.nextDate <= today,
       )
       const created: Transaction[] = []
       for (const item of due) {
-        if (!item.isVirtual) created.push(
-          await addTransaction({
-            description: item.description,
-            date: item.nextDate,
-            amount: item.amount,
-            accountId: item.accountId,
-            targetAccountId: item.targetAccountId,
-            categoryId: item.categoryId,
-            contextId: item.contextId,
-            bucketId: item.bucketId,
-            taxTreatment: item.taxTreatment,
-            transferReason: item.transferReason,
-            isTransfer: item.isTransfer,
-          }),
-        )
-        const following = nextScheduledDate(item.nextDate, item)
-        await api.scheduled.update(item.id, {
-          nextDate: following,
-          isActive: !item.endDate || following <= item.endDate,
-        })
+        let runDate = item.nextDate
+        while (runDate <= today && (!item.endDate || runDate <= item.endDate)) {
+          if (!item.isVirtual) {
+            const owner = await ownerId()
+            const payload = transactionPayload({
+              description: item.description,
+              date: runDate,
+              amount: item.amount,
+              accountId: item.accountId,
+              targetAccountId: item.targetAccountId,
+              categoryId: item.categoryId,
+              contextId: item.contextId,
+              bucketId: item.bucketId,
+              taxTreatment: item.taxTreatment,
+              transferReason: item.transferReason,
+              isTransfer: item.isTransfer,
+              status: 'C',
+              externalId: `schedule:${item.id}:${runDate}`,
+            })
+            const { data: inserted, error } = await supabase.from('transactions').insert({
+              owner_id: owner,
+              category_id: null,
+              legacy_category_id: null,
+              normalized_description: item.description.toLowerCase().trim(),
+              ...payload,
+            }).select('id').single()
+            if (error && error.code !== '23505') fail(error)
+            if (inserted?.id) created.push((await listTransactions({ transactionId: inserted.id }))[0])
+          }
+          const following = nextScheduledDate(runDate, item)
+          const remainsActive = (!item.endDate || following <= item.endDate)
+          await api.scheduled.update(item.id, { nextDate: following, isActive: remainsActive })
+          runDate = following
+          if (!remainsActive) break
+        }
       }
+      if (created.length) invalidateTransactionQueries()
       return created
     },
   },

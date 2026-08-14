@@ -106,9 +106,45 @@ function FinanceApp() {
   }, [])
 
   useEffect(() => {
-    refreshAccounts()
-    refreshCategories()
-    refreshMembers()
+    let cancelled = false
+    let midnightTimer: number | undefined
+
+    async function activateDueSchedules() {
+      try {
+        const created = await api.scheduled.processDue()
+        if (!cancelled) {
+          if (created.length) await refreshAccounts()
+          window.dispatchEvent(new CustomEvent('rangels:transactions-changed'))
+        }
+      } catch (error) {
+        console.error('[Scheduled] automatic activation failed:', error)
+      }
+    }
+
+    function scheduleMidnightActivation() {
+      const now = new Date()
+      const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1)
+      midnightTimer = window.setTimeout(async () => {
+        await activateDueSchedules()
+        if (!cancelled) scheduleMidnightActivation()
+      }, nextMidnight.getTime() - now.getTime())
+    }
+
+    void activateDueSchedules().finally(() => {
+      if (!cancelled) {
+        void refreshAccounts()
+        void refreshCategories()
+        refreshMembers()
+      }
+    })
+    scheduleMidnightActivation()
+    const onVisible = () => { if (document.visibilityState === 'visible') void activateDueSchedules() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      cancelled = true
+      if (midnightTimer !== undefined) window.clearTimeout(midnightTimer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [refreshAccounts, refreshCategories, refreshMembers])
 
   const prevMonth = () => {

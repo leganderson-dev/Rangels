@@ -97,7 +97,7 @@ export function HelpInfoModal({ onClose }: { onClose: () => void }) {
             <Arrow compact />
             <div className="space-y-2"><MiniNode value="Account balance" /><MiniNode value="Budget actual" /><MiniNode value="Allocation actual" /><MiniNode value="Reports & calendar" /></div>
           </div>
-          <p className="mt-4 text-[11px] leading-5 text-slate-500">A scheduled item is only a reusable expectation until it is processed. A Budget or Goal never creates a bank transaction by itself. Reports read classified ledger transactions; they do not maintain a second balance.</p>
+          <p className="mt-4 text-[11px] leading-5 text-slate-500">A scheduled item is a reusable expectation before its run date. It appears as a Calendar projection, then Rangels automatically creates its ledger transaction when due. A Budget or Goal never creates a bank transaction by itself. Reports read classified ledger transactions; they do not maintain a second balance.</p>
         </section>
 
         <section>
@@ -128,7 +128,7 @@ export function HelpInfoModal({ onClose }: { onClose: () => void }) {
               A monthly amount attached to one or more category groups. Spending becomes Budget actual when matching transactions occur. A Budget resets by period and does not allocate or move money.
             </Concept>
             <Concept term="Scheduled transaction" question="What recurring ledger event do we expect?" status="Live">
-              A dated template with amount, account, category and frequency. “Process Due” creates the actual transaction and advances the next date; only the created transaction affects balances and reports.
+              A dated template with amount, account, classification and frequency. Future runs appear in the Calendar forecast. On the run date Rangels automatically creates the actual transaction and advances the schedule; the manual “Process Due” action is also available. Only the created transaction affects reports.
             </Concept>
             <Concept term="Merchant rule" question="How should a recurring description be recognized?" status="Live">
               Matching phrases remember classification for future imports and can update matching history. Rules provide evidence; low-confidence or conflicting results still require review.
