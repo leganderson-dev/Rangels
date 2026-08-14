@@ -56,6 +56,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [ledgerSummary, setLedgerSummary] = useState<AccountLedgerSummary | null>(null)
   const [scheduledTxns, setScheduledTxns] = useState<ScheduledTransaction[]>([])
+  const [processingScheduledId, setProcessingScheduledId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [groupBy, setGroupBy] = useState<'category' | 'context' | 'bucket' | 'date' | 'none'>('category')
@@ -154,6 +155,22 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   }
 
   function refresh() { setRefreshKey(k => k + 1) }
+
+  async function processScheduled(item: ScheduledTransaction) {
+    if (processingScheduledId) return
+    const dateLabel = formatDate(item.nextDate)
+    if (!confirm(`Process “${item.description}” for ${dateLabel}?\n\nThis creates the real transaction using its scheduled run date and advances the schedule.`)) return
+    setProcessingScheduledId(item.id)
+    try {
+      await api.scheduled.process(item.id)
+      refresh()
+      onRefreshAccounts()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Could not process this scheduled transaction.')
+    } finally {
+      setProcessingScheduledId(null)
+    }
+  }
 
   useEffect(() => {
     const onTransactionsChanged = () => setRefreshKey(key => key + 1)
@@ -736,7 +753,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
               <span className="ml-auto font-normal normal-case tracking-normal text-gray-300">Not counted in totals</span>
             </div>
             {scheduledTxns.sort((a, b) => a.nextDate.localeCompare(b.nextDate)).map(s => (
-              <ScheduledGhostRow key={s.id} s={s} colWidths={colWidths} />
+              <ScheduledGhostRow key={s.id} s={s} colWidths={colWidths} processing={processingScheduledId === s.id} onProcess={() => void processScheduled(s)} />
             ))}
           </div>
         )}
@@ -1136,11 +1153,11 @@ function InlineDimensionSelect({ value, label, emptyLabel, options, onChange, mu
 
 // ─── Scheduled ghost row ─────────────────────────────────────────────────────
 
-function ScheduledGhostRow({ s, colWidths }: { s: ScheduledTransaction; colWidths: ColWidths }) {
+function ScheduledGhostRow({ s, colWidths, processing, onProcess }: { s: ScheduledTransaction; colWidths: ColWidths; processing: boolean; onProcess: () => void }) {
   const freqLabel = FREQUENCIES.find(f => f.value === s.frequency)?.label ?? s.frequency
   const bucketLabel = s.isTransfer ? 'Not applicable' : s.amount > 0 ? 'Allocation source' : (s.bucketName ?? '—')
   return (
-    <div className="flex items-center gap-3 px-4 pr-4 py-1.5 border-b border-dashed border-gray-100 opacity-50 hover:opacity-70 transition-opacity">
+    <div onDoubleClick={onProcess} title="Double-click to process this scheduled occurrence" className={`flex cursor-pointer items-center gap-3 border-b border-dashed border-gray-100 px-4 py-1.5 pr-4 transition-opacity ${processing ? 'pointer-events-none opacity-30' : 'opacity-50 hover:opacity-80'}`}>
       <div className="w-4 shrink-0" />
       <Calendar size={12} className="text-gray-400 shrink-0" />
       <span className="flex-1 text-sm text-gray-500 truncate min-w-0 italic">{s.description}</span>

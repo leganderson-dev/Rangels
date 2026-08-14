@@ -919,6 +919,36 @@ function scheduledPayload(data: Record<string, any>): Row {
   )
 }
 
+async function createScheduledOccurrence(item: ScheduledTransaction, runDate: string): Promise<Transaction | null> {
+  if (item.isVirtual) return null
+  const owner = await ownerId()
+  const payload = transactionPayload({
+    description: item.description,
+    date: runDate,
+    amount: item.amount,
+    accountId: item.accountId,
+    targetAccountId: item.targetAccountId,
+    categoryId: item.categoryId,
+    contextId: item.contextId,
+    bucketId: item.bucketId,
+    taxTreatment: item.taxTreatment,
+    transferReason: item.transferReason,
+    isTransfer: item.isTransfer,
+    status: 'C',
+    externalId: `schedule:${item.id}:${runDate}`,
+  })
+  const { data: inserted, error } = await supabase.from('transactions').insert({
+    owner_id: owner,
+    category_id: null,
+    legacy_category_id: null,
+    normalized_description: item.description.toLowerCase().trim(),
+    ...payload,
+  }).select('id').single()
+  if (error && error.code !== '23505') fail(error)
+  if (!inserted?.id) return null
+  return (await listTransactions({ transactionId: inserted.id }))[0]
+}
+
 async function budgetList(month: number, year: number): Promise<Budget[]> {
   const [budgetResult, categories, transactions] = await Promise.all([
     supabase.from('budgets').select('*').eq('month', month).eq('year', year),
@@ -1500,6 +1530,19 @@ export const api = {
       const { error } = await supabase.from('scheduled_transactions').delete().eq('id', id)
       fail(error)
     },
+    process: async (id: string): Promise<Transaction | null> => {
+      const item = (await scheduledList()).find(schedule => schedule.id === id)
+      if (!item || !item.isActive) throw new Error('This scheduled transaction is no longer active.')
+      if (item.endDate && item.nextDate > item.endDate) throw new Error('This scheduled transaction has passed its end date.')
+      const created = await createScheduledOccurrence(item, item.nextDate)
+      const following = nextScheduledDate(item.nextDate, item)
+      await api.scheduled.update(item.id, {
+        nextDate: following,
+        isActive: !item.endDate || following <= item.endDate,
+      })
+      invalidateTransactionQueries()
+      return created
+    },
     processDue: async (): Promise<Transaction[]> => {
       const today = localToday()
       const due = (await scheduledList()).filter(
@@ -1509,33 +1552,8 @@ export const api = {
       for (const item of due) {
         let runDate = item.nextDate
         while (runDate <= today && (!item.endDate || runDate <= item.endDate)) {
-          if (!item.isVirtual) {
-            const owner = await ownerId()
-            const payload = transactionPayload({
-              description: item.description,
-              date: runDate,
-              amount: item.amount,
-              accountId: item.accountId,
-              targetAccountId: item.targetAccountId,
-              categoryId: item.categoryId,
-              contextId: item.contextId,
-              bucketId: item.bucketId,
-              taxTreatment: item.taxTreatment,
-              transferReason: item.transferReason,
-              isTransfer: item.isTransfer,
-              status: 'C',
-              externalId: `schedule:${item.id}:${runDate}`,
-            })
-            const { data: inserted, error } = await supabase.from('transactions').insert({
-              owner_id: owner,
-              category_id: null,
-              legacy_category_id: null,
-              normalized_description: item.description.toLowerCase().trim(),
-              ...payload,
-            }).select('id').single()
-            if (error && error.code !== '23505') fail(error)
-            if (inserted?.id) created.push((await listTransactions({ transactionId: inserted.id }))[0])
-          }
+          const transaction = await createScheduledOccurrence(item, runDate)
+          if (transaction) created.push(transaction)
           const following = nextScheduledDate(runDate, item)
           const remainsActive = (!item.endDate || following <= item.endDate)
           await api.scheduled.update(item.id, { nextDate: following, isActive: remainsActive })
