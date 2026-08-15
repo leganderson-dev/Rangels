@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { inferTransferClassification, isJuliaTransferDescription } from './transfers'
+import { inferTransferClassification, isJuliaTransferDescription, isTransferFromAndersonDescription } from './transfers'
 
 describe('isJuliaTransferDescription', () => {
   it('matches the Julia transfer trigger regardless of case and trailing detail', () => {
@@ -9,6 +9,17 @@ describe('isJuliaTransferDescription', () => {
 
   it('does not match ordinary Julia merchant descriptions', () => {
     expect(isJuliaTransferDescription('JULIA MEYER PFLUG Currumundi Osko Payment')).toBe(false)
+  })
+})
+
+describe('isTransferFromAndersonDescription', () => {
+  it('matches Julia bank credits received from Anderson', () => {
+    expect(isTransferFromAndersonDescription('Fast Transfer From LEGNAR RANGEL Food')).toBe(true)
+    expect(isTransferFromAndersonDescription('FAST TRANSFER FROM LEGNAR RANGEL I love you')).toBe(true)
+  })
+
+  it('does not match unrelated fast transfers', () => {
+    expect(isTransferFromAndersonDescription('Fast Transfer From SOMEONE ELSE')).toBe(false)
   })
 })
 

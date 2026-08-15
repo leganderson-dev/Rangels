@@ -30,9 +30,12 @@ interface PreviewRow {
     taxTreatment: string
   } | null
   suggestedTransfer: {
+    sourceAccountId: string
+    sourceAccountName: string
     targetAccountId: string
     targetAccountName: string
     transferReason: TransferReason
+    amount: number
   } | null
   duplicate: boolean
   duplicateReason: string | null
@@ -155,10 +158,10 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
           taxTreatment: classification.taxTreatment,
         })
       }
-      const selected: Record<number, { categoryId: string | null; canonicalCategoryId: string | null; contextId: string | null; bucketId: string | null; taxTreatment: string; reimbursementStatus: string; tags: string[]; isTransfer: boolean; targetAccountId: string | null; transferReason: TransferReason | null } | '__skip__'> = {}
+      const selected: Record<number, { categoryId: string | null; canonicalCategoryId: string | null; contextId: string | null; bucketId: string | null; taxTreatment: string; reimbursementStatus: string; tags: string[]; isTransfer: boolean; sourceAccountId: string | null; targetAccountId: string | null; transferReason: TransferReason | null; amount?: number } | '__skip__'> = {}
       rows.forEach(row => {
         const classification = classifications[row.index] ?? classificationFromPurpose(null, classificationOptions)
-        selected[row.index] = included.has(row.index) ? { categoryId: assignments[row.index] ?? null, canonicalCategoryId: classification.canonicalCategoryId, contextId: classification.contextId, bucketId: classification.bucketId, taxTreatment: classification.taxTreatment, reimbursementStatus: classification.reimbursementStatus, tags: classification.tags, isTransfer: Boolean(row.suggestedTransfer), targetAccountId: row.suggestedTransfer?.targetAccountId ?? null, transferReason: row.suggestedTransfer?.transferReason ?? null } : '__skip__'
+        selected[row.index] = included.has(row.index) ? { categoryId: assignments[row.index] ?? null, canonicalCategoryId: classification.canonicalCategoryId, contextId: classification.contextId, bucketId: classification.bucketId, taxTreatment: classification.taxTreatment, reimbursementStatus: classification.reimbursementStatus, tags: classification.tags, isTransfer: Boolean(row.suggestedTransfer), sourceAccountId: row.suggestedTransfer?.sourceAccountId ?? null, targetAccountId: row.suggestedTransfer?.targetAccountId ?? null, transferReason: row.suggestedTransfer?.transferReason ?? null, amount: row.suggestedTransfer?.amount } : '__skip__'
       })
       const res = await api.import.bankCsv(filePath, accountId, selected)
       setResult(res)
@@ -194,7 +197,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
   const sortedDirectionRows = [...directionRows].sort((left, right) => {
     const suggestionName = (row: PreviewRow) => {
       const assigned = categories.find(category => category.id === assignments[row.index])
-      return row.suggestedTransfer ? `Transfer to ${row.suggestedTransfer.targetAccountName}` : assigned?.fullName ?? row.suggestions[0]?.categoryName ?? ''
+      return row.suggestedTransfer ? `Transfer ${row.suggestedTransfer.sourceAccountName} to ${row.suggestedTransfer.targetAccountName}` : assigned?.fullName ?? row.suggestions[0]?.categoryName ?? ''
     }
     const leftValue = sortField === 'date' ? left.date
       : sortField === 'description' ? left.description.toLocaleLowerCase()
@@ -523,11 +526,11 @@ function ImportRow({ row, categories, options, classification, onClassificationC
         {fmt(row.amount)}
       </span>
       <div className="min-w-0">
-        {row.suggestedTransfer ? <span className="flex items-center gap-1.5 truncate text-[11px] font-medium text-sky-700"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" /><span className="truncate">Transfer → {row.suggestedTransfer.targetAccountName}</span><span className="ml-auto shrink-0 text-sky-500">100%</span></span> : visibleSuggestions[0] ? <span className="flex items-center gap-1.5 truncate text-[11px] text-slate-600"><span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: categories.find(item => item.id === visibleSuggestions[0].categoryId)?.color ?? '#64748b' }} /><span className="truncate">{visibleSuggestions[0].categoryName}</span><span className="ml-auto shrink-0 text-slate-400">{visibleSuggestions[0].confidence === null ? 'Manual' : `${Math.round(visibleSuggestions[0].confidence * 100)}%`}</span></span> : <span className="text-xs italic text-gray-400">No scored suggestion</span>}
+        {row.suggestedTransfer ? <span className="flex items-center gap-1.5 truncate text-[11px] font-medium text-sky-700"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" /><span className="truncate">{row.suggestedTransfer.sourceAccountName} → {row.suggestedTransfer.targetAccountName}</span><span className="ml-auto shrink-0 text-sky-500">100%</span></span> : visibleSuggestions[0] ? <span className="flex items-center gap-1.5 truncate text-[11px] text-slate-600"><span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: categories.find(item => item.id === visibleSuggestions[0].categoryId)?.color ?? '#64748b' }} /><span className="truncate">{visibleSuggestions[0].categoryName}</span><span className="ml-auto shrink-0 text-slate-400">{visibleSuggestions[0].confidence === null ? 'Manual' : `${Math.round(visibleSuggestions[0].confidence * 100)}%`}</span></span> : <span className="text-xs italic text-gray-400">No scored suggestion</span>}
       </div>
 
       {expanded && <div className="relative col-start-4 col-span-3 mt-2 mb-1 rounded-lg border border-slate-200 bg-white p-2" onClick={event => event.stopPropagation()}>
-        {row.suggestedTransfer ? <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800"><strong>Transfer to {row.suggestedTransfer.targetAccountName}</strong><span className="mt-0.5 block text-[10px] text-sky-600">Ledger-neutral · Joint-account contribution · Triggered by “Transfer To Julia Meyer Pflug”</span></div> : <>
+        {row.suggestedTransfer ? <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800"><strong>{row.suggestedTransfer.sourceAccountName} → {row.suggestedTransfer.targetAccountName}</strong><span className="mt-0.5 block text-[10px] text-sky-600">Ledger-neutral · Joint-account contribution · Matched Anderson/Julia transfer wording</span></div> : <>
         <div className="flex items-stretch gap-1.5">
           <div className="grid grid-cols-3 gap-1.5 flex-1 min-w-0">
             {visibleSuggestions.map(suggestion => {

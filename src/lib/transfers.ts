@@ -28,6 +28,15 @@ export function isJuliaTransferDescription(description: string): boolean {
     .includes('transfer to julia meyer pflug')
 }
 
+export function isTransferFromAndersonDescription(description: string): boolean {
+  return description
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .includes('fast transfer from legnar rangel')
+}
+
 export function inferTransferClassification(sourceAccount: string, targetAccount: string, description: string): { reason: TransferReason; contextName: string | null } {
   const compact = (value: string) => value.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '')
   const source = compact(sourceAccount)
