@@ -380,7 +380,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
               )}
               {result.diagnostics.outcome === 'recovered' && (
                 <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-emerald-800">
-                  Rangels found an earlier incomplete attempt with no saved transactions, recovered it, and safely retried the rows.
+                  Rangels found an earlier partial attempt, retained its saved rows, and safely imported the remaining transactions.
                 </p>
               )}
             </div>

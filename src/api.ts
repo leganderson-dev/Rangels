@@ -468,11 +468,18 @@ async function importBank(token: string, accountId: string, assignments: Record<
   let importRow = previousImport
   let recovered = false
   if (previousImport) {
+    const rowsStillRequested = parsed.rows.reduce(
+      (count, _row, index) => count + (assignments[index] === '__skip__' ? 0 : 1),
+      0,
+    )
     const { count, error: countError } = await supabase.from('transactions')
       .select('id', { count: 'exact', head: true })
       .eq('import_id', previousImport.id)
     fail(countError)
-    if ((count ?? 0) > 0) {
+    // The preview marks rows already present in the account as skipped. Only call
+    // the file complete when it has no rows left to submit. A partially completed
+    // import must resume even when one or more rows were saved previously.
+    if (rowsStillRequested === 0) {
       pickedFiles.delete(token)
       return {
         imported: 0,
