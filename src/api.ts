@@ -1112,21 +1112,35 @@ async function budgetGroupList(month: number, year: number): Promise<any[]> {
   fail(groupResult.error)
   fail(memberResult.error)
   const categoryMap = new Map(categories.map((category) => [category.id, category]))
+  const options = await listClassificationOptions()
+  const bucketMap = new Map(options.buckets.map((bucket) => [bucket.id, bucket]))
+  const contextMap = new Map(options.contexts.map((context) => [context.id, context]))
+  const dimensionColors = {
+    purpose_family: '#6366f1',
+    bucket: '#8b5cf6',
+    context: '#0f766e',
+  } as const
   return (groupResult.data ?? []).map((group) => {
     const members = (memberResult.data ?? []).filter(
       (member) => member.group_id === group.id,
     )
-    const ids = new Set<string>()
-    members.forEach((member) => {
-      ids.add(member.canonical_category_id)
-    })
+    const purposeIds = new Set(members.filter(member => member.member_type === 'purpose').map(member => member.canonical_category_id))
+    const families = new Set(members.filter(member => member.member_type === 'purpose_family').map(member => member.purpose_family))
+    const bucketIds = new Set(members.filter(member => member.member_type === 'bucket').map(member => member.bucket_id))
+    const contextIds = new Set(members.filter(member => member.member_type === 'context').map(member => member.context_id))
     const spent = Math.abs(
       transactions
         .filter(
-          (transaction) =>
-            transaction.categoryId &&
-            ids.has(transaction.categoryId) &&
-            transaction.amount < 0,
+          (transaction) => {
+            if (transaction.amount >= 0 || transaction.isTransfer) return false
+            const category = transaction.categoryId ? categoryMap.get(transaction.categoryId) : undefined
+            return Boolean(
+              (transaction.categoryId && purposeIds.has(transaction.categoryId)) ||
+              (category?.parentName && families.has(category.parentName)) ||
+              (transaction.bucketId && bucketIds.has(transaction.bucketId)) ||
+              (transaction.contextId && contextIds.has(transaction.contextId))
+            )
+          },
         )
         .reduce((sum, transaction) => sum + transaction.amount, 0),
     )
@@ -1140,11 +1154,18 @@ async function budgetGroupList(month: number, year: number): Promise<any[]> {
       members: members.map((member) => ({
         id: member.id,
         groupId: member.group_id,
-        categoryId: member.canonical_category_id,
-        categoryName: categoryMap.get(member.canonical_category_id)?.name ?? '',
-        categoryColor: categoryMap.get(member.canonical_category_id)?.color ?? '#9ca3af',
-        categoryParentId: null,
-        includeChildren: false,
+        memberType: member.member_type ?? 'purpose',
+        memberId: member.canonical_category_id ?? member.bucket_id ?? member.context_id ?? member.purpose_family,
+        memberName: member.member_type === 'purpose_family'
+          ? member.purpose_family
+          : member.member_type === 'bucket'
+            ? bucketMap.get(member.bucket_id)?.name ?? ''
+            : member.member_type === 'context'
+              ? contextMap.get(member.context_id)?.name ?? ''
+              : categoryMap.get(member.canonical_category_id)?.name ?? '',
+        memberColor: member.member_type === 'purpose'
+          ? categoryMap.get(member.canonical_category_id)?.color ?? '#9ca3af'
+          : dimensionColors[member.member_type as keyof typeof dimensionColors] ?? '#9ca3af',
       })),
     }
   })
@@ -1735,7 +1756,7 @@ export const api = {
     },
     setMembers: async (
       groupId: string,
-      members: { categoryId: string; includeChildren: boolean }[],
+      members: { memberType: 'purpose' | 'purpose_family' | 'bucket' | 'context'; memberId: string }[],
     ): Promise<void> => {
       const owner = await ownerId()
       const { error: deleteError } = await supabase
@@ -1748,7 +1769,11 @@ export const api = {
         members.map((member) => ({
           owner_id: owner,
           group_id: groupId,
-          canonical_category_id: member.categoryId,
+          member_type: member.memberType,
+          canonical_category_id: member.memberType === 'purpose' ? member.memberId : null,
+          purpose_family: member.memberType === 'purpose_family' ? member.memberId : null,
+          bucket_id: member.memberType === 'bucket' ? member.memberId : null,
+          context_id: member.memberType === 'context' ? member.memberId : null,
           include_children: false,
         })),
       )
