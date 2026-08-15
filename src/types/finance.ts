@@ -127,7 +127,7 @@ export interface LegacyCategoryMapping {
   transferReason: TransferReason | null
 }
 
-export type TransferReason = 'account_movement' | 'joint_contribution' | 'property_funding' | 'business_funding' | 'savings' | 'debt_reduction' | 'investment_contribution' | 'other'
+export type TransferReason = 'account_movement' | 'joint_contribution' | 'household_funding' | 'property_funding' | 'business_funding' | 'savings' | 'debt_reduction' | 'investment_contribution' | 'other'
 
 export interface LegacyTransactionSample {
   id: string

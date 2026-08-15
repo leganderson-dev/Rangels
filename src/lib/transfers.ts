@@ -3,6 +3,7 @@ import type { TransferReason } from '../types/finance'
 export const transferReasons: Array<{ value: TransferReason; label: string; needsContext: boolean }> = [
   { value: 'account_movement', label: 'Account movement', needsContext: false },
   { value: 'joint_contribution', label: 'Joint-account contribution', needsContext: false },
+  { value: 'household_funding', label: 'Household funding', needsContext: false },
   { value: 'property_funding', label: 'Property funding', needsContext: true },
   { value: 'business_funding', label: 'Business funding', needsContext: true },
   { value: 'savings', label: 'Savings movement', needsContext: false },
