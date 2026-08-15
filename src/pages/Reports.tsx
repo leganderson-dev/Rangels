@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  AreaChart, Area, ReferenceLine
+  AreaChart, Area, Line, ReferenceLine
 } from 'recharts'
 import { api } from '../api'
 import { fmt, fmtShort, monthShort, monthName } from '../utils'
@@ -149,9 +149,16 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
 
   useEffect(() => {
     if (view !== 'trends' || trendSelections.length === 0) { setTrendData([]); return }
+    const juliaAccounts = new Set(accounts
+      .filter(account => /julia/i.test(account.memberName) || /^julia\b/i.test(account.name))
+      .map(account => account.id))
     const data = Array.from({ length: 12 }, (_, index) => {
       const entry: Record<string, string | number> = { name: monthShort(index + 1) }
-      for (const id of trendSelections) entry[`trend_${id}`] = 0
+      for (const id of trendSelections) {
+        entry[`trend_${id}_total`] = 0
+        entry[`trend_${id}_anderson`] = 0
+        entry[`trend_${id}_julia`] = 0
+      }
       for (const transaction of trendTransactions) {
         if (transaction.isTransfer || transaction.status !== 'C' || transaction.amount >= 0 || Number(transaction.date.slice(5, 7)) !== index + 1) continue
         const dimensionId = trendDimension === 'bucket'
@@ -160,13 +167,16 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
             ? transaction.contextId
             : transaction.canonicalCategoryId
         if (dimensionId && trendSelections.includes(dimensionId)) {
-          entry[`trend_${dimensionId}`] = Number(entry[`trend_${dimensionId}`]) + Math.abs(transaction.amount)
+          const amount = Math.abs(transaction.amount)
+          entry[`trend_${dimensionId}_total`] = Number(entry[`trend_${dimensionId}_total`]) + amount
+          const member = juliaAccounts.has(transaction.accountId) ? 'julia' : 'anderson'
+          entry[`trend_${dimensionId}_${member}`] = Number(entry[`trend_${dimensionId}_${member}`]) + amount
         }
       }
       return entry
     })
     setTrendData(data)
-  }, [view, trendDimension, trendSelections, trendTransactions])
+  }, [view, trendDimension, trendSelections, trendTransactions, accounts])
 
   const netData = yearly.map(m => ({
     name: monthShort(m.month),
@@ -562,6 +572,13 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                 ))}
                 {groupedTrendOptions.length === 0 && <p className="py-2 text-xs text-gray-400">Loading options…</p>}
               </div>
+              {trendSelections.length > 0 && (
+                <div className="mt-3 flex items-center justify-end gap-4 text-[11px] text-gray-500">
+                  <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-6 bg-gray-700" />Total</span>
+                  <span className="inline-flex items-center gap-1.5"><span className="w-6 border-t-2 border-dashed border-gray-500" />Anderson</span>
+                  <span className="inline-flex items-center gap-1.5"><span className="w-6 border-t-2 border-dotted border-gray-400" />Julia</span>
+                </div>
+              )}
             </div>
             {trendSelections.length > 0 && trendData.length > 0 ? (
               <ResponsiveContainer width="100%" height={280}>
@@ -578,20 +595,53 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                   <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                   <YAxis tickFormatter={v => fmtShort(v)} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={56} />
                   <Tooltip
-              formatter={v => fmt(Number(v ?? 0))}
+                    formatter={(value, name) => [fmt(Number(value ?? 0)), name]}
                     contentStyle={{ fontSize: 12, borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}
                   />
                   {trendSelections.map((selectionId, i) => {
                     const option = trendOptions.find(value => value.id === selectionId)
+                    const color = TREND_COLORS[i % TREND_COLORS.length]
                     return (
                       <Area
-                        key={selectionId}
-                        dataKey={`trend_${selectionId}`}
-                        name={option?.name ?? String(selectionId)}
-                        stroke={TREND_COLORS[i % TREND_COLORS.length]}
-                        strokeWidth={2.5}
+                        key={`${selectionId}-total`}
+                        dataKey={`trend_${selectionId}_total`}
+                        name={`${option?.name ?? String(selectionId)} · Total`}
+                        stroke={color}
+                        strokeWidth={3}
                         fill={`url(#grad${selectionId})`}
-                        dot={{ r: 3, fill: TREND_COLORS[i % TREND_COLORS.length] }}
+                        dot={{ r: 3, fill: color }}
+                      />
+                    )
+                  })}
+                  {trendSelections.map((selectionId, i) => {
+                    const option = trendOptions.find(value => value.id === selectionId)
+                    const color = TREND_COLORS[i % TREND_COLORS.length]
+                    return (
+                      <Line
+                        key={`${selectionId}-anderson`}
+                        dataKey={`trend_${selectionId}_anderson`}
+                        name={`${option?.name ?? String(selectionId)} · Anderson`}
+                        stroke={color}
+                        strokeWidth={2}
+                        strokeDasharray="8 4"
+                        dot={{ r: 2.5, fill: 'white', stroke: color, strokeWidth: 2 }}
+                        activeDot={{ r: 4 }}
+                      />
+                    )
+                  })}
+                  {trendSelections.map((selectionId, i) => {
+                    const option = trendOptions.find(value => value.id === selectionId)
+                    const color = TREND_COLORS[i % TREND_COLORS.length]
+                    return (
+                      <Line
+                        key={`${selectionId}-julia`}
+                        dataKey={`trend_${selectionId}_julia`}
+                        name={`${option?.name ?? String(selectionId)} · Julia`}
+                        stroke={color}
+                        strokeWidth={2}
+                        strokeDasharray="2 4"
+                        dot={{ r: 2.5, fill: color }}
+                        activeDot={{ r: 4 }}
                       />
                     )
                   })}
