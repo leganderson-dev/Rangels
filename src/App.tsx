@@ -187,7 +187,7 @@ function FinanceApp() {
           {page === 'merchants' && <MerchantsPage {...pageProps} />}
           {page === 'categories' && <CategoriesPage {...pageProps} />}
           {page === 'reports' && <ReportsPage {...pageProps} />}
-          {page === 'plan' && <PlanPage month={month} year={year} dateMode={dateMode} customFrom={customFrom} customTo={customTo} />}
+          {page === 'plan' && <PlanPage accounts={accounts} month={month} year={year} dateMode={dateMode} customFrom={customFrom} customTo={customTo} />}
           {page === 'budget' && <BudgetPage {...pageProps} />}
           {page === 'scheduled' && <ScheduledPage {...pageProps} />}
           {page === 'calendar' && <CalendarPage {...pageProps} />}

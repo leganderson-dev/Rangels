@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, ArrowDown, Check, CircleDollarSign, Flame, PiggyBank, RotateCcw, Target, Users, WalletCards } from 'lucide-react'
 import { api } from '../api'
-import type { AllocationPlanSummary, Budget, Transaction } from '../types/finance'
+import type { Account, AllocationPlanSummary, Budget, Transaction } from '../types/finance'
 import { fmt, formatDate, monthName } from '../utils'
 
 interface Props {
+  accounts: Account[]
   month: number
   year: number
   dateMode: 'month' | 'custom'
@@ -33,7 +34,7 @@ function bucketUse(rows: Transaction[], bucketId: string) {
     .reduce((sum, row) => sum + Math.abs(row.amount), 0)
 }
 
-export function PlanPage({ month, year, dateMode, customFrom, customTo }: Props) {
+export function PlanPage({ accounts, month, year, dateMode, customFrom, customTo }: Props) {
   const [plan, setPlan] = useState<AllocationPlanSummary | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [ytdTransactions, setYtdTransactions] = useState<Transaction[]>([])
@@ -63,17 +64,23 @@ export function PlanPage({ month, year, dateMode, customFrom, customTo }: Props)
   const householdRows = useMemo(() => transactions.filter(row => !row.isTransfer && row.status === 'C' && row.contextName === 'Household'), [transactions])
   const totalHouseholdSpend = householdRows.filter(row => row.amount < 0).reduce((sum, row) => sum + Math.abs(row.amount), 0)
   const attributedMembers = useMemo(() => {
-    const names = [...new Set(householdRows.map(row => row.memberName).filter(Boolean))]
-    return names.map(name => {
-      const rows = householdRows.filter(row => row.memberName === name)
+    const juliaAccountIds = new Set(accounts
+      .filter(account => /julia/i.test(account.memberName) || /^julia\b/i.test(account.name))
+      .map(account => account.id))
+    const rowsByMember = new Map<string, Transaction[]>()
+    for (const row of householdRows) {
+      const name = juliaAccountIds.has(row.accountId) ? 'Julia' : 'Anderson'
+      rowsByMember.set(name, [...(rowsByMember.get(name) ?? []), row])
+    }
+    return [...rowsByMember.entries()].map(([name, rows]) => {
       return {
         name,
         income: rows.filter(row => row.amount > 0).reduce((sum, row) => sum + row.amount, 0),
         spending: rows.filter(row => row.amount < 0).reduce((sum, row) => sum + Math.abs(row.amount), 0),
         bucketSpend: new Map((plan?.targets ?? []).map(target => [target.bucketId, bucketUse(rows, target.bucketId)])),
       }
-    })
-  }, [householdRows, plan])
+    }).sort((left, right) => right.income - left.income || right.spending - left.spending || left.name.localeCompare(right.name))
+  }, [accounts, householdRows, plan])
 
   if (loading) return <div className="h-full overflow-auto p-6 text-sm text-slate-500">Loading allocation reporting…</div>
   if (error) return <div className="m-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
@@ -83,6 +90,12 @@ export function PlanPage({ month, year, dateMode, customFrom, customTo }: Props)
   const targetTotal = plan.targets.reduce((sum, target) => sum + target.targetPercentage, 0)
   const periodLabel = dateMode === 'custom' ? `${formatDate(customFrom)} – ${formatDate(customTo)}` : `${monthName(month)} ${year}`
   const periodNoun = dateMode === 'custom' ? 'selected range' : 'month'
+  const householdMemberTotal = {
+    name: 'Household total',
+    income: availableIncome,
+    spending: totalHouseholdSpend,
+    bucketSpend: new Map(plan.targets.map(target => [target.bucketId, bucketUse(householdRows, target.bucketId)])),
+  }
 
   return (
     <div className="h-full overflow-auto bg-slate-50 p-5">
@@ -133,10 +146,10 @@ export function PlanPage({ month, year, dateMode, customFrom, customTo }: Props)
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 px-5 py-4"><div className="flex items-center gap-2"><Users size={17} className="text-violet-600" /><h2 className="font-semibold text-slate-900">Who contributed and who made the purchase</h2></div><p className="mt-1 text-xs text-slate-500">Account ownership provides attribution. It does not yet divide Splurge or Smile entitlement.</p></div>
-          <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-3">
-            {attributedMembers.map(member => <MemberCard key={member.name} member={member} plan={plan} />)}
-            {attributedMembers.length === 0 && <p className="text-sm text-slate-400">No attributed Household activity in this period.</p>}
+          <div className="border-b border-slate-100 px-5 py-4"><div className="flex items-center gap-2"><Users size={17} className="text-violet-600" /><h2 className="font-semibold text-slate-900">Who contributed and who made the purchase</h2></div><p className="mt-1 text-xs text-slate-500">Household total stays first. Members are ranked by income contributed, then purchases made. Anderson is green and Julia is yellow.</p></div>
+          <div className="grid gap-3 p-5 md:grid-cols-2">
+            <MemberCard member={householdMemberTotal} plan={plan} rank={1} tone="total" className="md:col-span-2" />
+            {attributedMembers.map((member, index) => <MemberCard key={member.name} member={member} plan={plan} rank={index + 2} tone={member.name === 'Julia' ? 'julia' : 'anderson'} />)}
           </div>
           <div className="flex gap-2 border-t border-violet-100 bg-violet-50 px-5 py-3 text-xs leading-5 text-violet-800"><RotateCcw size={15} className="mt-0.5 shrink-0" /><span>Before individual available balances can be shown, Rangels still needs the agreed Anderson / Julia / Shared split, opening balances, and an immutable movement ledger.</span></div>
         </section>
@@ -165,6 +178,11 @@ function PerformanceRow({ target, income, rows }: { target: AllocationPlanSummar
 
 function MiniMetric({ label, value }: { label: string; value: string }) { return <div className="rounded-lg bg-slate-50 p-3"><p className="text-[10px] uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 text-sm font-semibold text-slate-800">{value}</p></div> }
 
-function MemberCard({ member, plan }: { member: { name: string; income: number; spending: number; bucketSpend: Map<string, number> }; plan: AllocationPlanSummary }) {
-  return <div className="rounded-xl border border-slate-200 p-4"><div className="flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-50 text-sm font-bold text-violet-700">{member.name[0]}</span><h3 className="font-semibold text-slate-800">{member.name}</h3></div><div className="mt-3 grid grid-cols-2 gap-2 text-xs"><div><p className="text-slate-400">Income contributed</p><p className="mt-1 font-semibold text-emerald-700">{fmt(member.income)}</p></div><div><p className="text-slate-400">Purchases made</p><p className="mt-1 font-semibold text-slate-700">{fmt(member.spending)}</p></div></div><div className="mt-3 space-y-1.5 border-t border-slate-100 pt-3">{plan.targets.filter(target => target.name === 'Splurge' || target.name === 'Smile').map(target => <div key={target.id} className="flex justify-between text-xs"><span className="text-slate-500">{target.name} used</span><strong className="text-slate-700">{fmt(member.bucketSpend.get(target.bucketId) ?? 0)}</strong></div>)}</div></div>
+function MemberCard({ member, plan, rank, tone, className = '' }: { member: { name: string; income: number; spending: number; bucketSpend: Map<string, number> }; plan: AllocationPlanSummary; rank: number; tone: 'total' | 'anderson' | 'julia'; className?: string }) {
+  const styles = {
+    total: { card: 'border-slate-300 bg-slate-50', badge: 'bg-slate-800 text-white', avatar: 'bg-slate-200 text-slate-800', income: 'text-slate-900' },
+    anderson: { card: 'border-emerald-200 bg-emerald-50/50', badge: 'bg-emerald-600 text-white', avatar: 'bg-emerald-100 text-emerald-800', income: 'text-emerald-700' },
+    julia: { card: 'border-amber-200 bg-amber-50/60', badge: 'bg-amber-400 text-amber-950', avatar: 'bg-amber-100 text-amber-800', income: 'text-amber-700' },
+  }[tone]
+  return <div className={`rounded-xl border p-4 ${styles.card} ${className}`}><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><span className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${styles.avatar}`}>{member.name[0]}</span><h3 className="font-semibold text-slate-800">{member.name}</h3></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${styles.badge}`}>#{rank}</span></div><div className="mt-3 grid grid-cols-2 gap-2 text-xs"><div><p className="text-slate-400">Income contributed</p><p className={`mt-1 font-semibold ${styles.income}`}>{fmt(member.income)}</p></div><div><p className="text-slate-400">Purchases made</p><p className="mt-1 font-semibold text-slate-700">{fmt(member.spending)}</p></div></div><div className="mt-3 space-y-1.5 border-t border-slate-200/70 pt-3">{plan.targets.filter(target => target.name === 'Splurge' || target.name === 'Smile').map(target => <div key={target.id} className="flex justify-between text-xs"><span className="text-slate-500">{target.name} used</span><strong className="text-slate-700">{fmt(member.bucketSpend.get(target.bucketId) ?? 0)}</strong></div>)}</div></div>
 }
