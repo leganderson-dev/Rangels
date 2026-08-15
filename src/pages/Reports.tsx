@@ -575,8 +575,8 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
               {trendSelections.length > 0 && (
                 <div className="mt-3 flex items-center justify-end gap-4 text-[11px] text-gray-500">
                   <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-6 bg-gray-700" />Total</span>
-                  <span className="inline-flex items-center gap-1.5"><span className="w-6 border-t-2 border-dashed border-gray-500" />Anderson</span>
-                  <span className="inline-flex items-center gap-1.5"><span className="w-6 border-t-2 border-dotted border-gray-400" />Julia</span>
+                  <span className="inline-flex items-center gap-1.5 text-green-700"><span className="w-6 border-t-2 border-dashed border-green-600" />Anderson</span>
+                  <span className="inline-flex items-center gap-1.5 text-yellow-700"><span className="w-6 border-t-2 border-dotted border-yellow-500" />Julia</span>
                 </div>
               )}
             </div>
@@ -595,8 +595,36 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                   <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                   <YAxis tickFormatter={v => fmtShort(v)} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={56} />
                   <Tooltip
-                    formatter={(value, name) => [fmt(Number(value ?? 0)), name]}
-                    contentStyle={{ fontSize: 12, borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}
+                    content={({ active, label, payload }: any) => {
+                      if (!active || !payload?.length) return null
+                      const ranked = [...payload].sort((left, right) => {
+                        const leftTotal = String(left.name).endsWith('· Total')
+                        const rightTotal = String(right.name).endsWith('· Total')
+                        if (leftTotal !== rightTotal) return leftTotal ? -1 : 1
+                        return Number(right.value ?? 0) - Number(left.value ?? 0)
+                      })
+                      return (
+                        <div className="min-w-52 rounded-xl border border-gray-200 bg-white p-3 text-xs shadow-lg">
+                          <p className="mb-2 font-semibold text-gray-700">{label}</p>
+                          <div className="space-y-1.5">
+                            {ranked.map((item: any, index: number) => {
+                              const isTotal = String(item.name).endsWith('· Total')
+                              const isAnderson = String(item.name).endsWith('· Anderson')
+                              const color = isTotal ? item.color : isAnderson ? '#16a34a' : '#eab308'
+                              return (
+                                <div key={`${item.dataKey}-${index}`} className={`flex items-center justify-between gap-5 ${isTotal ? 'border-b border-gray-100 pb-1.5 font-bold' : ''}`}>
+                                  <span className="flex items-center gap-1.5 text-gray-600">
+                                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+                                    {item.name}
+                                  </span>
+                                  <span className="font-semibold" style={{ color }}>{fmt(Number(item.value ?? 0))}</span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    }}
                   />
                   {trendSelections.map((selectionId, i) => {
                     const option = trendOptions.find(value => value.id === selectionId)
@@ -613,34 +641,32 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                       />
                     )
                   })}
-                  {trendSelections.map((selectionId, i) => {
+                  {trendSelections.map(selectionId => {
                     const option = trendOptions.find(value => value.id === selectionId)
-                    const color = TREND_COLORS[i % TREND_COLORS.length]
                     return (
                       <Line
                         key={`${selectionId}-anderson`}
                         dataKey={`trend_${selectionId}_anderson`}
                         name={`${option?.name ?? String(selectionId)} · Anderson`}
-                        stroke={color}
+                        stroke="#16a34a"
                         strokeWidth={2}
                         strokeDasharray="8 4"
-                        dot={{ r: 2.5, fill: 'white', stroke: color, strokeWidth: 2 }}
+                        dot={{ r: 2.5, fill: 'white', stroke: '#16a34a', strokeWidth: 2 }}
                         activeDot={{ r: 4 }}
                       />
                     )
                   })}
-                  {trendSelections.map((selectionId, i) => {
+                  {trendSelections.map(selectionId => {
                     const option = trendOptions.find(value => value.id === selectionId)
-                    const color = TREND_COLORS[i % TREND_COLORS.length]
                     return (
                       <Line
                         key={`${selectionId}-julia`}
                         dataKey={`trend_${selectionId}_julia`}
                         name={`${option?.name ?? String(selectionId)} · Julia`}
-                        stroke={color}
+                        stroke="#eab308"
                         strokeWidth={2}
                         strokeDasharray="2 4"
-                        dot={{ r: 2.5, fill: color }}
+                        dot={{ r: 2.5, fill: '#eab308' }}
                         activeDot={{ r: 4 }}
                       />
                     )
