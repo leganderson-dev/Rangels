@@ -273,6 +273,32 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
     return totals
   }, [accounts, filteredPeriodTransactions])
 
+  const spendingSummary = useMemo(() => {
+    const juliaAccounts = new Set(accounts
+      .filter(account => /julia/i.test(account.memberName) || /^julia\b/i.test(account.name))
+      .map(account => account.id))
+    const expenses = filteredPeriodTransactions.filter(transaction =>
+      !transaction.isTransfer && transaction.status === 'C' && transaction.amount < 0,
+    )
+    let anderson = 0
+    let julia = 0
+    for (const transaction of expenses) {
+      const amount = Math.abs(transaction.amount)
+      if (juliaAccounts.has(transaction.accountId)) julia += amount
+      else anderson += amount
+    }
+    const total = anderson + julia
+    return {
+      total,
+      count: expenses.length,
+      average: expenses.length ? total / expenses.length : 0,
+      anderson,
+      julia,
+      andersonPercentage: total ? (anderson / total) * 100 : 0,
+      juliaPercentage: total ? (julia / total) * 100 : 0,
+    }
+  }, [accounts, filteredPeriodTransactions])
+
   function changeTrendDimension(dimension: TrendDimension) {
     setTrendDimension(dimension)
     setTrendSelections([])
@@ -510,50 +536,42 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                 {(spendingBucketFilter || spendingContextFilter) && <button type="button" onClick={() => { setSpendingBucketFilter(''); setSpendingContextFilter(''); setDrill(null); setDrillTxns([]) }} className="rounded-lg px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50">Clear filters</button>}
                 <span className="ml-auto text-[11px] text-gray-400">{expenseBreakdown.length} expense {expenseBreakdown.length === 1 ? 'purpose' : 'purposes'}</span>
               </div>
-              <div className="space-y-3">
-                {topExpCats.map((c, i) => {
-                  const maxVal = Math.abs(expenseBreakdown[0]?.total ?? 1)
-                  const contribution = contributionByCategory.get(c.categoryId ?? '__none') ?? { anderson: 0, julia: 0 }
-                  const andersonPct = (contribution.anderson / maxVal) * 100
-                  const juliaPct = (contribution.julia / maxVal) * 100
-                  return (
-                    <button
-                      key={c.categoryId}
-                      onClick={() => drillCategory(c.categoryId, c.categoryFullName ?? 'Uncategorised', c.categoryColor ?? '#94a3b8')}
-                      className="w-full group text-left"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-gray-300 w-4 font-mono">{i + 1}</span>
-                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: c.categoryColor }} />
-                          <span className="text-xs text-gray-600 group-hover:text-gray-900 transition-colors">{c.categoryFullName ?? 'Uncategorised'}</span>
+              <div className="grid gap-6 lg:grid-cols-3">
+                <div className="space-y-3 lg:col-span-2">
+                  {topExpCats.map((c, i) => {
+                    const maxVal = Math.abs(expenseBreakdown[0]?.total ?? 1)
+                    const contribution = contributionByCategory.get(c.categoryId ?? '__none') ?? { anderson: 0, julia: 0 }
+                    const andersonPct = (contribution.anderson / maxVal) * 100
+                    const juliaPct = (contribution.julia / maxVal) * 100
+                    return (
+                      <button
+                        key={c.categoryId}
+                        onClick={() => drillCategory(c.categoryId, c.categoryFullName ?? 'Uncategorised', c.categoryColor ?? '#94a3b8')}
+                        className="w-full group text-left"
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="text-[10px] text-gray-300 w-4 font-mono">{i + 1}</span>
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: c.categoryColor }} />
+                            <span className="truncate text-xs text-gray-600 group-hover:text-gray-900 transition-colors">{c.categoryFullName ?? 'Uncategorised'}</span>
+                          </div>
+                          <div className="ml-3 flex shrink-0 items-center gap-2">
+                            <span className="hidden xl:inline text-[10px] font-semibold text-blue-600">Anderson {fmt(contribution.anderson)}</span>
+                            <span className="hidden xl:inline text-[10px] font-semibold text-pink-500">Julia {fmt(contribution.julia)}</span>
+                            <span className="text-xs font-bold text-gray-700">{fmt(Math.abs(c.total))}</span>
+                            <ChevronRight size={12} className="text-gray-300 group-hover:text-gray-500" />
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="hidden md:inline text-[10px] font-semibold text-blue-600">Anderson {fmt(contribution.anderson)}</span>
-                          <span className="hidden md:inline text-[10px] font-semibold text-pink-500">Julia {fmt(contribution.julia)}</span>
-                          <span className="text-xs font-bold text-gray-700">{fmt(Math.abs(c.total))}</span>
-                          <ChevronRight size={12} className="text-gray-300 group-hover:text-gray-500" />
+                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden ml-6 flex">
+                          <div className="h-full bg-blue-600 transition-all" style={{ width: `${andersonPct}%` }} title={`Anderson: ${fmt(contribution.anderson)}`} />
+                          <div className="h-full bg-pink-500 transition-all" style={{ width: `${juliaPct}%` }} title={`Julia: ${fmt(contribution.julia)}`} />
                         </div>
-                      </div>
-                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden ml-6 flex">
-                        <div
-                          className="h-full bg-blue-600 transition-all"
-                          style={{ width: `${andersonPct}%` }}
-                          title={`Anderson: ${fmt(contribution.anderson)}`}
-                        />
-                        <div
-                          className="h-full bg-pink-500 transition-all"
-                          style={{ width: `${juliaPct}%` }}
-                          title={`Julia: ${fmt(contribution.julia)}`}
-                        />
-                      </div>
-                    </button>
-                  )
-                })}
-                {topExpCats.length === 0 && <div className="rounded-xl border border-dashed border-gray-200 py-12 text-center text-sm text-gray-400">No expenses match these filters.</div>}
-              </div>
-              {incomeBreakdown.length > 0 && (
-                <div className="mt-5 pt-4 border-t border-gray-100">
+                      </button>
+                    )
+                  })}
+                  {topExpCats.length === 0 && <div className="rounded-xl border border-dashed border-gray-200 py-12 text-center text-sm text-gray-400">No expenses match these filters.</div>}
+                  {incomeBreakdown.length > 0 && (
+                    <div className="mt-5 pt-4 border-t border-gray-100">
                   <p className="text-xs font-semibold text-gray-400 mb-3 uppercase tracking-wide">Income</p>
                   <div className="space-y-1.5">
                     {incomeBreakdown.map(c => (
@@ -570,8 +588,48 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                       </button>
                     ))}
                   </div>
+                    </div>
+                  )}
                 </div>
-              )}
+
+                <aside className="h-fit overflow-hidden rounded-xl border border-gray-200 bg-gray-50/60 lg:sticky lg:top-4">
+                  <div className="border-b border-gray-200 bg-white px-4 py-3">
+                    <p className="text-xs font-semibold text-gray-800">Filtered expense summary</p>
+                    <p className="mt-0.5 text-[10px] text-gray-400">{spendingSummary.count} transaction{spendingSummary.count === 1 ? '' : 's'}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-px bg-gray-200">
+                    <div className="bg-white px-4 py-3">
+                      <p className="text-[9px] font-semibold uppercase tracking-wider text-gray-400">Total</p>
+                      <p className="mt-1 text-sm font-bold text-gray-800">{fmt(spendingSummary.total)}</p>
+                    </div>
+                    <div className="bg-white px-4 py-3">
+                      <p className="text-[9px] font-semibold uppercase tracking-wider text-gray-400">Average transaction</p>
+                      <p className="mt-1 text-sm font-bold text-gray-800">{fmt(spendingSummary.average)}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-4 px-4 py-4">
+                    <div>
+                      <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                        <span className="text-xs font-semibold text-blue-600">Anderson</span>
+                        <span className="text-right text-xs font-bold text-gray-700">{fmt(spendingSummary.anderson)} <span className="font-medium text-gray-400">· {spendingSummary.andersonPercentage.toFixed(1)}%</span></span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-gray-200"><div className="h-full rounded-full bg-blue-600" style={{ width: `${spendingSummary.andersonPercentage}%` }} /></div>
+                    </div>
+                    <div>
+                      <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                        <span className="text-xs font-semibold text-pink-500">Julia</span>
+                        <span className="text-right text-xs font-bold text-gray-700">{fmt(spendingSummary.julia)} <span className="font-medium text-gray-400">· {spendingSummary.juliaPercentage.toFixed(1)}%</span></span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-gray-200"><div className="h-full rounded-full bg-pink-500" style={{ width: `${spendingSummary.juliaPercentage}%` }} /></div>
+                    </div>
+                    <div className="flex h-3 overflow-hidden rounded-full bg-gray-200" aria-label="Expense contribution split">
+                      <div className="bg-blue-600" style={{ width: `${spendingSummary.andersonPercentage}%` }} />
+                      <div className="bg-pink-500" style={{ width: `${spendingSummary.juliaPercentage}%` }} />
+                    </div>
+                    <p className="text-[10px] leading-4 text-gray-400">Attribution follows the owner of the account that paid each expense.</p>
+                  </div>
+                </aside>
+              </div>
           </div>
         )}
 
