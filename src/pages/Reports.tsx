@@ -149,15 +149,20 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
 
   useEffect(() => {
     if (view !== 'trends' || trendSelections.length === 0) { setTrendData([]); return }
+    const today = new Date()
+    const currentYear = today.getFullYear()
+    const currentMonth = today.getMonth() + 1
+    const lastCompletedMonth = year < currentYear ? 12 : year === currentYear ? currentMonth - 1 : 0
     const juliaAccounts = new Set(accounts
       .filter(account => /julia/i.test(account.memberName) || /^julia\b/i.test(account.name))
       .map(account => account.id))
     const data = Array.from({ length: 12 }, (_, index) => {
-      const entry: Record<string, string | number> = { name: monthShort(index + 1) }
+      const entry: Record<string, string | number | null> = { name: monthShort(index + 1) }
       for (const id of trendSelections) {
         entry[`trend_${id}_total`] = 0
         entry[`trend_${id}_anderson`] = 0
         entry[`trend_${id}_julia`] = 0
+        entry[`trend_${id}_projection`] = null
       }
       for (const transaction of trendTransactions) {
         if (transaction.isTransfer || transaction.status !== 'C' || transaction.amount >= 0 || Number(transaction.date.slice(5, 7)) !== index + 1) continue
@@ -175,8 +180,31 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
       }
       return entry
     })
+
+    if (year === currentYear && lastCompletedMonth > 0) {
+      for (const id of trendSelections) {
+        const completedValues = data
+          .slice(0, lastCompletedMonth)
+          .map(entry => Number(entry[`trend_${id}_total`] ?? 0))
+          .sort((left, right) => left - right)
+        const middle = Math.floor(completedValues.length / 2)
+        const median = completedValues.length % 2
+          ? completedValues[middle]
+          : (completedValues[middle - 1] + completedValues[middle]) / 2
+
+        // Anchor the forecast to this month's actual value, then carry the historical
+        // median through future months. Actual series stop at the current month.
+        data[currentMonth - 1][`trend_${id}_projection`] = data[currentMonth - 1][`trend_${id}_total`]
+        for (let monthIndex = currentMonth; monthIndex < 12; monthIndex += 1) {
+          data[monthIndex][`trend_${id}_projection`] = median
+          data[monthIndex][`trend_${id}_total`] = null
+          data[monthIndex][`trend_${id}_anderson`] = null
+          data[monthIndex][`trend_${id}_julia`] = null
+        }
+      }
+    }
     setTrendData(data)
-  }, [view, trendDimension, trendSelections, trendTransactions, accounts])
+  }, [view, trendDimension, trendSelections, trendTransactions, accounts, year])
 
   const netData = yearly.map(m => ({
     name: monthShort(m.month),
@@ -242,6 +270,21 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
       return groups
     }, {}),
   ), [trendOptions])
+
+  const trendMedians = useMemo(() => {
+    const today = new Date()
+    const completedMonths = year < today.getFullYear() ? 12 : year === today.getFullYear() ? today.getMonth() : 0
+    if (completedMonths === 0) return new Map<string, number>()
+    return new Map(trendSelections.map(selectionId => {
+      const values = trendData
+        .slice(0, completedMonths)
+        .map(entry => Number(entry[`trend_${selectionId}_total`] ?? 0))
+        .sort((left, right) => left - right)
+      const middle = Math.floor(values.length / 2)
+      const median = values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2
+      return [selectionId, median]
+    }))
+  }, [trendData, trendSelections, year])
 
   const TREND_COLORS = ['#6366f1','#f59e0b','#10b981','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316','#3b82f6','#84cc16']
 
@@ -573,10 +616,12 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                 {groupedTrendOptions.length === 0 && <p className="py-2 text-xs text-gray-400">Loading options…</p>}
               </div>
               {trendSelections.length > 0 && (
-                <div className="mt-3 flex items-center justify-end gap-4 text-[11px] text-gray-500">
+                <div className="mt-3 flex flex-wrap items-center justify-end gap-4 text-[11px] text-gray-500">
                   <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-6 bg-gray-700" />Total</span>
                   <span className="inline-flex items-center gap-1.5 text-green-700"><span className="w-6 border-t-2 border-dashed border-green-600" />Anderson</span>
                   <span className="inline-flex items-center gap-1.5 text-yellow-700"><span className="w-6 border-t-2 border-dotted border-yellow-500" />Julia</span>
+                  <span className="inline-flex items-center gap-1.5"><span className="w-6 border-t border-dashed border-gray-400" />Historical median</span>
+                  <span className="inline-flex items-center gap-1.5 text-blue-600"><span className="w-6 border-t-2 border-dashed border-blue-500" />Projection</span>
                 </div>
               )}
             </div>
@@ -601,6 +646,9 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                         const leftTotal = String(left.name).endsWith('· Total')
                         const rightTotal = String(right.name).endsWith('· Total')
                         if (leftTotal !== rightTotal) return leftTotal ? -1 : 1
+                        const leftProjection = String(left.name).endsWith('· Projection')
+                        const rightProjection = String(right.name).endsWith('· Projection')
+                        if (leftProjection !== rightProjection) return leftProjection ? -1 : 1
                         return Number(right.value ?? 0) - Number(left.value ?? 0)
                       })
                       return (
@@ -609,10 +657,11 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                           <div className="space-y-1.5">
                             {ranked.map((item: any, index: number) => {
                               const isTotal = String(item.name).endsWith('· Total')
+                              const isProjection = String(item.name).endsWith('· Projection')
                               const isAnderson = String(item.name).endsWith('· Anderson')
-                              const color = isTotal ? item.color : isAnderson ? '#16a34a' : '#eab308'
+                              const color = isTotal || isProjection ? item.color : isAnderson ? '#16a34a' : '#eab308'
                               return (
-                                <div key={`${item.dataKey}-${index}`} className={`flex items-center justify-between gap-5 ${isTotal ? 'border-b border-gray-100 pb-1.5 font-bold' : ''}`}>
+                                <div key={`${item.dataKey}-${index}`} className={`flex items-center justify-between gap-5 ${isTotal ? 'border-b border-gray-100 pb-1.5 font-bold' : ''} ${isProjection ? 'italic' : ''}`}>
                                   <span className="flex items-center gap-1.5 text-gray-600">
                                     <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
                                     {item.name}
@@ -626,6 +675,21 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                       )
                     }}
                   />
+                  {trendSelections.map((selectionId, i) => {
+                    const option = trendOptions.find(value => value.id === selectionId)
+                    const color = TREND_COLORS[i % TREND_COLORS.length]
+                    const median = trendMedians.get(selectionId)
+                    return median == null ? null : (
+                      <ReferenceLine
+                        key={`${selectionId}-median`}
+                        y={median}
+                        stroke={color}
+                        strokeOpacity={0.45}
+                        strokeDasharray="4 5"
+                        label={{ value: `${option?.name ?? selectionId} median ${fmtShort(median)}`, position: 'insideTopRight', fill: color, fontSize: 9 }}
+                      />
+                    )
+                  })}
                   {trendSelections.map((selectionId, i) => {
                     const option = trendOptions.find(value => value.id === selectionId)
                     const color = TREND_COLORS[i % TREND_COLORS.length]
@@ -668,6 +732,23 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                         strokeDasharray="2 4"
                         dot={{ r: 2.5, fill: '#eab308' }}
                         activeDot={{ r: 4 }}
+                      />
+                    )
+                  })}
+                  {trendSelections.map((selectionId, i) => {
+                    const option = trendOptions.find(value => value.id === selectionId)
+                    const color = TREND_COLORS[i % TREND_COLORS.length]
+                    return (
+                      <Line
+                        key={`${selectionId}-projection`}
+                        dataKey={`trend_${selectionId}_projection`}
+                        name={`${option?.name ?? String(selectionId)} · Projection`}
+                        stroke={color}
+                        strokeWidth={2.5}
+                        strokeDasharray="10 6"
+                        dot={{ r: 2.5, fill: 'white', stroke: color, strokeWidth: 2 }}
+                        activeDot={{ r: 4 }}
+                        connectNulls
                       />
                     )
                   })}
