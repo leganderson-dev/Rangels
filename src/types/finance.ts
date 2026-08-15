@@ -256,6 +256,16 @@ export interface ImportResult {
   skipped: number
   errors: string[]
   uncategorized?: Transaction[]
+  diagnostics?: {
+    outcome: 'imported' | 'already_imported' | 'recovered' | 'failed'
+    accountName: string
+    fileName: string
+    rowCount: number
+    dateFrom: string | null
+    dateTo: string | null
+    previousAttemptAt: string | null
+    linkedTransactions: number
+  }
 }
 
 export interface TransactionFilter {

@@ -286,10 +286,11 @@ function matchMerchantRule(description: string, rules: Awaited<ReturnType<typeof
 
 type ImportPreviewProgress = (event: { stage: 'found' | 'duplicates' | 'categorizing' | 'done'; count?: number }) => void
 
-async function requireActiveImportAccount(accountId: string): Promise<void> {
-  const { data, error } = await supabase.from('accounts').select('is_active').eq('id', accountId).single()
+async function requireActiveImportAccount(accountId: string): Promise<{ name: string; is_active: boolean }> {
+  const { data, error } = await supabase.from('accounts').select('name,is_active').eq('id', accountId).single()
   fail(error)
   if (!data?.is_active) throw new Error('This account is inactive and cannot receive imports.')
+  return data
 }
 
 async function bankPreview(token: string, accountId: string, onProgress?: ImportPreviewProgress) {
@@ -443,15 +444,54 @@ async function rememberBankClassificationRule(description: string, classificatio
 type BankImportAssignment = { categoryId: string | null; canonicalCategoryId?: string | null; contextId?: string | null; bucketId?: string | null; taxTreatment?: string; reimbursementStatus?: string; tags?: string[]; isTransfer?: boolean; sourceAccountId?: string | null; targetAccountId?: string | null; transferReason?: TransferReason | null; amount?: number }
 
 async function importBank(token: string, accountId: string, assignments: Record<number, BankImportAssignment | '__skip__'>): Promise<ImportResult> {
-  await requireActiveImportAccount(accountId)
+  const account = await requireActiveImportAccount(accountId)
   const file = pickedFiles.get(token)
   if (!file) throw new Error('Please choose the CSV again.')
   const parsed = parseBankExport(file.text)
   const owner = await ownerId()
   const fingerprint = await fileHash(file.text)
-  const { data: importRow, error: importError } = await supabase.from('imports').insert({ owner_id: owner, account_id: accountId, file_name: file.name, bank_format: parsed.format, file_fingerprint: fingerprint, row_count: parsed.rows.length }).select('id').single()
-  if (importError?.code === '23505') return { imported: 0, skipped: parsed.rows.length, errors: [] }
-  fail(importError)
+  const dates = parsed.rows.map(row => row.date).sort()
+  const diagnosticBase = {
+    accountName: account.name,
+    fileName: file.name,
+    rowCount: parsed.rows.length,
+    dateFrom: dates[0] ?? null,
+    dateTo: dates[dates.length - 1] ?? null,
+  }
+  const { data: previousImport, error: previousImportError } = await supabase.from('imports')
+    .select('id,created_at')
+    .eq('owner_id', owner)
+    .eq('account_id', accountId)
+    .eq('file_fingerprint', fingerprint)
+    .maybeSingle()
+  fail(previousImportError)
+  let importRow = previousImport
+  let recovered = false
+  if (previousImport) {
+    const { count, error: countError } = await supabase.from('transactions')
+      .select('id', { count: 'exact', head: true })
+      .eq('import_id', previousImport.id)
+    fail(countError)
+    if ((count ?? 0) > 0) {
+      pickedFiles.delete(token)
+      return {
+        imported: 0,
+        skipped: parsed.rows.length,
+        errors: [],
+        diagnostics: {
+          outcome: 'already_imported',
+          ...diagnosticBase,
+          previousAttemptAt: previousImport.created_at,
+          linkedTransactions: count ?? 0,
+        },
+      }
+    }
+    recovered = true
+  } else {
+    const { data, error: importError } = await supabase.from('imports').insert({ owner_id: owner, account_id: accountId, file_name: file.name, bank_format: parsed.format, file_fingerprint: fingerprint, row_count: parsed.rows.length }).select('id,created_at').single()
+    fail(importError)
+    importRow = data
+  }
   if (!importRow) throw new Error('Could not create the import.')
   let imported = 0
   let skipped = 0
@@ -467,7 +507,7 @@ async function importBank(token: string, accountId: string, assignments: Record<
   const payloads: Row[] = []
   for (const [index, row] of parsed.rows.entries()) {
     const assignment = assignments[index]
-    if (assignment === '__skip__') continue
+    if (assignment === '__skip__') { skipped += 1; continue }
     const duplicateKey = transactionDuplicateKey(accountId, row.date, row.amount, row.description)
     if (duplicateKeys.has(duplicateKey)) { skipped += 1; continue }
     duplicateKeys.add(duplicateKey)
@@ -478,14 +518,45 @@ async function importBank(token: string, accountId: string, assignments: Record<
   }
   for (let index = 0; index < payloads.length; index += 500) {
     const batch = payloads.slice(index, index + 500)
-    const { error } = await supabase.from('transactions').insert(batch)
-    if (!error) imported += batch.length
-    else if (error.code === '23505') skipped += batch.length
-    else errors.push(error.message)
+    const { data, error } = await supabase.from('transactions')
+      .upsert(batch, { onConflict: 'owner_id,source_fingerprint', ignoreDuplicates: true })
+      .select('id')
+    if (!error) {
+      imported += data?.length ?? 0
+      skipped += batch.length - (data?.length ?? 0)
+      continue
+    }
+    // A single invalid row must not discard the whole import. Retry individually
+    // so valid rows are retained and the user gets the actual failing reason.
+    for (const payload of batch) {
+      const { data: inserted, error: rowError } = await supabase.from('transactions')
+        .upsert(payload, { onConflict: 'owner_id,source_fingerprint', ignoreDuplicates: true })
+        .select('id')
+      if (!rowError) {
+        if ((inserted?.length ?? 0) > 0) imported += 1
+        else skipped += 1
+      } else {
+        errors.push(`${payload.occurred_on} · ${payload.description}: ${rowError.message}`)
+      }
+    }
   }
+  const { count: linkedTransactions, error: linkedError } = await supabase.from('transactions')
+    .select('id', { count: 'exact', head: true })
+    .eq('import_id', importRow.id)
+  fail(linkedError)
   pickedFiles.delete(token)
   invalidateTransactionQueries()
-  return { imported, skipped, errors: errors.slice(0, 20) }
+  return {
+    imported,
+    skipped,
+    errors: errors.slice(0, 20),
+    diagnostics: {
+      outcome: errors.length > 0 && imported === 0 ? 'failed' : recovered ? 'recovered' : 'imported',
+      ...diagnosticBase,
+      previousAttemptAt: previousImport?.created_at ?? null,
+      linkedTransactions: linkedTransactions ?? 0,
+    },
+  }
 }
 
 type Row = Record<string, any>

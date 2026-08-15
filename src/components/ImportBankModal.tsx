@@ -349,17 +349,47 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
       )}
 
       {step === 'done' && result && (
-        <div className="flex flex-col items-center py-10 gap-3">
-          <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-            <Check size={24} className="text-green-600" />
+        <div className="mx-auto flex w-full max-w-3xl flex-col items-center py-8 gap-3">
+          <div className={`w-12 h-12 rounded-full flex items-center justify-center ${result.diagnostics?.outcome === 'failed' ? 'bg-red-100' : result.diagnostics?.outcome === 'already_imported' ? 'bg-amber-100' : 'bg-green-100'}`}>
+            {result.diagnostics?.outcome === 'failed'
+              ? <AlertCircle size={24} className="text-red-600" />
+              : result.diagnostics?.outcome === 'already_imported'
+                ? <AlertCircle size={24} className="text-amber-600" />
+                : <Check size={24} className="text-green-600" />}
           </div>
-          <p className="text-base font-semibold text-gray-800">Import complete</p>
+          <p className="text-base font-semibold text-gray-800">
+            {result.diagnostics?.outcome === 'already_imported' ? 'This file was already imported' : result.diagnostics?.outcome === 'failed' ? 'Import needs attention' : 'Import complete'}
+          </p>
           <p className="text-sm text-gray-500">
             <strong>{result.imported}</strong> transactions imported,
             <strong> {result.skipped}</strong> duplicates skipped
           </p>
+          {result.diagnostics && (
+            <div className="mt-3 w-full rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
+              <div className="mb-3 font-semibold text-slate-800">Import troubleshooting</div>
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+                <div><dt className="text-xs text-slate-400">Account</dt><dd className="font-medium text-slate-700">{result.diagnostics.accountName}</dd></div>
+                <div><dt className="text-xs text-slate-400">CSV rows</dt><dd className="font-medium text-slate-700">{result.diagnostics.rowCount}</dd></div>
+                <div><dt className="text-xs text-slate-400">CSV date range</dt><dd className="font-medium text-slate-700">{result.diagnostics.dateFrom && result.diagnostics.dateTo ? `${formatDate(result.diagnostics.dateFrom)} – ${formatDate(result.diagnostics.dateTo)}` : 'Unavailable'}</dd></div>
+                <div><dt className="text-xs text-slate-400">Saved from this file</dt><dd className="font-medium text-slate-700">{result.diagnostics.linkedTransactions}</dd></div>
+              </dl>
+              {result.diagnostics.outcome === 'already_imported' && (
+                <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-amber-800">
+                  Rangels found {result.diagnostics.linkedTransactions} saved transactions from this exact file. Select <strong>{result.diagnostics.accountName}</strong>, switch Transactions to <strong>Custom</strong>, and use the CSV date range shown above.
+                </p>
+              )}
+              {result.diagnostics.outcome === 'recovered' && (
+                <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-emerald-800">
+                  Rangels found an earlier incomplete attempt with no saved transactions, recovered it, and safely retried the rows.
+                </p>
+              )}
+            </div>
+          )}
           {result.errors.length > 0 && (
-            <p className="text-xs text-red-500">{result.errors.length} errors</p>
+            <details className="w-full rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+              <summary className="cursor-pointer font-semibold">{result.errors.length} rows could not be imported — show details</summary>
+              <ul className="mt-2 max-h-32 space-y-1 overflow-auto list-disc pl-5">{result.errors.map((error, index) => <li key={index}>{error}</li>)}</ul>
+            </details>
           )}
           <button onClick={onDone} className="mt-4 bg-blue-600 text-white rounded-lg px-5 py-2 text-sm font-medium hover:bg-blue-700">
             Done
