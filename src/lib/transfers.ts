@@ -19,6 +19,15 @@ export function transferReasonNeedsContext(reason: TransferReason | null | undef
   return transferReasons.find(item => item.value === reason)?.needsContext ?? false
 }
 
+export function isJuliaTransferDescription(description: string): boolean {
+  return description
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .includes('transfer to julia meyer pflug')
+}
+
 export function inferTransferClassification(sourceAccount: string, targetAccount: string, description: string): { reason: TransferReason; contextName: string | null } {
   const compact = (value: string) => value.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '')
   const source = compact(sourceAccount)

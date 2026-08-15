@@ -14,12 +14,13 @@ import type {
   TransactionFilter,
   HouseholdMember,
   BulkTransactionChanges,
+  TransferReason,
 } from './types/finance'
 import { parseBankExport } from './lib/importers'
 import { createCategoryMatcher, normalizeDescription, relevantCategorySuggestions, transactionDuplicateKey } from './lib/matching'
 import { parseDelimited } from './lib/csv'
 import { merchantDisplayName, merchantKey, normalizeMerchantRulePhrase } from './lib/merchants'
-import { inferTransferClassification } from './lib/transfers'
+import { inferTransferClassification, isJuliaTransferDescription } from './lib/transfers'
 import { nextScheduledDate, scheduledDatesBetween } from './lib/schedule'
 import { today as localToday } from './utils'
 
@@ -297,13 +298,15 @@ async function bankPreview(token: string, accountId: string, onProgress?: Import
   if (!file) throw new Error('Please choose the CSV again.')
   const parsed = parseBankExport(file.text)
   onProgress?.({ stage: 'found', count: parsed.rows.length })
-  const [transactionRows, categoryResult, merchantRules] = await Promise.all([
+  const [transactionRows, categoryResult, merchantRules, accountResult] = await Promise.all([
     fetchAllRows(() => supabase.from('transactions')
       .select('account_id,occurred_on,amount,description,canonical_category_id,is_transfer')),
     supabase.from('canonical_categories').select('id,name,family,type'),
     cachedMerchantClassificationRules(),
+    supabase.from('accounts').select('id,name,is_active'),
   ])
   fail(categoryResult.error)
+  fail(accountResult.error)
   const categories = categoryResult.data ?? []
   const categoryPathById = new Map(categories.map(category => [category.id, `${category.family}: ${category.name}`]))
   const history = transactionRows
@@ -312,9 +315,10 @@ async function bankPreview(token: string, accountId: string, onProgress?: Import
   const matchHistory = createCategoryMatcher(history)
   const byPath = new Map(categories.map(category => [category.id, category]))
   const byId = new Map(categories.map(category => [category.id, category]))
+  const juliaAccount = (accountResult.data ?? []).find(account => account.is_active && normalizeDescription(account.name) === 'julia cw')
   const existingKeys = new Set(
     transactionRows
-      .filter(transaction => transaction.account_id === accountId && !transaction.is_transfer)
+      .filter(transaction => transaction.account_id === accountId)
       .map(transaction => transactionDuplicateKey(accountId, transaction.occurred_on, Number(transaction.amount), transaction.description)),
   )
   const fileKeys = new Set<string>()
@@ -332,9 +336,14 @@ async function bankPreview(token: string, accountId: string, onProgress?: Import
   await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()))
   const rows = parsed.rows.map((row, index) => {
       const { duplicate, duplicateReason } = duplicateMetadata[index]
+      const isJuliaTransfer = Boolean(
+        juliaAccount &&
+        juliaAccount.id !== accountId &&
+        isJuliaTransferDescription(row.description),
+      )
       // Rank every non-zero match. Even low-confidence analysis rows should
       // begin with their highest score selected and remain editable.
-      const matchedRule = matchMerchantRule(row.description, merchantRules)
+      const matchedRule = isJuliaTransfer ? null : matchMerchantRule(row.description, merchantRules)
       const ruleCategoryId = matchedRule?.categoryId
       const ruleCategory = ruleCategoryId ? byId.get(ruleCategoryId) : null
       const suggestions = relevantCategorySuggestions(matchHistory(row.description, Number.EPSILON))
@@ -360,11 +369,16 @@ async function bankPreview(token: string, accountId: string, onProgress?: Import
       return {
         index,
         ...row,
-        suggestedCategoryId: best?.categoryId ?? null,
-        suggestedCategoryName: best?.categoryName ?? null,
-        confidence: best?.confidence ?? 0,
-        reason: best?.reason ?? 'No previous merchant match',
-        suggestions: rankedSuggestions,
+        suggestedCategoryId: isJuliaTransfer ? null : best?.categoryId ?? null,
+        suggestedCategoryName: isJuliaTransfer ? null : best?.categoryName ?? null,
+        confidence: isJuliaTransfer ? 1 : best?.confidence ?? 0,
+        reason: isJuliaTransfer ? 'Matched transfer trigger “Transfer To Julia Meyer Pflug”' : best?.reason ?? 'No previous merchant match',
+        suggestions: isJuliaTransfer ? [] : rankedSuggestions,
+        suggestedTransfer: isJuliaTransfer ? {
+          targetAccountId: juliaAccount!.id,
+          targetAccountName: juliaAccount!.name,
+          transferReason: 'joint_contribution' as const,
+        } : null,
         rememberedClassification: matchedRule ? {
           canonicalCategoryId: matchedRule.canonicalCategoryId,
           contextId: matchedRule.contextId,
@@ -400,7 +414,7 @@ async function rememberBankClassificationRule(description: string, classificatio
   })
 }
 
-type BankImportAssignment = { categoryId: string | null; canonicalCategoryId?: string | null; contextId?: string | null; bucketId?: string | null; taxTreatment?: string; reimbursementStatus?: string; tags?: string[] }
+type BankImportAssignment = { categoryId: string | null; canonicalCategoryId?: string | null; contextId?: string | null; bucketId?: string | null; taxTreatment?: string; reimbursementStatus?: string; tags?: string[]; isTransfer?: boolean; targetAccountId?: string | null; transferReason?: TransferReason | null }
 
 async function importBank(token: string, accountId: string, assignments: Record<number, BankImportAssignment | '__skip__'>): Promise<ImportResult> {
   await requireActiveImportAccount(accountId)
@@ -422,7 +436,6 @@ async function importBank(token: string, accountId: string, assignments: Record<
   const merchantRules = await cachedMerchantClassificationRules()
   const duplicateKeys = new Set(
     existingTransactions
-      .filter(transaction => !transaction.is_transfer)
       .map(transaction => transactionDuplicateKey(accountId, transaction.occurred_on, Number(transaction.amount), transaction.description)),
   )
   const payloads: Row[] = []
@@ -432,8 +445,9 @@ async function importBank(token: string, accountId: string, assignments: Record<
     const duplicateKey = transactionDuplicateKey(accountId, row.date, row.amount, row.description)
     if (duplicateKeys.has(duplicateKey)) { skipped += 1; continue }
     duplicateKeys.add(duplicateKey)
-    const merchantRule = matchMerchantRule(row.description, merchantRules)
-    payloads.push({ owner_id: owner, import_id: importRow.id, account_id: accountId, merchant_id: merchantRule?.merchantId ?? null, category_id: null, legacy_category_id: null, canonical_category_id: assignment?.canonicalCategoryId ?? assignment?.categoryId ?? merchantRule?.canonicalCategoryId ?? null, context_id: assignment?.contextId ?? merchantRule?.contextId ?? null, bucket_id: assignment?.bucketId ?? merchantRule?.bucketId ?? null, tax_treatment: assignment?.taxTreatment ?? merchantRule?.taxTreatment ?? 'none', reimbursement_status: assignment?.reimbursementStatus ?? 'none', tags: assignment?.tags ?? [], occurred_on: row.date, description: row.description, normalized_description: normalizeDescription(row.description), amount: row.amount, balance: row.balance ?? null, source_fingerprint: await fileHash(duplicateKey), status: 'C', classification_reviewed_at: assignment?.canonicalCategoryId || assignment?.categoryId || merchantRule?.canonicalCategoryId ? new Date().toISOString() : null })
+    const isTransfer = Boolean(assignment?.isTransfer && assignment.targetAccountId && assignment.targetAccountId !== accountId)
+    const merchantRule = isTransfer ? null : matchMerchantRule(row.description, merchantRules)
+    payloads.push({ owner_id: owner, import_id: importRow.id, account_id: accountId, target_account_id: isTransfer ? assignment?.targetAccountId : null, merchant_id: merchantRule?.merchantId ?? null, category_id: null, legacy_category_id: null, canonical_category_id: isTransfer ? null : assignment?.canonicalCategoryId ?? assignment?.categoryId ?? merchantRule?.canonicalCategoryId ?? null, context_id: isTransfer ? null : assignment?.contextId ?? merchantRule?.contextId ?? null, bucket_id: isTransfer ? null : assignment?.bucketId ?? merchantRule?.bucketId ?? null, tax_treatment: isTransfer ? 'none' : assignment?.taxTreatment ?? merchantRule?.taxTreatment ?? 'none', reimbursement_status: isTransfer ? 'none' : assignment?.reimbursementStatus ?? 'none', tags: assignment?.tags ?? [], occurred_on: row.date, description: row.description, normalized_description: normalizeDescription(row.description), amount: row.amount, balance: row.balance ?? null, source_fingerprint: await fileHash(duplicateKey), status: 'C', is_transfer: isTransfer, transfer_reason: isTransfer ? assignment?.transferReason ?? 'account_movement' : null, classification_reviewed_at: isTransfer || assignment?.canonicalCategoryId || assignment?.categoryId || merchantRule?.canonicalCategoryId ? new Date().toISOString() : null })
   }
   for (let index = 0; index < payloads.length; index += 500) {
     const batch = payloads.slice(index, index + 500)

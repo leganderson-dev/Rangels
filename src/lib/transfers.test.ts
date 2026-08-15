@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { inferTransferClassification } from './transfers'
+import { inferTransferClassification, isJuliaTransferDescription } from './transfers'
+
+describe('isJuliaTransferDescription', () => {
+  it('matches the Julia transfer trigger regardless of case and trailing detail', () => {
+    expect(isJuliaTransferDescription('Transfer To Julia Meyer Pflug CommBank App Food')).toBe(true)
+    expect(isJuliaTransferDescription('TRANSFER TO JULIA MEYER PFLUG - Costco')).toBe(true)
+  })
+
+  it('does not match ordinary Julia merchant descriptions', () => {
+    expect(isJuliaTransferDescription('JULIA MEYER PFLUG Currumundi Osko Payment')).toBe(false)
+  })
+})
 
 describe('inferTransferClassification', () => {
   it('recognises Julia contributions before destination-account rules', () => {

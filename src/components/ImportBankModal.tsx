@@ -4,7 +4,7 @@ import { Modal } from './Modal'
 import { api } from '../api'
 import { canUseHouseholdBucket, emptyBucketLabel } from '../lib/classification'
 import { fmt, formatDate } from '../utils'
-import type { Account, Category, ClassificationOptions, ImportResult } from '../types/finance'
+import type { Account, Category, ClassificationOptions, ImportResult, TransferReason } from '../types/finance'
 import { classifyConfidence } from '../lib/matching'
 import type { ConfidenceGroup } from '../types/import'
 
@@ -29,6 +29,11 @@ interface PreviewRow {
     bucketId: string | null
     taxTreatment: string
   } | null
+  suggestedTransfer: {
+    targetAccountId: string
+    targetAccountName: string
+    transferReason: TransferReason
+  } | null
   duplicate: boolean
   duplicateReason: string | null
 }
@@ -44,7 +49,7 @@ type RowClassification = {
 }
 
 type ConfidenceFilter = 'all' | ConfidenceGroup
-type DirectionFilter = 'all' | 'income' | 'expense'
+type DirectionFilter = 'all' | 'income' | 'expense' | 'transfer'
 type ImportSortField = 'date' | 'description' | 'amount' | 'suggestion'
 
 interface Props {
@@ -150,10 +155,10 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
           taxTreatment: classification.taxTreatment,
         })
       }
-      const selected: Record<number, { categoryId: string | null; canonicalCategoryId: string | null; contextId: string | null; bucketId: string | null; taxTreatment: string; reimbursementStatus: string; tags: string[] } | '__skip__'> = {}
+      const selected: Record<number, { categoryId: string | null; canonicalCategoryId: string | null; contextId: string | null; bucketId: string | null; taxTreatment: string; reimbursementStatus: string; tags: string[]; isTransfer: boolean; targetAccountId: string | null; transferReason: TransferReason | null } | '__skip__'> = {}
       rows.forEach(row => {
         const classification = classifications[row.index] ?? classificationFromPurpose(null, classificationOptions)
-        selected[row.index] = included.has(row.index) ? { categoryId: assignments[row.index] ?? null, canonicalCategoryId: classification.canonicalCategoryId, contextId: classification.contextId, bucketId: classification.bucketId, taxTreatment: classification.taxTreatment, reimbursementStatus: classification.reimbursementStatus, tags: classification.tags } : '__skip__'
+        selected[row.index] = included.has(row.index) ? { categoryId: assignments[row.index] ?? null, canonicalCategoryId: classification.canonicalCategoryId, contextId: classification.contextId, bucketId: classification.bucketId, taxTreatment: classification.taxTreatment, reimbursementStatus: classification.reimbursementStatus, tags: classification.tags, isTransfer: Boolean(row.suggestedTransfer), targetAccountId: row.suggestedTransfer?.targetAccountId ?? null, transferReason: row.suggestedTransfer?.transferReason ?? null } : '__skip__'
       })
       const res = await api.import.bankCsv(filePath, accountId, selected)
       setResult(res)
@@ -181,15 +186,15 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
     if (categoryId === row.suggestedCategoryId) setRememberRuleRows(current => { const next = new Set(current); next.delete(row.index); return next })
   }
 
-  const uncategorisedCount = rows.filter(row => !row.duplicate && assignments[row.index] == null).length
+  const uncategorisedCount = rows.filter(row => !row.duplicate && !row.suggestedTransfer && assignments[row.index] == null).length
   const duplicateCount = rows.filter(row => row.duplicate).length
   const totalAmount = rows.reduce((s, r) => s + r.amount, 0)
   const visibleRows = hideDuplicates ? rows.filter(row => !row.duplicate) : rows
-  const directionRows = directionFilter === 'all' ? visibleRows : visibleRows.filter(row => directionFilter === 'income' ? row.amount >= 0 : row.amount < 0)
+  const directionRows = directionFilter === 'all' ? visibleRows : visibleRows.filter(row => directionFilter === 'transfer' ? Boolean(row.suggestedTransfer) : directionFilter === 'income' ? row.amount >= 0 && !row.suggestedTransfer : row.amount < 0 && !row.suggestedTransfer)
   const sortedDirectionRows = [...directionRows].sort((left, right) => {
     const suggestionName = (row: PreviewRow) => {
       const assigned = categories.find(category => category.id === assignments[row.index])
-      return assigned?.fullName ?? row.suggestions[0]?.categoryName ?? ''
+      return row.suggestedTransfer ? `Transfer to ${row.suggestedTransfer.targetAccountName}` : assigned?.fullName ?? row.suggestions[0]?.categoryName ?? ''
     }
     const leftValue = sortField === 'date' ? left.date
       : sortField === 'description' ? left.description.toLocaleLowerCase()
@@ -292,8 +297,9 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
             {confidenceGroups.map(group => <FilterButton key={group.key} active={confidenceFilter === group.key} label={group.label} count={group.rows.length} onClick={() => setConfidenceFilter(group.key)} />)}
             <span className="ml-3 border-l border-slate-200 pl-4 pr-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Direction</span>
             <FilterButton active={directionFilter === 'all'} label="All" count={visibleRows.length} onClick={() => setDirectionFilter('all')} />
-            <FilterButton active={directionFilter === 'income'} label="Income" count={visibleRows.filter(row => row.amount >= 0).length} onClick={() => setDirectionFilter('income')} />
-            <FilterButton active={directionFilter === 'expense'} label="Expenses" count={visibleRows.filter(row => row.amount < 0).length} onClick={() => setDirectionFilter('expense')} />
+            <FilterButton active={directionFilter === 'income'} label="Income" count={visibleRows.filter(row => row.amount >= 0 && !row.suggestedTransfer).length} onClick={() => setDirectionFilter('income')} />
+            <FilterButton active={directionFilter === 'expense'} label="Expenses" count={visibleRows.filter(row => row.amount < 0 && !row.suggestedTransfer).length} onClick={() => setDirectionFilter('expense')} />
+            <FilterButton active={directionFilter === 'transfer'} label="Transfers" count={visibleRows.filter(row => row.suggestedTransfer).length} onClick={() => setDirectionFilter('transfer')} />
           </div>
 
           {/* Table */}
@@ -517,10 +523,11 @@ function ImportRow({ row, categories, options, classification, onClassificationC
         {fmt(row.amount)}
       </span>
       <div className="min-w-0">
-        {visibleSuggestions[0] ? <span className="flex items-center gap-1.5 truncate text-[11px] text-slate-600"><span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: categories.find(item => item.id === visibleSuggestions[0].categoryId)?.color ?? '#64748b' }} /><span className="truncate">{visibleSuggestions[0].categoryName}</span><span className="ml-auto shrink-0 text-slate-400">{visibleSuggestions[0].confidence === null ? 'Manual' : `${Math.round(visibleSuggestions[0].confidence * 100)}%`}</span></span> : <span className="text-xs italic text-gray-400">No scored suggestion</span>}
+        {row.suggestedTransfer ? <span className="flex items-center gap-1.5 truncate text-[11px] font-medium text-sky-700"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" /><span className="truncate">Transfer → {row.suggestedTransfer.targetAccountName}</span><span className="ml-auto shrink-0 text-sky-500">100%</span></span> : visibleSuggestions[0] ? <span className="flex items-center gap-1.5 truncate text-[11px] text-slate-600"><span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: categories.find(item => item.id === visibleSuggestions[0].categoryId)?.color ?? '#64748b' }} /><span className="truncate">{visibleSuggestions[0].categoryName}</span><span className="ml-auto shrink-0 text-slate-400">{visibleSuggestions[0].confidence === null ? 'Manual' : `${Math.round(visibleSuggestions[0].confidence * 100)}%`}</span></span> : <span className="text-xs italic text-gray-400">No scored suggestion</span>}
       </div>
 
       {expanded && <div className="relative col-start-4 col-span-3 mt-2 mb-1 rounded-lg border border-slate-200 bg-white p-2" onClick={event => event.stopPropagation()}>
+        {row.suggestedTransfer ? <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800"><strong>Transfer to {row.suggestedTransfer.targetAccountName}</strong><span className="mt-0.5 block text-[10px] text-sky-600">Ledger-neutral · Joint-account contribution · Triggered by “Transfer To Julia Meyer Pflug”</span></div> : <>
         <div className="flex items-stretch gap-1.5">
           <div className="grid grid-cols-3 gap-1.5 flex-1 min-w-0">
             {visibleSuggestions.map(suggestion => {
@@ -585,6 +592,7 @@ function ImportRow({ row, categories, options, classification, onClassificationC
             </div>
           </div>
         )}
+        </>}
       </div>}
     </div>
   )
