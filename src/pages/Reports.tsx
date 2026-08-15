@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import { api } from '../api'
 import { fmt, fmtShort, monthShort, monthName } from '../utils'
-import type { Account, Category, Transaction } from '../types/finance'
+import type { Account, Category, ClassificationOptions, Transaction } from '../types/finance'
 import { TrendingUp, TrendingDown, DollarSign, ChevronRight, ArrowLeft, ArrowLeftRight, BarChart2, PieChart as PieIcon, TrendingUp as TrendIcon, Layers } from 'lucide-react'
 import { transferReasonLabel } from '../lib/transfers'
 import { TransactionFormModal } from '../components/TransactionFormModal'
@@ -26,6 +26,7 @@ interface Props {
 }
 
 type View = 'cashflow' | 'spending' | 'trends' | 'funding'
+type TrendDimension = 'bucket' | 'context' | 'purpose'
 
 interface DrillState {
   type: 'month' | 'category'
@@ -41,8 +42,11 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
   const [view, setView] = useState<View>('cashflow')
   const [drill, setDrill] = useState<DrillState | null>(null)
   const [drillTxns, setDrillTxns] = useState<Transaction[]>([])
-  const [trendCats, setTrendCats] = useState<string[]>([])
+  const [trendDimension, setTrendDimension] = useState<TrendDimension>('bucket')
+  const [trendSelections, setTrendSelections] = useState<string[]>([])
   const [trendData, setTrendData] = useState<any[]>([])
+  const [trendTransactions, setTrendTransactions] = useState<Transaction[]>([])
+  const [classificationOptions, setClassificationOptions] = useState<ClassificationOptions | null>(null)
   const [fundingTransfers, setFundingTransfers] = useState<Transaction[]>([])
   const [periodTransactions, setPeriodTransactions] = useState<Transaction[]>([])
   const [editTransaction, setEditTransaction] = useState<Transaction | null>(null)
@@ -133,23 +137,36 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
   }
 
   useEffect(() => {
-    if (view !== 'trends' || trendCats.length === 0) { setTrendData([]); return }
-    Promise.all(
-      Array.from({ length: 12 }, (_, i) => i + 1).map(m =>
-        api.transactions.monthSummary(m, year, selectedAccountId).then(s => ({ month: m, byCategory: s?.byCategory ?? [] }))
-      )
-    ).then(months => {
-      const data = months.map(({ month: m, byCategory }) => {
-        const entry: any = { name: monthShort(m) }
-        trendCats.forEach(catId => {
-          const found = byCategory.find((c: any) => c.categoryId === catId)
-          entry[`cat_${catId}`] = found ? Math.abs(found.total) : 0
-        })
-        return entry
-      })
-      setTrendData(data)
+    if (view !== 'trends') return
+    Promise.all([
+      api.classification.options(),
+      api.transactions.list({ dateFrom: `${year}-01-01`, dateTo: `${year}-12-31`, accountId: selectedAccountId ?? undefined }),
+    ]).then(([options, transactions]) => {
+      setClassificationOptions(options)
+      setTrendTransactions(transactions)
     })
-  }, [view, trendCats, year, selectedAccountId])
+  }, [view, year, selectedAccountId, refreshKey])
+
+  useEffect(() => {
+    if (view !== 'trends' || trendSelections.length === 0) { setTrendData([]); return }
+    const data = Array.from({ length: 12 }, (_, index) => {
+      const entry: Record<string, string | number> = { name: monthShort(index + 1) }
+      for (const id of trendSelections) entry[`trend_${id}`] = 0
+      for (const transaction of trendTransactions) {
+        if (transaction.isTransfer || transaction.status !== 'C' || transaction.amount >= 0 || Number(transaction.date.slice(5, 7)) !== index + 1) continue
+        const dimensionId = trendDimension === 'bucket'
+          ? transaction.bucketId
+          : trendDimension === 'context'
+            ? transaction.contextId
+            : transaction.canonicalCategoryId
+        if (dimensionId && trendSelections.includes(dimensionId)) {
+          entry[`trend_${dimensionId}`] = Number(entry[`trend_${dimensionId}`]) + Math.abs(transaction.amount)
+        }
+      }
+      return entry
+    })
+    setTrendData(data)
+  }, [view, trendDimension, trendSelections, trendTransactions])
 
   const netData = yearly.map(m => ({
     name: monthShort(m.month),
@@ -191,13 +208,30 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
     return totals
   }, [accounts, periodTransactions])
 
-  const topCatsForTrend = useMemo(() =>
-    catBreakdown.filter(c => c.total < 0).slice(0, 10),
-  [catBreakdown])
-
-  function toggleTrendCat(id: string) {
-    setTrendCats(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  function changeTrendDimension(dimension: TrendDimension) {
+    setTrendDimension(dimension)
+    setTrendSelections([])
   }
+
+  function toggleTrendSelection(id: string) {
+    setTrendSelections(previous => previous.includes(id) ? previous.filter(value => value !== id) : [...previous, id])
+  }
+
+  const trendOptions = useMemo(() => {
+    if (!classificationOptions) return []
+    if (trendDimension === 'bucket') return classificationOptions.buckets.map(option => ({ ...option, group: 'Household Buckets' }))
+    if (trendDimension === 'context') return classificationOptions.contexts.map(option => ({ ...option, group: 'Contexts' }))
+    return classificationOptions.categories
+      .filter(option => option.type === 'expense')
+      .map(option => ({ ...option, group: option.family }))
+  }, [classificationOptions, trendDimension])
+
+  const groupedTrendOptions = useMemo(() => Object.entries(
+    trendOptions.reduce<Record<string, typeof trendOptions>>((groups, option) => {
+      (groups[option.group] ??= []).push(option)
+      return groups
+    }, {}),
+  ), [trendOptions])
 
   const TREND_COLORS = ['#6366f1','#f59e0b','#10b981','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316','#3b82f6','#84cc16']
 
@@ -477,39 +511,64 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
         {/* TRENDS VIEW */}
         {view === 'trends' && (
           <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
-            <div className="flex items-start gap-4 mb-5">
-              <div className="shrink-0">
+            <div className="mb-5">
+              <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                <div>
                 <h3 className="text-sm font-semibold text-gray-700">Spending Trends</h3>
-                <p className="text-xs text-gray-400 mt-0.5">Select categories to compare</p>
-              </div>
-              <div className="flex flex-wrap gap-1.5 flex-1">
-                {topCatsForTrend.map((c, i) => {
-                  const active = trendCats.includes(c.categoryId)
-                  return (
+                  <p className="text-xs text-gray-400 mt-0.5">Choose a reporting dimension, then select its values to compare.</p>
+                </div>
+                <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+                  {([
+                    ['bucket', 'Buckets'],
+                    ['context', 'Contexts'],
+                    ['purpose', 'Purposes'],
+                  ] as [TrendDimension, string][]).map(([dimension, label]) => (
                     <button
-                      key={c.categoryId}
-                      onClick={() => toggleTrendCat(c.categoryId)}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all border ${
-                        active ? 'text-white border-transparent shadow-sm' : 'border-gray-200 text-gray-500 hover:border-gray-300 bg-white'
+                      key={dimension}
+                      onClick={() => changeTrendDimension(dimension)}
+                      className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                        trendDimension === dimension ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                       }`}
-                      style={active ? { backgroundColor: TREND_COLORS[i % TREND_COLORS.length] } : {}}
                     >
-                      <span
-                        className="w-2 h-2 rounded-full shrink-0"
-                        style={{ backgroundColor: active ? 'rgba(255,255,255,0.7)' : (c.categoryColor ?? '#94a3b8') }}
-                      />
-                      {c.categoryFullName ?? 'Uncategorised'}
+                      {label}
                     </button>
-                  )
-                })}
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50/50 p-3">
+                {groupedTrendOptions.map(([group, options]) => (
+                  <div key={group} className="flex items-start gap-3">
+                    <span className="w-32 shrink-0 pt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{group}</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {options.map(option => {
+                        const active = trendSelections.includes(option.id)
+                        const selectedIndex = trendSelections.indexOf(option.id)
+                        return (
+                          <button
+                            key={option.id}
+                            onClick={() => toggleTrendSelection(option.id)}
+                            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all ${
+                              active ? 'border-transparent text-white shadow-sm' : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
+                            }`}
+                            style={active ? { backgroundColor: TREND_COLORS[selectedIndex % TREND_COLORS.length] } : {}}
+                          >
+                            <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: active ? 'rgba(255,255,255,0.7)' : '#94a3b8' }} />
+                            {option.name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+                {groupedTrendOptions.length === 0 && <p className="py-2 text-xs text-gray-400">Loading options…</p>}
               </div>
             </div>
-            {trendCats.length > 0 && trendData.length > 0 ? (
+            {trendSelections.length > 0 && trendData.length > 0 ? (
               <ResponsiveContainer width="100%" height={280}>
                 <AreaChart data={trendData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
                   <defs>
-                    {trendCats.map((catId, i) => (
-                      <linearGradient key={catId} id={`grad${catId}`} x1="0" y1="0" x2="0" y2="1">
+                    {trendSelections.map((selectionId, i) => (
+                      <linearGradient key={selectionId} id={`grad${selectionId}`} x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor={TREND_COLORS[i % TREND_COLORS.length]} stopOpacity={0.15} />
                         <stop offset="95%" stopColor={TREND_COLORS[i % TREND_COLORS.length]} stopOpacity={0} />
                       </linearGradient>
@@ -522,16 +581,16 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
               formatter={v => fmt(Number(v ?? 0))}
                     contentStyle={{ fontSize: 12, borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}
                   />
-                  {trendCats.map((catId, i) => {
-                    const cat = categories.find(c => c.id === catId)
+                  {trendSelections.map((selectionId, i) => {
+                    const option = trendOptions.find(value => value.id === selectionId)
                     return (
                       <Area
-                        key={catId}
-                        dataKey={`cat_${catId}`}
-                        name={cat?.fullName ?? String(catId)}
+                        key={selectionId}
+                        dataKey={`trend_${selectionId}`}
+                        name={option?.name ?? String(selectionId)}
                         stroke={TREND_COLORS[i % TREND_COLORS.length]}
                         strokeWidth={2.5}
-                        fill={`url(#grad${catId})`}
+                        fill={`url(#grad${selectionId})`}
                         dot={{ r: 3, fill: TREND_COLORS[i % TREND_COLORS.length] }}
                       />
                     )
@@ -540,7 +599,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
               </ResponsiveContainer>
             ) : (
               <div className="flex items-center justify-center h-48 text-gray-400 text-sm">
-                {trendCats.length === 0 ? 'Select categories above to see trends' : 'Loading…'}
+                {trendSelections.length === 0 ? `Select ${trendDimension} values above to see trends` : 'Loading…'}
               </div>
             )}
           </div>
