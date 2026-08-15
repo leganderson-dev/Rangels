@@ -16,6 +16,8 @@ const UNCHANGED = '__unchanged__'
 const CLEAR = '__clear__'
 
 export function BulkTransactionEditModal({ transactions, accounts, onClose, onSave }: Props) {
+  const commonAccountId = useMemo(() => commonValue(transactions.map(transaction => transaction.accountId)), [transactions])
+  const commonTargetAccountId = useMemo(() => commonValue(transactions.map(transaction => transaction.targetAccountId)), [transactions])
   const [options, setOptions] = useState<ClassificationOptions>({ contexts: [], buckets: [], categories: [] })
   const [transactionType, setTransactionType] = useState(UNCHANGED)
   const [date, setDate] = useState('')
@@ -41,6 +43,14 @@ export function BulkTransactionEditModal({ transactions, accounts, onClose, onSa
   const families = useMemo(() => [...new Set(options.categories.filter(item => !purposeType || item.type === purposeType).map(item => item.family))], [options, purposeType])
 
   const hasChanges = transactionType !== UNCHANGED || Boolean(date) || accountId !== UNCHANGED || targetAccountId !== UNCHANGED || purposeId !== UNCHANGED || contextId !== UNCHANGED || bucketId !== UNCHANGED || tax !== UNCHANGED || reimbursement !== UNCHANGED || transferReason !== UNCHANGED || status !== UNCHANGED || changeTags || changeNote
+
+  function changeTransactionType(nextType: string) {
+    setTransactionType(nextType)
+    if (nextType === 'transfer') {
+      setAccountId(commonAccountId ?? UNCHANGED)
+      setTargetAccountId(commonTargetAccountId ?? UNCHANGED)
+    }
+  }
 
   async function submit() {
     setError('')
@@ -86,9 +96,9 @@ export function BulkTransactionEditModal({ transactions, accounts, onClose, onSa
         <section>
           <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Transaction</p>
           <div className="grid grid-cols-4 gap-3">
-            <Field label="Type"><select value={transactionType} onChange={event => setTransactionType(event.target.value)} className={selectClass}><option value={UNCHANGED}>Leave unchanged</option><option value="expense">Expense</option><option value="income">Income</option><option value="transfer">Transfer</option></select></Field>
+            <Field label="Type"><select value={transactionType} onChange={event => changeTransactionType(event.target.value)} className={selectClass}><option value={UNCHANGED}>Leave unchanged</option><option value="expense">Expense</option><option value="income">Income</option><option value="transfer">Transfer</option></select></Field>
             <Field label="Date"><input type="date" value={date} onChange={event => setDate(event.target.value)} className={selectClass} /><p className="text-[10px] text-gray-400 mt-1">Blank = unchanged</p></Field>
-            <Field label={transactionType === 'transfer' ? 'From account' : 'Account'}><select value={accountId} onChange={event => setAccountId(event.target.value)} className={selectClass}><option value={UNCHANGED}>Leave unchanged</option>{activeAccounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></Field>
+            <Field label={transactionType === 'transfer' ? 'From account' : 'Account'}><select value={accountId} onChange={event => setAccountId(event.target.value)} className={selectClass}><option value={UNCHANGED}>{transactionType === 'transfer' ? 'Keep each current source' : 'Leave unchanged'}</option>{activeAccounts.map(account => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}</select></Field>
             <Field label="Status"><select value={status} onChange={event => setStatus(event.target.value)} className={selectClass}><option value={UNCHANGED}>Leave unchanged</option><option value="C">Completed</option><option value="P">Pending</option></select></Field>
           </div>
         </section>
@@ -107,7 +117,11 @@ export function BulkTransactionEditModal({ transactions, accounts, onClose, onSa
         <section className="rounded-xl border border-sky-200 bg-sky-50/60 p-4">
           <p className="text-xs font-semibold uppercase tracking-wider text-sky-700 mb-3">Transfer details</p>
           <div className="grid grid-cols-3 gap-3">
-            <Field label="To account"><select value={targetAccountId} onChange={event => setTargetAccountId(event.target.value)} className={selectClass}><option value={UNCHANGED}>Leave unchanged</option><option value={CLEAR}>Clear target</option>{activeAccounts.filter(account => account.id !== accountId).map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></Field>
+            <Field label="To account"><select value={targetAccountId} onChange={event => setTargetAccountId(event.target.value)} className={selectClass}>
+              <option value={UNCHANGED}>{transactionType === 'transfer' ? 'Choose destination account…' : 'Leave unchanged'}</option>
+              {transactionType !== 'transfer' && <option value={CLEAR}>Clear target</option>}
+              {activeAccounts.filter(account => account.id !== accountId).map(account => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}
+            </select><p className="text-[10px] text-sky-700 mt-1">Only active accounts can receive transfers.</p></Field>
             <Field label="Transfer reason"><select value={transferReason} onChange={event => setTransferReason(event.target.value)} className={selectClass}><option value={UNCHANGED}>Leave unchanged</option><option value={CLEAR}>Clear reason</option>{transferReasons.map(reason => <option key={reason.value} value={reason.value}>{reason.label}</option>)}</select></Field>
             <div className="text-xs text-sky-700 pt-6">Used only for transfers. Purpose, Bucket, Tax and Reimbursement are cleared when type changes to Transfer.</div>
           </div>
@@ -126,6 +140,16 @@ export function BulkTransactionEditModal({ transactions, accounts, onClose, onSa
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="block text-xs font-medium text-gray-500 mb-1">{label}</span>{children}</label> }
+
+function commonValue<T>(values: T[]): T | null {
+  if (values.length === 0) return null
+  return values.every(value => value === values[0]) ? values[0] : null
+}
+
+function accountLabel(account: Account): string {
+  const details = [account.memberName, account.groupName].filter(Boolean)
+  return details.length > 0 ? `${account.name} — ${details.join(' · ')}` : account.name
+}
 
 function OptionalText({ label, enabled, onEnabled, value, onChange, placeholder }: { label: string; enabled: boolean; onEnabled: (value: boolean) => void; value: string; onChange: (value: string) => void; placeholder: string }) {
   return <div className="rounded-xl border border-gray-200 p-3"><label className="flex items-center gap-2 text-xs font-semibold text-gray-600 mb-2"><input type="checkbox" checked={enabled} onChange={event => onEnabled(event.target.checked)} /> Change {label.toLowerCase()}</label><input disabled={!enabled} value={value} onChange={event => onChange(event.target.value)} placeholder={placeholder} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400" /></div>
