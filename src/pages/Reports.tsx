@@ -44,6 +44,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
   const [trendCats, setTrendCats] = useState<string[]>([])
   const [trendData, setTrendData] = useState<any[]>([])
   const [fundingTransfers, setFundingTransfers] = useState<Transaction[]>([])
+  const [periodTransactions, setPeriodTransactions] = useState<Transaction[]>([])
   const [editTransaction, setEditTransaction] = useState<Transaction | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -55,6 +56,10 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
       ? { dateFrom: customFrom!, dateTo: customTo!, accountId: selectedAccountId ?? undefined }
       : { dateFrom: `${year}-01-01`, dateTo: `${year}-12-31`, accountId: selectedAccountId ?? undefined })
       .then(rows => setFundingTransfers(rows.filter(row => row.isTransfer && Boolean(row.transferReason) && row.transferReason !== 'account_movement')))
+    api.transactions.list(isCustom
+      ? { dateFrom: customFrom!, dateTo: customTo!, accountId: selectedAccountId ?? undefined }
+      : { month, year, accountId: selectedAccountId ?? undefined })
+      .then(setPeriodTransactions)
     if (isCustom) {
       api.transactions.list({ dateFrom: customFrom!, dateTo: customTo!, accountId: selectedAccountId ?? undefined }).then(txs => {
         const byCat = new Map<string, any>()
@@ -75,8 +80,12 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
   }, [year, month, isCustom, customFrom, customTo, selectedAccountId, refreshKey])
 
   async function drillMonth(m: number) {
-    const s = await api.transactions.monthSummary(m, year, selectedAccountId)
+    const [s, transactions] = await Promise.all([
+      api.transactions.monthSummary(m, year, selectedAccountId),
+      api.transactions.list({ month: m, year, accountId: selectedAccountId ?? undefined }),
+    ])
     if (s) setCatBreakdown(s.byCategory)
+    setPeriodTransactions(transactions)
     setDrill({ type: 'month', month: m })
     setView('spending')
   }
@@ -104,6 +113,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
     setView('cashflow')
     if (isCustom) {
       api.transactions.list({ dateFrom: customFrom!, dateTo: customTo!, accountId: selectedAccountId ?? undefined }).then(txs => {
+        setPeriodTransactions(txs)
         const byCat = new Map<string, any>()
         for (const t of txs) {
           if (t.isTransfer || t.status !== 'C') continue
@@ -118,6 +128,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
       api.transactions.monthSummary(month, year, selectedAccountId).then(s => {
         if (s) setCatBreakdown(s.byCategory)
       })
+      api.transactions.list({ month, year, accountId: selectedAccountId ?? undefined }).then(setPeriodTransactions)
     }
   }
 
@@ -166,6 +177,35 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
     color: c.categoryColor ?? '#94a3b8',
     id: c.categoryId,
   }))
+
+  const contributionData = useMemo(() => {
+    const juliaAccounts = new Set(accounts
+      .filter(account => /julia/i.test(account.memberName) || /^julia\b/i.test(account.name))
+      .map(account => account.id))
+    const totals = new Map<string, { anderson: number; julia: number }>()
+
+    for (const transaction of periodTransactions) {
+      if (transaction.isTransfer || transaction.status !== 'C' || transaction.amount >= 0) continue
+      const key = transaction.categoryId ?? '__none'
+      const current = totals.get(key) ?? { anderson: 0, julia: 0 }
+      const amount = Math.abs(transaction.amount)
+      if (juliaAccounts.has(transaction.accountId)) current.julia += amount
+      else current.anderson += amount
+      totals.set(key, current)
+    }
+
+    return topExpCats.map(category => {
+      const split = totals.get(category.categoryId ?? '__none') ?? { anderson: 0, julia: 0 }
+      return {
+        id: category.categoryId,
+        fullName: category.categoryFullName ?? 'Uncategorised',
+        name: shortPurposeLabel(category.categoryFullName ?? 'Uncategorised'),
+        color: category.categoryColor ?? '#94a3b8',
+        anderson: split.anderson,
+        julia: split.julia,
+      }
+    })
+  }, [accounts, periodTransactions, topExpCats])
 
   const topCatsForTrend = useMemo(() =>
     catBreakdown.filter(c => c.total < 0).slice(0, 10),
@@ -335,6 +375,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
 
         {/* SPENDING VIEW */}
         {view === 'spending' && !isDrillCategory && (
+          <>
           <div className="grid grid-cols-5 gap-5">
             <div className="col-span-2 bg-white rounded-2xl border border-gray-200 p-5 shadow-sm flex flex-col">
               <h3 className="text-sm font-semibold text-gray-700 mb-1">Spending by Purpose</h3>
@@ -425,6 +466,46 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
               )}
             </div>
           </div>
+          <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700">Spending contribution by Purpose</h3>
+                <p className="text-xs text-gray-400 mt-1">Expenses are attributed by the account they were paid from. Click a column to drill in.</p>
+              </div>
+              <div className="flex items-center gap-4 text-xs text-gray-500">
+                <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-blue-600" />Anderson</span>
+                <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-pink-500" />Julia</span>
+              </div>
+            </div>
+            {contributionData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart
+                  data={contributionData}
+                  margin={{ top: 8, right: 8, bottom: 36, left: 8 }}
+                  barCategoryGap="28%"
+                  onClick={(data: any) => {
+                    const purpose = data?.activePayload?.[0]?.payload
+                    if (purpose) drillCategory(purpose.id, purpose.fullName, purpose.color)
+                  }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="name" interval={0} angle={-22} textAnchor="end" height={58} tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                  <YAxis tickFormatter={value => fmtShort(value)} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={58} />
+                  <Tooltip
+                    formatter={(value, name) => [fmt(Number(value ?? 0)), name === 'anderson' ? 'Anderson' : 'Julia']}
+                    labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName ?? ''}
+                    contentStyle={{ fontSize: 12, borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}
+                    cursor={{ fill: 'rgba(99,102,241,0.05)' }}
+                  />
+                  <Bar dataKey="anderson" stackId="contribution" fill="#2563eb" name="Anderson" cursor="pointer" />
+                  <Bar dataKey="julia" stackId="contribution" fill="#ec4899" name="Julia" radius={[4, 4, 0, 0]} cursor="pointer" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-xs text-gray-400 text-center py-12">No spending data</p>
+            )}
+          </div>
+          </>
         )}
 
         {/* DRILL: category transactions */}
@@ -600,4 +681,9 @@ function KpiCard({ label, value, color, icon: Icon }: {
       </div>
     </div>
   )
+}
+
+function shortPurposeLabel(value: string) {
+  const label = value.includes(':') ? value.split(':').slice(1).join(':').trim() : value
+  return label.length > 18 ? `${label.slice(0, 17)}…` : label
 }
