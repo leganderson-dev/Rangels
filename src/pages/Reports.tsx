@@ -47,6 +47,8 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
   const [trendData, setTrendData] = useState<any[]>([])
   const [trendTransactions, setTrendTransactions] = useState<Transaction[]>([])
   const [classificationOptions, setClassificationOptions] = useState<ClassificationOptions | null>(null)
+  const [spendingBucketFilter, setSpendingBucketFilter] = useState('')
+  const [spendingContextFilter, setSpendingContextFilter] = useState('')
   const [fundingTransfers, setFundingTransfers] = useState<Transaction[]>([])
   const [periodTransactions, setPeriodTransactions] = useState<Transaction[]>([])
   const [editTransaction, setEditTransaction] = useState<Transaction | null>(null)
@@ -102,7 +104,10 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
       const activeMonth = drill?.month ?? month
       txns = await api.transactions.list({ month: activeMonth, year, categoryId: catId ?? undefined, accountId: selectedAccountId ?? undefined })
     }
-    setDrillTxns(txns)
+    setDrillTxns(txns.filter(transaction =>
+      (!spendingBucketFilter || transaction.bucketId === spendingBucketFilter)
+      && (!spendingContextFilter || transaction.contextId === spendingContextFilter),
+    ))
     setDrill(d => ({ ...d!, type: 'category', categoryId: catId, categoryName: catName, color }))
   }
 
@@ -137,14 +142,13 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
   }
 
   useEffect(() => {
+    if (view !== 'trends' && view !== 'spending') return
+    api.classification.options().then(setClassificationOptions)
+  }, [view, refreshKey])
+
+  useEffect(() => {
     if (view !== 'trends') return
-    Promise.all([
-      api.classification.options(),
-      api.transactions.list({ dateFrom: `${year}-01-01`, dateTo: `${year}-12-31`, accountId: selectedAccountId ?? undefined }),
-    ]).then(([options, transactions]) => {
-      setClassificationOptions(options)
-      setTrendTransactions(transactions)
-    })
+    api.transactions.list({ dateFrom: `${year}-01-01`, dateTo: `${year}-12-31`, accountId: selectedAccountId ?? undefined }).then(setTrendTransactions)
   }, [view, year, selectedAccountId, refreshKey])
 
   useEffect(() => {
@@ -214,8 +218,31 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
     expenses: Math.abs(m.expenses),
   }))
 
-  const expenseBreakdown = catBreakdown.filter(c => c.total < 0)
-  const incomeBreakdown = catBreakdown.filter(c => c.total > 0)
+  const filteredPeriodTransactions = useMemo(() => periodTransactions.filter(transaction =>
+    (!spendingBucketFilter || transaction.bucketId === spendingBucketFilter)
+    && (!spendingContextFilter || transaction.contextId === spendingContextFilter),
+  ), [periodTransactions, spendingBucketFilter, spendingContextFilter])
+
+  const spendingBreakdown = useMemo(() => {
+    if (!spendingBucketFilter && !spendingContextFilter) return catBreakdown
+    const byCategory = new Map<string, any>()
+    for (const transaction of filteredPeriodTransactions) {
+      if (transaction.isTransfer || transaction.status !== 'C') continue
+      const key = transaction.categoryId ?? '__none'
+      const existing = byCategory.get(key)
+      if (existing) existing.total += transaction.amount
+      else byCategory.set(key, {
+        categoryId: transaction.categoryId,
+        categoryFullName: transaction.categoryFullName ?? 'Uncategorised',
+        categoryColor: transaction.categoryColor ?? '#94a3b8',
+        total: transaction.amount,
+      })
+    }
+    return [...byCategory.values()].sort((left, right) => Math.abs(right.total) - Math.abs(left.total))
+  }, [catBreakdown, filteredPeriodTransactions, spendingBucketFilter, spendingContextFilter])
+
+  const expenseBreakdown = spendingBreakdown.filter(c => c.total < 0)
+  const incomeBreakdown = spendingBreakdown.filter(c => c.total > 0)
   const totalExpenses = yearly.reduce((s, m) => s + Math.abs(m.expenses), 0)
   const totalIncome = yearly.reduce((s, m) => s + m.income, 0)
   const avgMonthlyExpenses = yearly.filter(m => m.expenses !== 0).length
@@ -233,7 +260,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
       .map(account => account.id))
     const totals = new Map<string, { anderson: number; julia: number }>()
 
-    for (const transaction of periodTransactions) {
+    for (const transaction of filteredPeriodTransactions) {
       if (transaction.isTransfer || transaction.status !== 'C' || transaction.amount >= 0) continue
       const key = transaction.categoryId ?? '__none'
       const current = totals.get(key) ?? { anderson: 0, julia: 0 }
@@ -244,7 +271,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
     }
 
     return totals
-  }, [accounts, periodTransactions])
+  }, [accounts, filteredPeriodTransactions])
 
   function changeTrendDimension(dimension: TrendDimension) {
     setTrendDimension(dimension)
@@ -447,15 +474,41 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
         {/* SPENDING VIEW */}
         {view === 'spending' && !isDrillCategory && (
           <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+              <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
                 <div>
                   <h3 className="text-sm font-semibold text-gray-700">Top Expenses — {drillMonthName}</h3>
-                  <p className="text-xs text-gray-400 mt-1">Each bar shows who paid, based on the source account. Click a row to drill in.</p>
+                  <p className="text-xs text-gray-400 mt-1">Each bar shows who paid, based on the source account. Filters apply to totals and drill-downs.</p>
                 </div>
                 <div className="flex items-center gap-4 text-xs text-gray-500">
                   <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-blue-600" />Anderson</span>
                   <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-pink-500" />Julia</span>
                 </div>
+              </div>
+              <div className="mb-5 flex flex-wrap items-center gap-2 rounded-xl border border-gray-100 bg-gray-50/70 p-2.5">
+                <label className="flex items-center gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Bucket</span>
+                  <select
+                    value={spendingBucketFilter}
+                    onChange={event => { setSpendingBucketFilter(event.target.value); setDrill(null); setDrillTxns([]) }}
+                    className="min-w-44 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  >
+                    <option value="">All buckets</option>
+                    {(classificationOptions?.buckets ?? []).map(bucket => <option key={bucket.id} value={bucket.id}>{bucket.name}</option>)}
+                  </select>
+                </label>
+                <label className="flex items-center gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Context</span>
+                  <select
+                    value={spendingContextFilter}
+                    onChange={event => { setSpendingContextFilter(event.target.value); setDrill(null); setDrillTxns([]) }}
+                    className="min-w-52 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  >
+                    <option value="">All contexts</option>
+                    {(classificationOptions?.contexts ?? []).map(context => <option key={context.id} value={context.id}>{context.name}</option>)}
+                  </select>
+                </label>
+                {(spendingBucketFilter || spendingContextFilter) && <button type="button" onClick={() => { setSpendingBucketFilter(''); setSpendingContextFilter(''); setDrill(null); setDrillTxns([]) }} className="rounded-lg px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50">Clear filters</button>}
+                <span className="ml-auto text-[11px] text-gray-400">{expenseBreakdown.length} expense {expenseBreakdown.length === 1 ? 'purpose' : 'purposes'}</span>
               </div>
               <div className="space-y-3">
                 {topExpCats.map((c, i) => {
@@ -497,6 +550,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                     </button>
                   )
                 })}
+                {topExpCats.length === 0 && <div className="rounded-xl border border-dashed border-gray-200 py-12 text-center text-sm text-gray-400">No expenses match these filters.</div>}
               </div>
               {incomeBreakdown.length > 0 && (
                 <div className="mt-5 pt-4 border-t border-gray-100">
