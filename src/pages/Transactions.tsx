@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useLayoutEffect } from 'react'
 import { Plus, Upload, Search, ChevronDown, ChevronRight, Trash2, Edit2, ArrowUp, ArrowDown, ArrowUpDown, ChevronsUpDown, ChevronsDownUp, TrendingUp, TrendingDown, ArrowLeftRight, Sparkles, SlidersHorizontal, X, Calendar, Scissors } from 'lucide-react'
 import { api } from '../api'
 import { fmt, formatDate, FREQUENCIES } from '../utils'
@@ -85,6 +85,29 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
   const [catHistory, setCatHistory] = useState<Array<{ description: string; categoryId: string }>>([])
   const [classificationOptions, setClassificationOptions] = useState<ClassificationOptions>({ contexts: [], buckets: [], categories: [] })
+  const transactionListRef = useRef<HTMLDivElement>(null)
+  const pendingViewportAnchor = useRef<{ transactionId: string; top: number; scrollTop: number } | null>(null)
+
+  function rememberTransactionPosition(transactionId: string) {
+    const container = transactionListRef.current
+    const row = container?.querySelector<HTMLElement>(`[data-transaction-id="${transactionId}"]`)
+    if (!container || !row) return
+    pendingViewportAnchor.current = {
+      transactionId,
+      top: row.getBoundingClientRect().top,
+      scrollTop: container.scrollTop,
+    }
+  }
+
+  useLayoutEffect(() => {
+    const anchor = pendingViewportAnchor.current
+    const container = transactionListRef.current
+    if (!anchor || !container) return
+    const row = container.querySelector<HTMLElement>(`[data-transaction-id="${anchor.transactionId}"]`)
+    if (row) container.scrollTop += row.getBoundingClientRect().top - anchor.top
+    else container.scrollTop = anchor.scrollTop
+    pendingViewportAnchor.current = null
+  }, [transactions])
 
   useEffect(() => {
     api.classification.options().then(setClassificationOptions).catch(console.error)
@@ -376,6 +399,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
     setSelected(new Set()); refresh()
   }
   async function handleInlineCategory(txId: string, categoryId: string | null) {
+    rememberTransactionPosition(txId)
     if (selected.has(txId) && selected.size > 1) {
       const prevCats = [...selected].map(id => ({ id, prev: transactions.find(t => t.id === id)?.categoryId ?? null }))
       await api.transactions.bulkCategory([...selected], categoryId)
@@ -384,38 +408,41 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
         redo: async () => { await api.transactions.bulkCategory(prevCats.map(p => p.id), categoryId) }
       })
       setSelected(new Set())
+      refresh()
     } else {
       const prevCategoryId = transactions.find(t => t.id === txId)?.categoryId ?? null
-      await api.transactions.update(txId, { categoryId })
+      const updated = await api.transactions.update(txId, { categoryId })
+      setTransactions(current => current.map(transaction => transaction.id === txId ? updated : transaction))
       pushHistory({
         undo: async () => { await api.transactions.update(txId, { categoryId: prevCategoryId }) },
         redo: async () => { await api.transactions.update(txId, { categoryId }) }
       })
     }
-    refresh()
   }
 
   async function handleInlineContext(tx: Transaction, contextId: string | null) {
+    rememberTransactionPosition(tx.id)
     const previous = { contextId: tx.contextId ?? null, bucketId: tx.bucketId ?? null }
     const contextName = classificationOptions.contexts.find(option => option.id === contextId)?.name
     const purposeType = tx.amount > 0 ? 'income' : 'expense'
     const bucketId = tx.isTransfer || !canUseHouseholdBucket(contextName, purposeType) ? null : tx.bucketId ?? null
-    await api.transactions.update(tx.id, { contextId, bucketId })
+    const updated = await api.transactions.update(tx.id, { contextId, bucketId })
+    setTransactions(current => current.map(transaction => transaction.id === tx.id ? updated : transaction))
     pushHistory({
       undo: async () => { await api.transactions.update(tx.id, previous) },
       redo: async () => { await api.transactions.update(tx.id, { contextId, bucketId }) },
     })
-    refresh()
   }
 
   async function handleInlineBucket(tx: Transaction, bucketId: string | null) {
+    rememberTransactionPosition(tx.id)
     const previousBucketId = tx.bucketId ?? null
-    await api.transactions.update(tx.id, { bucketId })
+    const updated = await api.transactions.update(tx.id, { bucketId })
+    setTransactions(current => current.map(transaction => transaction.id === tx.id ? updated : transaction))
     pushHistory({
       undo: async () => { await api.transactions.update(tx.id, { bucketId: previousBucketId }) },
       redo: async () => { await api.transactions.update(tx.id, { bucketId }) },
     })
-    refresh()
   }
 
   const allSelected = filtered.length > 0 && filtered.every(transaction => selected.has(transaction.id))
@@ -543,7 +570,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
       </div>
 
       {/* Transaction list */}
-      <div className="flex-1 overflow-auto">
+      <div ref={transactionListRef} className="flex-1 overflow-auto">
         {loading && <div className="flex items-center justify-center h-32 text-gray-400 text-sm">Loading…</div>}
         {!loading && transactions.length === 0 && (
           <div className="flex flex-col items-center justify-center h-48 text-gray-400">
@@ -1015,6 +1042,7 @@ function TransactionRow({ tx, selected, selectedCount, selectedAccountId, catego
 
   return (
     <div
+      data-transaction-id={tx.id}
       draggable
       onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; onDragStart?.() }}
       onDragEnd={onDragEnd}
