@@ -768,10 +768,6 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                       </div>
                       <div className="h-2 overflow-hidden rounded-full bg-gray-200"><div className="h-full rounded-full bg-pink-500" style={{ width: `${spendingSummary.juliaPercentage}%` }} /></div>
                     </div>
-                    <div className="flex h-3 overflow-hidden rounded-full bg-gray-200" aria-label="Expense contribution split">
-                      <div className="bg-blue-600" style={{ width: `${spendingSummary.andersonPercentage}%` }} />
-                      <div className="bg-pink-500" style={{ width: `${spendingSummary.juliaPercentage}%` }} />
-                    </div>
                     <p className="text-[10px] leading-4 text-gray-400">Attribution follows the owner of the account that paid each expense.</p>
                   </div>
                 </aside>
