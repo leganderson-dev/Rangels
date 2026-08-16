@@ -6,7 +6,7 @@ import {
 import { api } from '../api'
 import { fmt, fmtShort, monthShort, monthName } from '../utils'
 import type { Account, Category, ClassificationOptions, Transaction } from '../types/finance'
-import { TrendingUp, TrendingDown, DollarSign, ChevronRight, ArrowLeft, ArrowLeftRight, BarChart2, PieChart as PieIcon, TrendingUp as TrendIcon, Layers } from 'lucide-react'
+import { TrendingUp, TrendingDown, DollarSign, ChevronDown, ChevronRight, ArrowLeft, ArrowLeftRight, BarChart2, PieChart as PieIcon, TrendingUp as TrendIcon, Layers } from 'lucide-react'
 import { transferReasonLabel } from '../lib/transfers'
 import { TransactionFormModal } from '../components/TransactionFormModal'
 
@@ -49,6 +49,8 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
   const [classificationOptions, setClassificationOptions] = useState<ClassificationOptions | null>(null)
   const [spendingBucketFilter, setSpendingBucketFilter] = useState('')
   const [spendingContextFilter, setSpendingContextFilter] = useState('')
+  const [expandedExpenseFamilies, setExpandedExpenseFamilies] = useState<string[]>([])
+  const [selectedExpenseFamily, setSelectedExpenseFamily] = useState<string | null>(null)
   const [fundingTransfers, setFundingTransfers] = useState<Transaction[]>([])
   const [periodTransactions, setPeriodTransactions] = useState<Transaction[]>([])
   const [editTransaction, setEditTransaction] = useState<Transaction | null>(null)
@@ -252,8 +254,6 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
 
   const periodLabel = isCustom ? `${customFrom!.slice(5)} – ${customTo!.slice(5)}` : `${monthName(month)} ${year}`
   const drillMonthName = drill?.month ? `${monthName(drill.month)} ${year}` : periodLabel
-  const topExpCats = expenseBreakdown.slice(0, 8)
-
   const contributionByCategory = useMemo(() => {
     const juliaAccounts = new Set(accounts
       .filter(account => /julia/i.test(account.memberName) || /^julia\b/i.test(account.name))
@@ -273,7 +273,49 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
     return totals
   }, [accounts, filteredPeriodTransactions])
 
-  const spendingSummary = useMemo(() => {
+  const expenseFamilies = useMemo(() => {
+    const categoryById = new Map(categories.map(category => [category.id, category]))
+    const families = new Map<string, {
+      name: string
+      total: number
+      color: string
+      anderson: number
+      julia: number
+      children: any[]
+    }>()
+
+    for (const expense of expenseBreakdown) {
+      const category = expense.categoryId ? categoryById.get(expense.categoryId) : undefined
+      const fullName = expense.categoryFullName ?? 'Uncategorised'
+      const separatorIndex = fullName.indexOf(':')
+      const fallbackFamily = separatorIndex > 0 ? fullName.slice(0, separatorIndex).trim() : fullName
+      const familyName = category?.parentName?.trim() || fallbackFamily || 'Other'
+      const contribution = contributionByCategory.get(expense.categoryId ?? '__none') ?? { anderson: 0, julia: 0 }
+      const existing = families.get(familyName) ?? {
+        name: familyName,
+        total: 0,
+        color: expense.categoryColor ?? '#94a3b8',
+        anderson: 0,
+        julia: 0,
+        children: [] as any[],
+      }
+      existing.total += expense.total
+      existing.anderson += contribution.anderson
+      existing.julia += contribution.julia
+      existing.children.push(expense)
+      families.set(familyName, existing)
+    }
+
+    return [...families.values()]
+      .map(family => ({
+        ...family,
+        children: family.children.sort((left, right) => Math.abs(right.total) - Math.abs(left.total)),
+      }))
+      .sort((left, right) => Math.abs(right.total) - Math.abs(left.total))
+      .slice(0, 8)
+  }, [categories, contributionByCategory, expenseBreakdown])
+
+  const allSpendingSummary = useMemo(() => {
     const juliaAccounts = new Set(accounts
       .filter(account => /julia/i.test(account.memberName) || /^julia\b/i.test(account.name))
       .map(account => account.id))
@@ -298,6 +340,40 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
       juliaPercentage: total ? (julia / total) * 100 : 0,
     }
   }, [accounts, filteredPeriodTransactions])
+
+  const spendingSummary = useMemo(() => {
+    const juliaAccounts = new Set(accounts
+      .filter(account => /julia/i.test(account.memberName) || /^julia\b/i.test(account.name))
+      .map(account => account.id))
+    const categoryById = new Map(categories.map(category => [category.id, category]))
+    const expenses = filteredPeriodTransactions.filter(transaction =>
+      !transaction.isTransfer && transaction.status === 'C' && transaction.amount < 0
+      && (!selectedExpenseFamily || (() => {
+        const category = transaction.categoryId ? categoryById.get(transaction.categoryId) : undefined
+        const fullName = transaction.categoryFullName ?? 'Uncategorised'
+        const separatorIndex = fullName.indexOf(':')
+        const fallbackFamily = separatorIndex > 0 ? fullName.slice(0, separatorIndex).trim() : fullName
+        return (category?.parentName?.trim() || fallbackFamily || 'Other') === selectedExpenseFamily
+      })()),
+    )
+    let anderson = 0
+    let julia = 0
+    for (const transaction of expenses) {
+      const amount = Math.abs(transaction.amount)
+      if (juliaAccounts.has(transaction.accountId)) julia += amount
+      else anderson += amount
+    }
+    const total = anderson + julia
+    return {
+      total,
+      count: expenses.length,
+      average: expenses.length ? total / expenses.length : 0,
+      anderson,
+      julia,
+      andersonPercentage: total ? (anderson / total) * 100 : 0,
+      juliaPercentage: total ? (julia / total) * 100 : 0,
+    }
+  }, [accounts, categories, filteredPeriodTransactions, selectedExpenseFamily])
 
   function changeTrendDimension(dimension: TrendDimension) {
     setTrendDimension(dimension)
@@ -515,7 +591,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Bucket</span>
                   <select
                     value={spendingBucketFilter}
-                    onChange={event => { setSpendingBucketFilter(event.target.value); setDrill(null); setDrillTxns([]) }}
+                    onChange={event => { setSpendingBucketFilter(event.target.value); setSelectedExpenseFamily(null); setDrill(null); setDrillTxns([]) }}
                     className="min-w-44 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                   >
                     <option value="">All buckets</option>
@@ -526,50 +602,120 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Context</span>
                   <select
                     value={spendingContextFilter}
-                    onChange={event => { setSpendingContextFilter(event.target.value); setDrill(null); setDrillTxns([]) }}
+                    onChange={event => { setSpendingContextFilter(event.target.value); setSelectedExpenseFamily(null); setDrill(null); setDrillTxns([]) }}
                     className="min-w-52 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                   >
                     <option value="">All contexts</option>
                     {(classificationOptions?.contexts ?? []).map(context => <option key={context.id} value={context.id}>{context.name}</option>)}
                   </select>
                 </label>
-                {(spendingBucketFilter || spendingContextFilter) && <button type="button" onClick={() => { setSpendingBucketFilter(''); setSpendingContextFilter(''); setDrill(null); setDrillTxns([]) }} className="rounded-lg px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50">Clear filters</button>}
-                <span className="ml-auto text-[11px] text-gray-400">{expenseBreakdown.length} expense {expenseBreakdown.length === 1 ? 'purpose' : 'purposes'}</span>
+                {(spendingBucketFilter || spendingContextFilter) && <button type="button" onClick={() => { setSpendingBucketFilter(''); setSpendingContextFilter(''); setSelectedExpenseFamily(null); setDrill(null); setDrillTxns([]) }} className="rounded-lg px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50">Clear filters</button>}
+                <span className="ml-auto text-[11px] text-gray-400">{expenseFamilies.length} purpose {expenseFamilies.length === 1 ? 'family' : 'families'} · {expenseBreakdown.length} purposes</span>
               </div>
               <div className="grid gap-6 lg:grid-cols-3">
                 <div className="space-y-3 lg:col-span-2">
-                  {topExpCats.map((c, i) => {
-                    const maxVal = Math.abs(expenseBreakdown[0]?.total ?? 1)
-                    const contribution = contributionByCategory.get(c.categoryId ?? '__none') ?? { anderson: 0, julia: 0 }
-                    const andersonPct = (contribution.anderson / maxVal) * 100
-                    const juliaPct = (contribution.julia / maxVal) * 100
+                  <button
+                    type="button"
+                    onClick={() => setSelectedExpenseFamily(null)}
+                    className={`w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${selectedExpenseFamily === null ? 'border-blue-300 bg-blue-50/70 ring-1 ring-blue-100' : 'border-gray-100 bg-gray-50/40 hover:bg-gray-50'}`}
+                    aria-pressed={selectedExpenseFamily === null}
+                  >
+                    <div className="mb-1.5 flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="w-4 font-mono text-[10px] font-semibold text-blue-500">0</span>
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-gray-700" />
+                        <span className="truncate text-xs font-semibold text-gray-800">Total</span>
+                        <span className="shrink-0 text-[10px] text-gray-400">all {expenseBreakdown.length} purposes</span>
+                      </div>
+                      <div className="ml-3 flex shrink-0 items-center gap-2">
+                        <span className="hidden text-[10px] font-semibold text-blue-600 xl:inline">Anderson {fmt(allSpendingSummary.anderson)}</span>
+                        <span className="hidden text-[10px] font-semibold text-pink-500 xl:inline">Julia {fmt(allSpendingSummary.julia)}</span>
+                        <span className="text-xs font-bold text-gray-800">{fmt(allSpendingSummary.total)}</span>
+                      </div>
+                    </div>
+                    <div className="ml-6 flex h-2 overflow-hidden rounded-full bg-gray-100">
+                      <div className="h-full bg-blue-600 transition-all" style={{ width: `${allSpendingSummary.andersonPercentage}%` }} />
+                      <div className="h-full bg-pink-500 transition-all" style={{ width: `${allSpendingSummary.juliaPercentage}%` }} />
+                    </div>
+                  </button>
+                  {expenseFamilies.map((family, index) => {
+                    const maxValue = Math.abs(expenseFamilies[0]?.total ?? 1)
+                    const isExpanded = expandedExpenseFamilies.includes(family.name)
+                    const andersonPercentage = (family.anderson / maxValue) * 100
+                    const juliaPercentage = (family.julia / maxValue) * 100
                     return (
-                      <button
-                        key={c.categoryId}
-                        onClick={() => drillCategory(c.categoryId, c.categoryFullName ?? 'Uncategorised', c.categoryColor ?? '#94a3b8')}
-                        className="w-full group text-left"
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span className="text-[10px] text-gray-300 w-4 font-mono">{i + 1}</span>
-                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: c.categoryColor }} />
-                            <span className="truncate text-xs text-gray-600 group-hover:text-gray-900 transition-colors">{c.categoryFullName ?? 'Uncategorised'}</span>
+                      <div key={family.name} className={`overflow-hidden rounded-xl border transition-colors ${selectedExpenseFamily === family.name ? 'border-blue-300 bg-blue-50/70 ring-1 ring-blue-100' : 'border-gray-100 bg-gray-50/40'}`}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedExpenseFamily(family.name)
+                            setExpandedExpenseFamilies(previous => previous.includes(family.name)
+                              ? previous.filter(name => name !== family.name)
+                              : [...previous, family.name])
+                          }}
+                          className="group w-full px-3 py-2.5 text-left hover:bg-gray-50"
+                          aria-expanded={isExpanded}
+                          aria-pressed={selectedExpenseFamily === family.name}
+                        >
+                          <div className="mb-1.5 flex items-center justify-between">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span className="w-4 font-mono text-[10px] text-gray-300">{index + 1}</span>
+                              {isExpanded ? <ChevronDown size={13} className="shrink-0 text-gray-400" /> : <ChevronRight size={13} className="shrink-0 text-gray-400" />}
+                              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: family.color }} />
+                              <span className="truncate text-xs font-semibold text-gray-700 group-hover:text-gray-900">{family.name}</span>
+                              <span className="shrink-0 text-[10px] text-gray-400">{family.children.length} {family.children.length === 1 ? 'purpose' : 'purposes'}</span>
+                            </div>
+                            <div className="ml-3 flex shrink-0 items-center gap-2">
+                              <span className="hidden text-[10px] font-semibold text-blue-600 xl:inline">Anderson {fmt(family.anderson)}</span>
+                              <span className="hidden text-[10px] font-semibold text-pink-500 xl:inline">Julia {fmt(family.julia)}</span>
+                              <span className="text-xs font-bold text-gray-800">{fmt(Math.abs(family.total))}</span>
+                            </div>
                           </div>
-                          <div className="ml-3 flex shrink-0 items-center gap-2">
-                            <span className="hidden xl:inline text-[10px] font-semibold text-blue-600">Anderson {fmt(contribution.anderson)}</span>
-                            <span className="hidden xl:inline text-[10px] font-semibold text-pink-500">Julia {fmt(contribution.julia)}</span>
-                            <span className="text-xs font-bold text-gray-700">{fmt(Math.abs(c.total))}</span>
-                            <ChevronRight size={12} className="text-gray-300 group-hover:text-gray-500" />
+                          <div className="ml-11 flex h-2 overflow-hidden rounded-full bg-gray-100">
+                            <div className="h-full bg-blue-600 transition-all" style={{ width: `${andersonPercentage}%` }} title={`Anderson: ${fmt(family.anderson)}`} />
+                            <div className="h-full bg-pink-500 transition-all" style={{ width: `${juliaPercentage}%` }} title={`Julia: ${fmt(family.julia)}`} />
                           </div>
-                        </div>
-                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden ml-6 flex">
-                          <div className="h-full bg-blue-600 transition-all" style={{ width: `${andersonPct}%` }} title={`Anderson: ${fmt(contribution.anderson)}`} />
-                          <div className="h-full bg-pink-500 transition-all" style={{ width: `${juliaPct}%` }} title={`Julia: ${fmt(contribution.julia)}`} />
-                        </div>
-                      </button>
+                        </button>
+                        {isExpanded && (
+                          <div className="border-t border-gray-100 bg-white px-3 py-1.5">
+                            {family.children.map(child => {
+                              const contribution = contributionByCategory.get(child.categoryId ?? '__none') ?? { anderson: 0, julia: 0 }
+                              const familyValue = Math.abs(family.total) || 1
+                              const childName = categories.find(category => category.id === child.categoryId)?.name
+                                ?? (child.categoryFullName?.includes(':') ? child.categoryFullName.split(':').slice(1).join(':').trim() : child.categoryFullName)
+                                ?? 'Uncategorised'
+                              return (
+                                <button
+                                  key={child.categoryId ?? child.categoryFullName}
+                                  type="button"
+                                  onClick={() => drillCategory(child.categoryId, child.categoryFullName ?? 'Uncategorised', child.categoryColor ?? '#94a3b8')}
+                                  className="group/child w-full border-b border-gray-50 py-2 pl-8 text-left last:border-0"
+                                >
+                                  <div className="mb-1 flex items-center justify-between gap-3">
+                                    <div className="flex min-w-0 items-center gap-2">
+                                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: child.categoryColor }} />
+                                      <span className="truncate text-[11px] text-gray-600 group-hover/child:text-blue-600">{childName}</span>
+                                    </div>
+                                    <div className="flex shrink-0 items-center gap-2">
+                                      <span className="hidden text-[9px] font-medium text-blue-600 xl:inline">A {fmt(contribution.anderson)}</span>
+                                      <span className="hidden text-[9px] font-medium text-pink-500 xl:inline">J {fmt(contribution.julia)}</span>
+                                      <span className="text-[11px] font-semibold text-gray-700">{fmt(Math.abs(child.total))}</span>
+                                      <ChevronRight size={11} className="text-gray-300 group-hover/child:text-blue-500" />
+                                    </div>
+                                  </div>
+                                  <div className="flex h-1.5 overflow-hidden rounded-full bg-gray-100">
+                                    <div className="bg-blue-600" style={{ width: `${(contribution.anderson / familyValue) * 100}%` }} />
+                                    <div className="bg-pink-500" style={{ width: `${(contribution.julia / familyValue) * 100}%` }} />
+                                  </div>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
                     )
                   })}
-                  {topExpCats.length === 0 && <div className="rounded-xl border border-dashed border-gray-200 py-12 text-center text-sm text-gray-400">No expenses match these filters.</div>}
+                  {expenseFamilies.length === 0 && <div className="rounded-xl border border-dashed border-gray-200 py-12 text-center text-sm text-gray-400">No expenses match these filters.</div>}
                   {incomeBreakdown.length > 0 && (
                     <div className="mt-5 pt-4 border-t border-gray-100">
                   <p className="text-xs font-semibold text-gray-400 mb-3 uppercase tracking-wide">Income</p>
@@ -594,7 +740,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
 
                 <aside className="h-fit overflow-hidden rounded-xl border border-gray-200 bg-gray-50/60 lg:sticky lg:top-4">
                   <div className="border-b border-gray-200 bg-white px-4 py-3">
-                    <p className="text-xs font-semibold text-gray-800">Filtered expense summary</p>
+                    <p className="text-xs font-semibold text-gray-800">{selectedExpenseFamily ? `${selectedExpenseFamily} expense summary` : 'Filtered expense summary'}</p>
                     <p className="mt-0.5 text-[10px] text-gray-400">{spendingSummary.count} transaction{spendingSummary.count === 1 ? '' : 's'}</p>
                   </div>
                   <div className="grid grid-cols-2 gap-px bg-gray-200">
