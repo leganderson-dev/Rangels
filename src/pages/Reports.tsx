@@ -49,6 +49,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
   const [classificationOptions, setClassificationOptions] = useState<ClassificationOptions | null>(null)
   const [spendingBucketFilter, setSpendingBucketFilter] = useState('')
   const [spendingContextFilter, setSpendingContextFilter] = useState('')
+  const [spendingOwnerFilters, setSpendingOwnerFilters] = useState({ anderson: true, julia: true })
   const [expandedExpenseFamilies, setExpandedExpenseFamilies] = useState<string[]>([])
   const [selectedExpenseFamily, setSelectedExpenseFamily] = useState<string | null>(null)
   const [fundingTransfers, setFundingTransfers] = useState<Transaction[]>([])
@@ -108,7 +109,8 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
     }
     setDrillTxns(txns.filter(transaction =>
       (!spendingBucketFilter || transaction.bucketId === spendingBucketFilter)
-      && (!spendingContextFilter || transaction.contextId === spendingContextFilter),
+      && (!spendingContextFilter || transaction.contextId === spendingContextFilter)
+      && (juliaAccountIds.has(transaction.accountId) ? spendingOwnerFilters.julia : spendingOwnerFilters.anderson),
     ))
     setDrill(d => ({ ...d!, type: 'category', categoryId: catId, categoryName: catName, color }))
   }
@@ -220,13 +222,31 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
     expenses: Math.abs(m.expenses),
   }))
 
+  const juliaAccountIds = useMemo(() => new Set(accounts
+    .filter(account => /julia/i.test(account.memberName) || /^julia\b/i.test(account.name))
+    .map(account => account.id)), [accounts])
+
+  const allSpendingOwnersSelected = spendingOwnerFilters.anderson && spendingOwnerFilters.julia
+
+  function toggleSpendingOwner(owner: 'anderson' | 'julia') {
+    setSpendingOwnerFilters(previous => {
+      const otherOwner = owner === 'anderson' ? 'julia' : 'anderson'
+      if (previous[owner] && !previous[otherOwner]) return previous
+      return { ...previous, [owner]: !previous[owner] }
+    })
+    setSelectedExpenseFamily(null)
+    setDrill(null)
+    setDrillTxns([])
+  }
+
   const filteredPeriodTransactions = useMemo(() => periodTransactions.filter(transaction =>
     (!spendingBucketFilter || transaction.bucketId === spendingBucketFilter)
-    && (!spendingContextFilter || transaction.contextId === spendingContextFilter),
-  ), [periodTransactions, spendingBucketFilter, spendingContextFilter])
+    && (!spendingContextFilter || transaction.contextId === spendingContextFilter)
+    && (juliaAccountIds.has(transaction.accountId) ? spendingOwnerFilters.julia : spendingOwnerFilters.anderson),
+  ), [periodTransactions, spendingBucketFilter, spendingContextFilter, spendingOwnerFilters, juliaAccountIds])
 
   const spendingBreakdown = useMemo(() => {
-    if (!spendingBucketFilter && !spendingContextFilter) return catBreakdown
+    if (!spendingBucketFilter && !spendingContextFilter && allSpendingOwnersSelected) return catBreakdown
     const byCategory = new Map<string, any>()
     for (const transaction of filteredPeriodTransactions) {
       if (transaction.isTransfer || transaction.status !== 'C') continue
@@ -241,7 +261,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
       })
     }
     return [...byCategory.values()].sort((left, right) => Math.abs(right.total) - Math.abs(left.total))
-  }, [catBreakdown, filteredPeriodTransactions, spendingBucketFilter, spendingContextFilter])
+  }, [allSpendingOwnersSelected, catBreakdown, filteredPeriodTransactions, spendingBucketFilter, spendingContextFilter])
 
   const expenseBreakdown = spendingBreakdown.filter(c => c.total < 0)
   const incomeBreakdown = spendingBreakdown.filter(c => c.total > 0)
@@ -581,9 +601,27 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                   <h3 className="text-sm font-semibold text-gray-700">Top Expenses — {drillMonthName}</h3>
                   <p className="text-xs text-gray-400 mt-1">Each bar shows who paid, based on the source account. Filters apply to totals and drill-downs.</p>
                 </div>
-                <div className="flex items-center gap-4 text-xs text-gray-500">
-                  <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-blue-600" />Anderson</span>
-                  <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-pink-500" />Julia</span>
+                <div className="flex items-center gap-1.5 text-xs" aria-label="Filter spending by account owner">
+                  <button
+                    type="button"
+                    aria-pressed={spendingOwnerFilters.anderson}
+                    onClick={() => toggleSpendingOwner('anderson')}
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 font-medium transition-colors ${spendingOwnerFilters.anderson ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-400 hover:bg-gray-50'}`}
+                    title={spendingOwnerFilters.anderson ? 'Hide Anderson' : 'Show Anderson'}
+                  >
+                    <span className={`h-2.5 w-2.5 rounded-sm ${spendingOwnerFilters.anderson ? 'bg-blue-600' : 'bg-gray-300'}`} />
+                    Anderson
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={spendingOwnerFilters.julia}
+                    onClick={() => toggleSpendingOwner('julia')}
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 font-medium transition-colors ${spendingOwnerFilters.julia ? 'border-pink-200 bg-pink-50 text-pink-600' : 'border-gray-200 bg-white text-gray-400 hover:bg-gray-50'}`}
+                    title={spendingOwnerFilters.julia ? 'Hide Julia' : 'Show Julia'}
+                  >
+                    <span className={`h-2.5 w-2.5 rounded-sm ${spendingOwnerFilters.julia ? 'bg-pink-500' : 'bg-gray-300'}`} />
+                    Julia
+                  </button>
                 </div>
               </div>
               <div className="mb-5 flex flex-wrap items-center gap-2 rounded-xl border border-gray-100 bg-gray-50/70 p-2.5">
@@ -609,7 +647,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                     {(classificationOptions?.contexts ?? []).map(context => <option key={context.id} value={context.id}>{context.name}</option>)}
                   </select>
                 </label>
-                {(spendingBucketFilter || spendingContextFilter) && <button type="button" onClick={() => { setSpendingBucketFilter(''); setSpendingContextFilter(''); setSelectedExpenseFamily(null); setDrill(null); setDrillTxns([]) }} className="rounded-lg px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50">Clear filters</button>}
+                {(spendingBucketFilter || spendingContextFilter || !allSpendingOwnersSelected) && <button type="button" onClick={() => { setSpendingBucketFilter(''); setSpendingContextFilter(''); setSpendingOwnerFilters({ anderson: true, julia: true }); setSelectedExpenseFamily(null); setDrill(null); setDrillTxns([]) }} className="rounded-lg px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50">Clear filters</button>}
                 <span className="ml-auto text-[11px] text-gray-400">{expenseFamilies.length} purpose {expenseFamilies.length === 1 ? 'family' : 'families'} · {expenseBreakdown.length} purposes</span>
               </div>
               <div className="grid gap-6 lg:grid-cols-3">
