@@ -231,8 +231,13 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
   function toggleSpendingOwner(owner: 'anderson' | 'julia') {
     setSpendingOwnerFilters(previous => {
       const otherOwner = owner === 'anderson' ? 'julia' : 'anderson'
-      if (previous[owner] && !previous[otherOwner]) return previous
-      return { ...previous, [owner]: !previous[owner] }
+      if (previous[owner] && !previous[otherOwner]) {
+        return { anderson: true, julia: true }
+      }
+      return {
+        anderson: owner === 'anderson',
+        julia: owner === 'julia',
+      }
     })
     setSelectedExpenseFamily(null)
     setDrill(null)
@@ -607,7 +612,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                     aria-pressed={spendingOwnerFilters.anderson}
                     onClick={() => toggleSpendingOwner('anderson')}
                     className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 font-medium transition-colors ${spendingOwnerFilters.anderson ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-400 hover:bg-gray-50'}`}
-                    title={spendingOwnerFilters.anderson ? 'Hide Anderson' : 'Show Anderson'}
+                    title={spendingOwnerFilters.anderson && !spendingOwnerFilters.julia ? 'Show both' : 'Show Anderson only'}
                   >
                     <span className={`h-2.5 w-2.5 rounded-sm ${spendingOwnerFilters.anderson ? 'bg-blue-600' : 'bg-gray-300'}`} />
                     Anderson
@@ -617,7 +622,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                     aria-pressed={spendingOwnerFilters.julia}
                     onClick={() => toggleSpendingOwner('julia')}
                     className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 font-medium transition-colors ${spendingOwnerFilters.julia ? 'border-pink-200 bg-pink-50 text-pink-600' : 'border-gray-200 bg-white text-gray-400 hover:bg-gray-50'}`}
-                    title={spendingOwnerFilters.julia ? 'Hide Julia' : 'Show Julia'}
+                    title={spendingOwnerFilters.julia && !spendingOwnerFilters.anderson ? 'Show both' : 'Show Julia only'}
                   >
                     <span className={`h-2.5 w-2.5 rounded-sm ${spendingOwnerFilters.julia ? 'bg-pink-500' : 'bg-gray-300'}`} />
                     Julia
