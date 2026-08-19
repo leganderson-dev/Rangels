@@ -6,7 +6,7 @@ import {
 import { api } from '../api'
 import { fmt, fmtShort, monthShort, monthName } from '../utils'
 import type { Account, Category, ClassificationOptions, Transaction } from '../types/finance'
-import { TrendingUp, TrendingDown, DollarSign, ChevronDown, ChevronRight, ArrowLeft, ArrowLeftRight, BarChart2, PieChart as PieIcon, TrendingUp as TrendIcon, Layers } from 'lucide-react'
+import { TrendingUp, TrendingDown, DollarSign, ChevronDown, ChevronRight, ArrowLeft, ArrowLeftRight, ArrowUpDown, ArrowUp, ArrowDown, BarChart2, PieChart as PieIcon, TrendingUp as TrendIcon, Layers } from 'lucide-react'
 import { transferReasonLabel } from '../lib/transfers'
 import { TransactionFormModal } from '../components/TransactionFormModal'
 
@@ -27,6 +27,8 @@ interface Props {
 
 type View = 'cashflow' | 'spending' | 'trends' | 'funding'
 type TrendDimension = 'bucket' | 'context' | 'purpose'
+type DrillSortKey = 'description' | 'account' | 'date' | 'amount'
+type SortDirection = 'asc' | 'desc'
 
 interface DrillState {
   type: 'month' | 'category'
@@ -42,6 +44,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
   const [view, setView] = useState<View>('cashflow')
   const [drill, setDrill] = useState<DrillState | null>(null)
   const [drillTxns, setDrillTxns] = useState<Transaction[]>([])
+  const [drillSort, setDrillSort] = useState<{ key: DrillSortKey; direction: SortDirection }>({ key: 'date', direction: 'desc' })
   const [trendDimension, setTrendDimension] = useState<TrendDimension>('bucket')
   const [trendSelections, setTrendSelections] = useState<string[]>([])
   const [trendData, setTrendData] = useState<any[]>([])
@@ -58,6 +61,34 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
   const [refreshKey, setRefreshKey] = useState(0)
 
   const isCustom = dateMode === 'custom' && !!customFrom && !!customTo
+
+  const sortedDrillTxns = useMemo(() => [...drillTxns].sort((left, right) => {
+    let comparison = 0
+    if (drillSort.key === 'amount') {
+      comparison = left.amount - right.amount
+    } else if (drillSort.key === 'date') {
+      comparison = left.date.localeCompare(right.date)
+    } else if (drillSort.key === 'account') {
+      comparison = (left.accountName ?? '').localeCompare(right.accountName ?? '', undefined, { sensitivity: 'base' })
+    } else {
+      comparison = left.description.localeCompare(right.description, undefined, { sensitivity: 'base' })
+    }
+    return drillSort.direction === 'asc' ? comparison : -comparison
+  }), [drillTxns, drillSort])
+
+  function changeDrillSort(key: DrillSortKey) {
+    setDrillSort(previous => ({
+      key,
+      direction: previous.key === key && previous.direction === 'asc' ? 'desc' : 'asc',
+    }))
+  }
+
+  function DrillSortIcon({ column }: { column: DrillSortKey }) {
+    if (drillSort.key !== column) return <ArrowUpDown size={12} className="text-gray-300" />
+    return drillSort.direction === 'asc'
+      ? <ArrowUp size={12} className="text-blue-500" />
+      : <ArrowDown size={12} className="text-blue-500" />
+  }
 
   useEffect(() => {
     api.transactions.yearlySummary(year, selectedAccountId).then(setYearly)
@@ -835,14 +866,22 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-[10px] text-gray-400 uppercase tracking-widest border-b border-gray-100">
-                    <th className="text-left px-5 py-2.5 font-semibold">Description</th>
-                    <th className="text-left px-5 py-2.5 font-semibold">Account</th>
-                    <th className="text-right px-5 py-2.5 font-semibold">Date</th>
-                    <th className="text-right px-5 py-2.5 font-semibold">Amount</th>
+                    <th className="text-left px-5 py-2.5 font-semibold">
+                      <button type="button" onClick={() => changeDrillSort('description')} className="inline-flex items-center gap-1.5 hover:text-gray-700">Description <DrillSortIcon column="description" /></button>
+                    </th>
+                    <th className="text-left px-5 py-2.5 font-semibold">
+                      <button type="button" onClick={() => changeDrillSort('account')} className="inline-flex items-center gap-1.5 hover:text-gray-700">Account <DrillSortIcon column="account" /></button>
+                    </th>
+                    <th className="px-5 py-2.5 text-right font-semibold">
+                      <button type="button" onClick={() => changeDrillSort('date')} className="ml-auto inline-flex items-center gap-1.5 hover:text-gray-700">Date <DrillSortIcon column="date" /></button>
+                    </th>
+                    <th className="px-5 py-2.5 text-right font-semibold">
+                      <button type="button" onClick={() => changeDrillSort('amount')} className="ml-auto inline-flex items-center gap-1.5 hover:text-gray-700">Amount <DrillSortIcon column="amount" /></button>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {drillTxns.map(t => (
+                  {sortedDrillTxns.map(t => (
                     <tr key={t.id} onClick={() => setEditTransaction(t)} className="cursor-pointer hover:bg-blue-50/60" title="Click to edit transaction">
                       <td className="px-5 py-2.5 text-gray-700 max-w-xs truncate">{t.description}</td>
                       <td className="px-5 py-2.5 text-gray-400 text-xs">{t.accountName}</td>
