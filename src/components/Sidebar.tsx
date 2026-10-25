@@ -9,8 +9,8 @@ import { supabase } from '../lib/supabase'
 interface Props {
   accounts: Account[]
   members: HouseholdMember[]
-  selectedAccountId: string | null
-  onSelectAccount: (id: string | null) => void
+  selectedAccountIds: string[]
+  onSelectAccount: (id: string | null, additive?: boolean) => void
   onRefresh: () => void | Promise<void>
 }
 
@@ -20,7 +20,8 @@ type DropZone =
   | { kind: 'group'; name: string }
   | { kind: 'ungrouped-end' }
 
-export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount, onRefresh }: Props) {
+export function Sidebar({ accounts, members, selectedAccountIds, onSelectAccount, onRefresh }: Props) {
+  const selectedAccountSet = new Set(selectedAccountIds)
   const [showAdd, setShowAdd] = useState(false)
   const [editAccount, setEditAccount] = useState<Account | null>(null)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
@@ -187,7 +188,7 @@ export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount,
       <div className="h-10 titlebar-drag" />
 
       <div
-        className={`mx-3 mb-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${selectedAccountId === null ? 'bg-slate-700' : 'hover:bg-slate-800'}`}
+        className={`mx-3 mb-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${selectedAccountIds.length === 0 ? 'bg-slate-700' : 'hover:bg-slate-800'}`}
         onClick={() => onSelectAccount(null)}
       >
         <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">Overall</p>
@@ -234,11 +235,11 @@ export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount,
           <DraggableRow
             key={account.id}
             account={account}
-            selected={selectedAccountId === account.id}
+            selected={selectedAccountSet.has(account.id)}
             isDragging={dragId === account.id}
             isDropBefore={dropZone?.kind === 'before' && dropZone.id === account.id}
             isDropOnto={dropZone?.kind === 'onto' && dropZone.id === account.id}
-            onClick={() => onSelectAccount(account.id === selectedAccountId ? null : account.id)}
+            onClick={event => onSelectAccount(account.id, event.metaKey || event.ctrlKey)}
             onEdit={() => setEditAccount(account)}
             onLastUpdatedChange={async value => { await api.accounts.update(account.id, { lastUpdatedOn: value }); await onRefresh() }}
             onDragStart={() => { setDragId(account.id); setDropZone(null) }}
@@ -258,7 +259,7 @@ export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount,
 
         {groups.map(group => {
           const collapsed = collapsedGroups.has(group.name)
-          const groupSelected = group.children.some(a => a.id === selectedAccountId)
+          const groupSelected = group.children.some(a => selectedAccountSet.has(a.id))
           const isGroupTarget = dropZone?.kind === 'group' && dropZone.name === group.name
 
           return (
@@ -303,11 +304,11 @@ export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount,
                     <DraggableRow
                       key={account.id}
                       account={account}
-                      selected={selectedAccountId === account.id}
+                      selected={selectedAccountSet.has(account.id)}
                       isDragging={dragId === account.id}
                       isDropBefore={dropZone?.kind === 'before' && dropZone.id === account.id}
                       isDropOnto={dropZone?.kind === 'onto' && dropZone.id === account.id}
-                      onClick={() => onSelectAccount(account.id === selectedAccountId ? null : account.id)}
+                      onClick={event => onSelectAccount(account.id, event.metaKey || event.ctrlKey)}
                       onEdit={() => setEditAccount(account)}
                       onLastUpdatedChange={async value => { await api.accounts.update(account.id, { lastUpdatedOn: value }); await onRefresh() }}
                       onDragStart={() => { setDragId(account.id); setDropZone(null) }}
@@ -326,11 +327,11 @@ export function Sidebar({ accounts, members, selectedAccountId, onSelectAccount,
           <DraggableRow
             key={account.id}
             account={account}
-            selected={selectedAccountId === account.id}
+            selected={selectedAccountSet.has(account.id)}
             isDragging={dragId === account.id}
             isDropBefore={dropZone?.kind === 'before' && dropZone.id === account.id}
             isDropOnto={dropZone?.kind === 'onto' && dropZone.id === account.id}
-            onClick={() => onSelectAccount(account.id === selectedAccountId ? null : account.id)}
+            onClick={event => onSelectAccount(account.id, event.metaKey || event.ctrlKey)}
             onEdit={() => setEditAccount(account)}
             onLastUpdatedChange={async value => { await api.accounts.update(account.id, { lastUpdatedOn: value }); await onRefresh() }}
             onDragStart={() => { setDragId(account.id); setDropZone(null) }}
@@ -433,7 +434,7 @@ function DraggableRow({ account, selected, isDragging, isDropBefore, isDropOnto,
   isDragging: boolean
   isDropBefore: boolean
   isDropOnto: boolean
-  onClick: () => void
+  onClick: (event: React.MouseEvent) => void
   onEdit: () => void
   onLastUpdatedChange: (value: string | null) => Promise<void>
   onDragStart: () => void

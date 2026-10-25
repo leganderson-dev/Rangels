@@ -45,6 +45,11 @@ describe('transactionDuplicateKey', () => {
     expect(transactionDuplicateKey('account-1', '2026-08-09', -12.3, 'WOOLWORTHS'))
       .not.toBe(transactionDuplicateKey('account-1', '2026-08-08', -12.3, 'WOOLWORTHS'))
   })
+
+  it('keeps repeated identical bank rows distinct when their running balances differ', () => {
+    expect(transactionDuplicateKey('account-1', '2026-08-19', -3.3, 'PUB POOL PROMOTIONS', 12202.78))
+      .not.toBe(transactionDuplicateKey('account-1', '2026-08-19', -3.3, 'PUB POOL PROMOTIONS', 12206.08))
+  })
 })
 
 describe('suggestCategories', () => {

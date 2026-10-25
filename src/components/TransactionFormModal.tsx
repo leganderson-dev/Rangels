@@ -36,12 +36,14 @@ export function TransactionFormModal({ transaction, accounts, defaultDate, defau
   const [canonicalCategoryId, setCanonicalCategoryId] = useState(transaction?.canonicalCategoryId ?? '')
   const [contextId, setContextId] = useState(transaction?.contextId ?? '')
   const [bucketId, setBucketId] = useState(transaction?.bucketId ?? '')
+  const [reportingMemberId, setReportingMemberId] = useState(transaction?.reportingMemberId ?? '')
   const [reimbursementStatus, setReimbursementStatus] = useState(transaction?.reimbursementStatus ?? 'none')
   const [taxTreatment, setTaxTreatment] = useState(transaction?.taxTreatment ?? 'none')
   const [tags, setTags] = useState(transaction?.tags ?? '')
   const [transferReason, setTransferReason] = useState<TransferReason | ''>(transaction?.transferReason ?? (transaction?.isTransfer ? 'account_movement' : ''))
 
   const descRef = useRef<HTMLInputElement>(null)
+  const householdMembers = [...new Map(accounts.map(account => [account.memberId, { id: account.memberId, name: account.memberName }])).values()]
   useEffect(() => {
     descRef.current?.focus()
     api.classification.options().then(setOptions).catch(console.error)
@@ -55,7 +57,7 @@ export function TransactionFormModal({ transaction, accounts, defaultDate, defau
   }, [contextId, isExpense, options.contexts])
 
   async function handleSave() {
-    if (!description.trim() || !amount || !accountId || (isTransfer && (!targetAccountId || !transferReason || (transferReasonNeedsContext(transferReason) && !contextId)))) return
+    if (!description.trim() || !amount || !accountId || (!isTransfer && isExpense && !bucketId) || (isTransfer && (!targetAccountId || !transferReason || (transferReasonNeedsContext(transferReason) && !contextId)))) return
     setSaving(true)
     try {
       const sign = isTransfer ? -1 : (isExpense ? -1 : 1)
@@ -73,6 +75,7 @@ export function TransactionFormModal({ transaction, accounts, defaultDate, defau
         ,canonicalCategoryId: isTransfer ? null : canonicalCategoryId || null
         ,contextId: contextId || null
         ,bucketId: isTransfer || !bucketAllowed ? null : bucketId || null
+        ,reportingMemberId: isTransfer ? null : reportingMemberId || null
         ,reimbursementStatus: isTransfer ? 'none' : reimbursementStatus
         ,taxTreatment: isTransfer ? 'none' : taxTreatment
         ,transferReason: isTransfer ? transferReason : null
@@ -200,13 +203,21 @@ export function TransactionFormModal({ transaction, accounts, defaultDate, defau
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Household bucket</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Bucket</label>
                 <select value={bucketId} onChange={e => setBucketId(e.target.value)} disabled={!canUseHouseholdBucket(options.contexts.find(item => item.id === contextId)?.name, isExpense ? 'expense' : 'income')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400">
                   <option value="">{emptyBucketLabel(options.contexts.find(item => item.id === contextId)?.name, isExpense ? 'expense' : 'income')}</option>
                   {isExpense && options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
                 </select>
                 {!isExpense && <p className="mt-1 text-[10px] leading-4 text-slate-400">Income supplies the allocation plan; it does not consume a spending Bucket.</p>}
               </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Reporting owner</label>
+              <select value={reportingMemberId} onChange={event => setReportingMemberId(event.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+                <option value="">Account owner (default)</option>
+                {householdMembers.map(member => <option key={member.id} value={member.id}>{member.name}</option>)}
+              </select>
+              <p className="mt-1 text-[10px] leading-4 text-slate-400">Used only when “Apply ownership overrides” is enabled in reporting. The paying account does not change.</p>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Purpose</label>
@@ -256,7 +267,7 @@ export function TransactionFormModal({ transaction, accounts, defaultDate, defau
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !description.trim() || !amount || (isTransfer && (!targetAccountId || !transferReason || (transferReasonNeedsContext(transferReason) && !contextId)))}
+            disabled={saving || !description.trim() || !amount || (!isTransfer && isExpense && !bucketId) || (isTransfer && (!targetAccountId || !transferReason || (transferReasonNeedsContext(transferReason) && !contextId)))}
             className="flex-1 bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? 'Saving…' : (transaction ? 'Update' : 'Add')}

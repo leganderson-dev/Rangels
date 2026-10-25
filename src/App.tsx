@@ -10,13 +10,14 @@ import { CategoriesPage } from './pages/Categories'
 import { CalendarPage } from './pages/Calendar'
 import { MerchantsPage } from './pages/Merchants'
 import { PlanPage } from './pages/Plan'
+import { AssetsPage } from './pages/Assets'
 import { HelpInfoModal } from './components/HelpInfoModal'
 import { api } from './api'
 import type { Account, Category, HouseholdMember } from './types/finance'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
 
-export type Page = 'overview' | 'transactions' | 'merchants' | 'categories' | 'reports' | 'plan' | 'budget' | 'scheduled' | 'calendar'
+export type Page = 'overview' | 'assets' | 'transactions' | 'merchants' | 'categories' | 'reports' | 'plan' | 'budget' | 'scheduled' | 'calendar'
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
@@ -81,7 +82,8 @@ function FinanceApp() {
   const [categories, setCategories] = useState<Category[]>([])
   const [members, setMembers] = useState<HouseholdMember[]>([])
   const [showHelp, setShowHelp] = useState(false)
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([])
+  const selectedAccountId = selectedAccountIds.length === 1 ? selectedAccountIds[0] : null
   const [now] = useState(() => new Date())
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [year, setYear] = useState(now.getFullYear())
@@ -157,7 +159,7 @@ function FinanceApp() {
   }
 
   const pageProps = {
-    accounts, categories, selectedAccountId, month, year,
+    accounts, categories, selectedAccountId, selectedAccountIds, month, year,
     dateMode, customFrom, customTo,
     onRefreshAccounts: refreshAccounts, onRefreshCategories: refreshCategories,
     onMonthChange: setMonth, onYearChange: setYear
@@ -168,8 +170,12 @@ function FinanceApp() {
       <Sidebar
         accounts={accounts}
         members={members}
-        selectedAccountId={selectedAccountId}
-        onSelectAccount={setSelectedAccountId}
+        selectedAccountIds={selectedAccountIds}
+        onSelectAccount={(id, additive) => setSelectedAccountIds(current => {
+          if (id === null) return []
+          if (additive) return current.includes(id) ? current.filter(value => value !== id) : [...current, id]
+          return current.length === 1 && current[0] === id ? [] : [id]
+        })}
         onRefresh={refreshAccounts}
       />
       <div className="flex flex-col flex-1 min-w-0">
@@ -182,7 +188,8 @@ function FinanceApp() {
           onHelp={() => setShowHelp(true)}
         />
         <main className="flex-1 overflow-hidden">
-          {page === 'overview' && <OverviewPage {...pageProps} />}
+          {page === 'overview' && <OverviewPage {...pageProps} onNavigate={setPage} />}
+          {page === 'assets' && <AssetsPage />}
           {page === 'transactions' && <TransactionsPage {...pageProps} />}
           {page === 'merchants' && <MerchantsPage {...pageProps} />}
           {page === 'categories' && <CategoriesPage {...pageProps} />}

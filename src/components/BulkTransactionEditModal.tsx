@@ -26,6 +26,7 @@ export function BulkTransactionEditModal({ transactions, accounts, onClose, onSa
   const [purposeId, setPurposeId] = useState(UNCHANGED)
   const [contextId, setContextId] = useState(UNCHANGED)
   const [bucketId, setBucketId] = useState(UNCHANGED)
+  const [reportingMemberId, setReportingMemberId] = useState(UNCHANGED)
   const [tax, setTax] = useState(UNCHANGED)
   const [reimbursement, setReimbursement] = useState(UNCHANGED)
   const [transferReason, setTransferReason] = useState(UNCHANGED)
@@ -42,7 +43,8 @@ export function BulkTransactionEditModal({ transactions, accounts, onClose, onSa
   const purposeType = transactionType === 'income' || transactionType === 'expense' ? transactionType : null
   const families = useMemo(() => [...new Set(options.categories.filter(item => !purposeType || item.type === purposeType).map(item => item.family))], [options, purposeType])
 
-  const hasChanges = transactionType !== UNCHANGED || Boolean(date) || accountId !== UNCHANGED || targetAccountId !== UNCHANGED || purposeId !== UNCHANGED || contextId !== UNCHANGED || bucketId !== UNCHANGED || tax !== UNCHANGED || reimbursement !== UNCHANGED || transferReason !== UNCHANGED || status !== UNCHANGED || changeTags || changeNote
+  const householdMembers = useMemo(() => [...new Map(accounts.map(account => [account.memberId, { id: account.memberId, name: account.memberName }])).values()], [accounts])
+  const hasChanges = transactionType !== UNCHANGED || Boolean(date) || accountId !== UNCHANGED || targetAccountId !== UNCHANGED || purposeId !== UNCHANGED || contextId !== UNCHANGED || bucketId !== UNCHANGED || reportingMemberId !== UNCHANGED || tax !== UNCHANGED || reimbursement !== UNCHANGED || transferReason !== UNCHANGED || status !== UNCHANGED || changeTags || changeNote
 
   function changeTransactionType(nextType: string) {
     setTransactionType(nextType)
@@ -74,6 +76,7 @@ export function BulkTransactionEditModal({ transactions, accounts, onClose, onSa
     if (purposeId !== UNCHANGED) changes.canonicalCategoryId = purposeId === CLEAR ? null : purposeId
     if (contextId !== UNCHANGED) changes.contextId = contextId === CLEAR ? null : contextId
     if (bucketId !== UNCHANGED) changes.bucketId = bucketId === CLEAR ? null : bucketId
+    if (reportingMemberId !== UNCHANGED) changes.reportingMemberId = reportingMemberId === CLEAR ? null : reportingMemberId
     if (tax !== UNCHANGED) changes.taxTreatment = tax as BulkTransactionChanges['taxTreatment']
     if (reimbursement !== UNCHANGED) changes.reimbursementStatus = reimbursement as BulkTransactionChanges['reimbursementStatus']
     if (transferReason !== UNCHANGED) changes.transferReason = transferReason === CLEAR ? null : transferReason as TransferReason
@@ -105,12 +108,13 @@ export function BulkTransactionEditModal({ transactions, accounts, onClose, onSa
 
         <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">Classification</p>
-          <div className="grid grid-cols-5 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <Field label="Purpose"><select value={purposeId} onChange={event => setPurposeId(event.target.value)} className={selectClass}><option value={UNCHANGED}>Leave unchanged</option><option value={CLEAR}>Clear purpose</option>{families.map(family => <optgroup key={family} label={family}>{options.categories.filter(item => item.family === family && (!purposeType || item.type === purposeType)).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup>)}</select></Field>
             <Field label="Context"><select value={contextId} onChange={event => setContextId(event.target.value)} className={selectClass}><option value={UNCHANGED}>Leave unchanged</option><option value={CLEAR}>Clear context</option>{options.contexts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
             <Field label="Household bucket"><select value={bucketId} onChange={event => setBucketId(event.target.value)} className={selectClass}><option value={UNCHANGED}>Leave unchanged</option><option value={CLEAR}>Not applicable</option>{options.buckets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
             <Field label="Tax"><select value={tax} onChange={event => setTax(event.target.value)} className={selectClass}><option value={UNCHANGED}>Leave unchanged</option><option value="none">None</option><option value="deductible">Deductible</option><option value="review">Needs review</option></select></Field>
             <Field label="Reimbursement"><select value={reimbursement} onChange={event => setReimbursement(event.target.value)} className={selectClass}><option value={UNCHANGED}>Leave unchanged</option><option value="none">None</option><option value="to_be_reimbursed">To be reimbursed</option><option value="reimbursed">Reimbursed</option></select></Field>
+            <Field label="Reporting owner"><select value={reportingMemberId} onChange={event => setReportingMemberId(event.target.value)} className={selectClass}><option value={UNCHANGED}>Leave unchanged</option><option value={CLEAR}>Account owner (clear override)</option>{householdMembers.map(member => <option key={member.id} value={member.id}>{member.name}</option>)}</select></Field>
           </div>
         </section>
 

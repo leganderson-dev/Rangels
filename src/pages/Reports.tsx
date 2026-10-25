@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useCallback, useEffect, useState, useMemo } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, Line, ReferenceLine
@@ -9,6 +9,8 @@ import type { Account, Category, ClassificationOptions, Transaction } from '../t
 import { TrendingUp, TrendingDown, DollarSign, ChevronDown, ChevronRight, ArrowLeft, ArrowLeftRight, ArrowUpDown, ArrowUp, ArrowDown, BarChart2, PieChart as PieIcon, TrendingUp as TrendIcon, Layers } from 'lucide-react'
 import { transferReasonLabel } from '../lib/transfers'
 import { TransactionFormModal } from '../components/TransactionFormModal'
+import { transactionReportingMemberName } from '../lib/reportingOwnership'
+import { isActualTransaction } from '../lib/transactionTiming'
 
 interface Props {
   accounts: Account[]
@@ -53,6 +55,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
   const [spendingBucketFilter, setSpendingBucketFilter] = useState('')
   const [spendingContextFilter, setSpendingContextFilter] = useState('')
   const [spendingOwnerFilters, setSpendingOwnerFilters] = useState({ anderson: true, julia: true })
+  const [applyOwnershipOverrides, setApplyOwnershipOverrides] = useState(false)
   const [expandedExpenseFamilies, setExpandedExpenseFamilies] = useState<string[]>([])
   const [selectedExpenseFamily, setSelectedExpenseFamily] = useState<string | null>(null)
   const [fundingTransfers, setFundingTransfers] = useState<Transaction[]>([])
@@ -95,7 +98,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
     api.transactions.list(isCustom
       ? { dateFrom: customFrom!, dateTo: customTo!, accountId: selectedAccountId ?? undefined }
       : { dateFrom: `${year}-01-01`, dateTo: `${year}-12-31`, accountId: selectedAccountId ?? undefined })
-      .then(rows => setFundingTransfers(rows.filter(row => row.isTransfer && Boolean(row.transferReason) && row.transferReason !== 'account_movement')))
+      .then(rows => setFundingTransfers(rows.filter(row => isActualTransaction(row) && row.isTransfer && Boolean(row.transferReason) && row.transferReason !== 'account_movement')))
     api.transactions.list(isCustom
       ? { dateFrom: customFrom!, dateTo: customTo!, accountId: selectedAccountId ?? undefined }
       : { month, year, accountId: selectedAccountId ?? undefined })
@@ -104,7 +107,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
       api.transactions.list({ dateFrom: customFrom!, dateTo: customTo!, accountId: selectedAccountId ?? undefined }).then(txs => {
         const byCat = new Map<string, any>()
         for (const t of txs) {
-          if (t.isTransfer || t.status !== 'C') continue
+          if (t.isTransfer || !isActualTransaction(t)) continue
           const key = t.categoryId ?? '__none'
           const existing = byCat.get(key)
           if (existing) existing.total += t.amount
@@ -141,7 +144,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
     setDrillTxns(txns.filter(transaction =>
       (!spendingBucketFilter || transaction.bucketId === spendingBucketFilter)
       && (!spendingContextFilter || transaction.contextId === spendingContextFilter)
-      && (juliaAccountIds.has(transaction.accountId) ? spendingOwnerFilters.julia : spendingOwnerFilters.anderson),
+      && (transactionBelongsToJulia(transaction) ? spendingOwnerFilters.julia : spendingOwnerFilters.anderson),
     ))
     setDrill(d => ({ ...d!, type: 'category', categoryId: catId, categoryName: catName, color }))
   }
@@ -160,7 +163,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
         setPeriodTransactions(txs)
         const byCat = new Map<string, any>()
         for (const t of txs) {
-          if (t.isTransfer || t.status !== 'C') continue
+          if (t.isTransfer || !isActualTransaction(t)) continue
           const key = t.categoryId ?? '__none'
           const existing = byCat.get(key)
           if (existing) existing.total += t.amount
@@ -204,7 +207,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
         entry[`trend_${id}_projection`] = null
       }
       for (const transaction of trendTransactions) {
-        if (transaction.isTransfer || transaction.status !== 'C' || transaction.amount >= 0 || Number(transaction.date.slice(5, 7)) !== index + 1) continue
+        if (transaction.isTransfer || !isActualTransaction(transaction) || transaction.amount >= 0 || Number(transaction.date.slice(5, 7)) !== index + 1) continue
         const dimensionId = trendDimension === 'bucket'
           ? transaction.bucketId
           : trendDimension === 'context'
@@ -213,7 +216,9 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
         if (dimensionId && trendSelections.includes(dimensionId)) {
           const amount = Math.abs(transaction.amount)
           entry[`trend_${dimensionId}_total`] = Number(entry[`trend_${dimensionId}_total`]) + amount
-          const member = juliaAccounts.has(transaction.accountId) ? 'julia' : 'anderson'
+          const member = applyOwnershipOverrides && transaction.reportingMemberName
+            ? transaction.reportingMemberName.toLowerCase()
+            : juliaAccounts.has(transaction.accountId) ? 'julia' : 'anderson'
           entry[`trend_${dimensionId}_${member}`] = Number(entry[`trend_${dimensionId}_${member}`]) + amount
         }
       }
@@ -243,7 +248,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
       }
     }
     setTrendData(data)
-  }, [view, trendDimension, trendSelections, trendTransactions, accounts, year])
+  }, [view, trendDimension, trendSelections, trendTransactions, accounts, year, applyOwnershipOverrides])
 
   const netData = yearly.map(m => ({
     name: monthShort(m.month),
@@ -256,6 +261,10 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
   const juliaAccountIds = useMemo(() => new Set(accounts
     .filter(account => /julia/i.test(account.memberName) || /^julia\b/i.test(account.name))
     .map(account => account.id)), [accounts])
+
+  const transactionBelongsToJulia = useCallback((transaction: Transaction) => applyOwnershipOverrides
+    ? transactionReportingMemberName(transaction, true) === 'Julia'
+    : juliaAccountIds.has(transaction.accountId), [applyOwnershipOverrides, juliaAccountIds])
 
   const allSpendingOwnersSelected = spendingOwnerFilters.anderson && spendingOwnerFilters.julia
 
@@ -278,14 +287,14 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
   const filteredPeriodTransactions = useMemo(() => periodTransactions.filter(transaction =>
     (!spendingBucketFilter || transaction.bucketId === spendingBucketFilter)
     && (!spendingContextFilter || transaction.contextId === spendingContextFilter)
-    && (juliaAccountIds.has(transaction.accountId) ? spendingOwnerFilters.julia : spendingOwnerFilters.anderson),
-  ), [periodTransactions, spendingBucketFilter, spendingContextFilter, spendingOwnerFilters, juliaAccountIds])
+    && (transactionBelongsToJulia(transaction) ? spendingOwnerFilters.julia : spendingOwnerFilters.anderson),
+  ), [periodTransactions, spendingBucketFilter, spendingContextFilter, spendingOwnerFilters, transactionBelongsToJulia])
 
   const spendingBreakdown = useMemo(() => {
     if (!spendingBucketFilter && !spendingContextFilter && allSpendingOwnersSelected) return catBreakdown
     const byCategory = new Map<string, any>()
     for (const transaction of filteredPeriodTransactions) {
-      if (transaction.isTransfer || transaction.status !== 'C') continue
+      if (transaction.isTransfer || !isActualTransaction(transaction)) continue
       const key = transaction.categoryId ?? '__none'
       const existing = byCategory.get(key)
       if (existing) existing.total += transaction.amount
@@ -317,17 +326,17 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
     const totals = new Map<string, { anderson: number; julia: number }>()
 
     for (const transaction of filteredPeriodTransactions) {
-      if (transaction.isTransfer || transaction.status !== 'C' || transaction.amount >= 0) continue
+      if (transaction.isTransfer || !isActualTransaction(transaction) || transaction.amount >= 0) continue
       const key = transaction.categoryId ?? '__none'
       const current = totals.get(key) ?? { anderson: 0, julia: 0 }
       const amount = Math.abs(transaction.amount)
-      if (juliaAccounts.has(transaction.accountId)) current.julia += amount
+      if (applyOwnershipOverrides ? transactionReportingMemberName(transaction, true) === 'Julia' : juliaAccounts.has(transaction.accountId)) current.julia += amount
       else current.anderson += amount
       totals.set(key, current)
     }
 
     return totals
-  }, [accounts, filteredPeriodTransactions])
+  }, [accounts, filteredPeriodTransactions, applyOwnershipOverrides])
 
   const expenseFamilies = useMemo(() => {
     const categoryById = new Map(categories.map(category => [category.id, category]))
@@ -376,13 +385,13 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
       .filter(account => /julia/i.test(account.memberName) || /^julia\b/i.test(account.name))
       .map(account => account.id))
     const expenses = filteredPeriodTransactions.filter(transaction =>
-      !transaction.isTransfer && transaction.status === 'C' && transaction.amount < 0,
+      !transaction.isTransfer && isActualTransaction(transaction) && transaction.amount < 0,
     )
     let anderson = 0
     let julia = 0
     for (const transaction of expenses) {
       const amount = Math.abs(transaction.amount)
-      if (juliaAccounts.has(transaction.accountId)) julia += amount
+      if (applyOwnershipOverrides ? transactionReportingMemberName(transaction, true) === 'Julia' : juliaAccounts.has(transaction.accountId)) julia += amount
       else anderson += amount
     }
     const total = anderson + julia
@@ -395,7 +404,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
       andersonPercentage: total ? (anderson / total) * 100 : 0,
       juliaPercentage: total ? (julia / total) * 100 : 0,
     }
-  }, [accounts, filteredPeriodTransactions])
+  }, [accounts, filteredPeriodTransactions, applyOwnershipOverrides])
 
   const spendingSummary = useMemo(() => {
     const juliaAccounts = new Set(accounts
@@ -403,7 +412,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
       .map(account => account.id))
     const categoryById = new Map(categories.map(category => [category.id, category]))
     const expenses = filteredPeriodTransactions.filter(transaction =>
-      !transaction.isTransfer && transaction.status === 'C' && transaction.amount < 0
+      !transaction.isTransfer && isActualTransaction(transaction) && transaction.amount < 0
       && (!selectedExpenseFamily || (() => {
         const category = transaction.categoryId ? categoryById.get(transaction.categoryId) : undefined
         const fullName = transaction.categoryFullName ?? 'Uncategorised'
@@ -416,7 +425,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
     let julia = 0
     for (const transaction of expenses) {
       const amount = Math.abs(transaction.amount)
-      if (juliaAccounts.has(transaction.accountId)) julia += amount
+      if (applyOwnershipOverrides ? transactionReportingMemberName(transaction, true) === 'Julia' : juliaAccounts.has(transaction.accountId)) julia += amount
       else anderson += amount
     }
     const total = anderson + julia
@@ -429,7 +438,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
       andersonPercentage: total ? (anderson / total) * 100 : 0,
       juliaPercentage: total ? (julia / total) * 100 : 0,
     }
-  }, [accounts, categories, filteredPeriodTransactions, selectedExpenseFamily])
+  }, [accounts, categories, filteredPeriodTransactions, selectedExpenseFamily, applyOwnershipOverrides])
 
   function changeTrendDimension(dimension: TrendDimension) {
     setTrendDimension(dimension)
@@ -658,6 +667,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                     <span className={`h-2.5 w-2.5 rounded-sm ${spendingOwnerFilters.julia ? 'bg-pink-500' : 'bg-gray-300'}`} />
                     Julia
                   </button>
+                  <label className="ml-2 flex items-center gap-2 text-xs text-gray-600"><input type="checkbox" checked={applyOwnershipOverrides} onChange={event => setApplyOwnershipOverrides(event.target.checked)} />Apply ownership overrides</label>
                 </div>
               </div>
               <div className="mb-5 flex flex-wrap items-center gap-2 rounded-xl border border-gray-100 bg-gray-50/70 p-2.5">
@@ -906,7 +916,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                 <h3 className="text-sm font-semibold text-gray-700">Spending Trends</h3>
                   <p className="text-xs text-gray-400 mt-0.5">Choose a reporting dimension, then select its values to compare.</p>
                 </div>
-                <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+                <div className="flex flex-wrap items-center gap-3"><label className="flex items-center gap-2 text-xs text-gray-600"><input type="checkbox" checked={applyOwnershipOverrides} onChange={event => setApplyOwnershipOverrides(event.target.checked)} />Apply ownership overrides</label><div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
                   {([
                     ['bucket', 'Buckets'],
                     ['context', 'Contexts'],
@@ -922,7 +932,7 @@ export function ReportsPage({ accounts, categories, month, year, selectedAccount
                       {label}
                     </button>
                   ))}
-                </div>
+                </div></div>
               </div>
               <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50/50 p-3">
                 {groupedTrendOptions.map(([group, options]) => (

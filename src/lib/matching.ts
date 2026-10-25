@@ -45,8 +45,15 @@ export function transactionDuplicateKey(
   date: string,
   amount: number,
   description: string,
+  balance?: number | null,
 ): string {
-  return [accountId, date, amount.toFixed(2), normalizeDescription(description)].join('|')
+  return [
+    accountId,
+    date,
+    amount.toFixed(2),
+    normalizeDescription(description),
+    balance == null ? '' : balance.toFixed(2),
+  ].join('|')
 }
 
 function similarity(left: string, right: string): number {

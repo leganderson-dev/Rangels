@@ -10,11 +10,15 @@ import { ImportAlzexButton } from '../components/ImportAlzexButton'
 import type { Transaction, Account, Category, ScheduledTransaction, AccountLedgerSummary, ClassificationOptions } from '../types/finance'
 import { transferReasonLabel } from '../lib/transfers'
 import { canUseHouseholdBucket, emptyBucketLabel } from '../lib/classification'
+import { scheduledDatesBetween } from '../lib/schedule'
+import { selectedAccountsTransactionAmount } from '../lib/accountSelection'
+import { isActualTransaction, isFutureDatedTransaction } from '../lib/transactionTiming'
 
 interface Props {
   accounts: Account[]
   categories: Category[]
   selectedAccountId: string | null
+  selectedAccountIds: string[]
   month: number
   year: number
   dateMode: 'month' | 'custom'
@@ -34,11 +38,8 @@ function needsCategory(transaction: Transaction): boolean {
   return transaction.categoryId === null || /^\?+$/.test(transaction.categoryFullName?.trim() ?? '')
 }
 
-function transactionDisplayAmount(transaction: Transaction, selectedAccountId: string | null): number {
-  if (!transaction.isTransfer || !selectedAccountId) return transaction.amount
-  if (transaction.targetAccountId === selectedAccountId) return Math.abs(transaction.amount)
-  if (transaction.accountId === selectedAccountId) return -Math.abs(transaction.amount)
-  return transaction.amount
+function transactionDisplayAmount(transaction: Transaction, selectedAccountIds: string[]): number {
+  return selectedAccountsTransactionAmount(transaction, selectedAccountIds)
 }
 
 function transactionBucketDisplay(transaction: Transaction): { label: string; muted: boolean } {
@@ -52,7 +53,7 @@ function transactionBucketDisplay(transaction: Transaction): { label: string; mu
     : { label: '—', muted: true }
 }
 
-export function TransactionsPage({ accounts, categories, selectedAccountId, month, year, dateMode, customFrom, customTo, onRefreshAccounts, onRefreshCategories }: Props) {
+export function TransactionsPage({ accounts, categories, selectedAccountId, selectedAccountIds, month, year, dateMode, customFrom, customTo, onRefreshAccounts, onRefreshCategories }: Props) {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [ledgerSummary, setLedgerSummary] = useState<AccountLedgerSummary | null>(null)
   const [scheduledTxns, setScheduledTxns] = useState<ScheduledTransaction[]>([])
@@ -62,6 +63,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   const [groupBy, setGroupBy] = useState<'category' | 'context' | 'bucket' | 'date' | 'none'>('category')
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense' | 'transfer'>('all')
   const [filterCatIds, setFilterCatIds] = useState<Set<string>>(new Set())
+  const [filterBucketIds, setFilterBucketIds] = useState<Set<string>>(new Set())
   const [needsCategoryOnly, setNeedsCategoryOnly] = useState(false)
 
   // Collapse state: 3 levels
@@ -80,6 +82,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   const [showBulkEdit, setShowBulkEdit] = useState(false)
   const [loading, setLoading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [ledgerRefreshKey, setLedgerRefreshKey] = useState(0)
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; tx: Transaction } | null>(null)
   const dragTxId = useRef<string | null>(null)
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
@@ -88,24 +91,26 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   const transactionListRef = useRef<HTMLDivElement>(null)
   const pendingViewportAnchor = useRef<{ transactionId: string; top: number; scrollTop: number } | null>(null)
 
-  function rememberTransactionPosition(transactionId: string) {
+  function preserveVisiblePosition(excludedIds: Set<string> = new Set()) {
     const container = transactionListRef.current
-    const row = container?.querySelector<HTMLElement>(`[data-transaction-id="${transactionId}"]`)
-    if (!container || !row) return
-    pendingViewportAnchor.current = {
-      transactionId,
-      top: row.getBoundingClientRect().top,
-      scrollTop: container.scrollTop,
-    }
+    if (!container) return
+    const containerTop = container.getBoundingClientRect().top
+    const row = [...container.querySelectorAll<HTMLElement>('[data-transaction-id]')]
+      .find(element => !excludedIds.has(element.dataset.transactionId ?? '') && element.getBoundingClientRect().bottom > containerTop)
+    pendingViewportAnchor.current = row
+      ? { transactionId: row.dataset.transactionId!, top: row.getBoundingClientRect().top, scrollTop: container.scrollTop }
+      : { transactionId: '', top: containerTop, scrollTop: container.scrollTop }
   }
 
   useLayoutEffect(() => {
     const anchor = pendingViewportAnchor.current
     const container = transactionListRef.current
     if (!anchor || !container) return
-    const row = container.querySelector<HTMLElement>(`[data-transaction-id="${anchor.transactionId}"]`)
+    const row = anchor.transactionId
+      ? container.querySelector<HTMLElement>(`[data-transaction-id="${anchor.transactionId}"]`)
+      : null
     if (row) container.scrollTop += row.getBoundingClientRect().top - anchor.top
-    else container.scrollTop = anchor.scrollTop
+    else container.scrollTop = Math.max(0, Math.min(anchor.scrollTop, container.scrollHeight - container.clientHeight))
     pendingViewportAnchor.current = null
   }, [transactions])
 
@@ -214,13 +219,13 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
         const dateFilter = dateMode === 'custom'
           ? { dateFrom: customFrom || undefined, dateTo: customTo || undefined }
           : { month, year }
-        const data = await api.transactions.list({ ...dateFilter, accountId: selectedAccountId ?? undefined, search: debouncedSearch || undefined })
+        const data = await api.transactions.list({ ...dateFilter, accountIds: selectedAccountIds.length ? selectedAccountIds : undefined, search: debouncedSearch || undefined })
         if (!cancelled) { setTransactions(data); setSelected(new Set()); lastClickedIdx.current = null }
         if (dateMode === 'month' && !debouncedSearch) {
           const previous = month === 1 ? { month: 12, year: year - 1 } : { month: month - 1, year }
           const next = month === 12 ? { month: 1, year: year + 1 } : { month: month + 1, year }
-          void api.transactions.list({ ...previous, accountId: selectedAccountId ?? undefined }).catch(() => {})
-          void api.transactions.list({ ...next, accountId: selectedAccountId ?? undefined }).catch(() => {})
+          void api.transactions.list({ ...previous, accountIds: selectedAccountIds.length ? selectedAccountIds : undefined }).catch(() => {})
+          void api.transactions.list({ ...next, accountIds: selectedAccountIds.length ? selectedAccountIds : undefined }).catch(() => {})
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -228,22 +233,22 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
     }
     run()
     return () => { cancelled = true }
-  }, [month, year, dateMode, customFrom, customTo, selectedAccountId, debouncedSearch, refreshKey])
+  }, [month, year, dateMode, customFrom, customTo, selectedAccountIds, debouncedSearch, refreshKey])
 
   useEffect(() => {
     let cancelled = false
-    if (!selectedAccountId) {
+    if (selectedAccountIds.length === 0) {
       setLedgerSummary(null)
       return
     }
     const period = dateMode === 'custom'
       ? { dateFrom: customFrom || undefined, dateTo: customTo || undefined }
       : { month, year }
-    api.transactions.accountLedgerSummary(selectedAccountId, period)
-      .then(summary => { if (!cancelled) setLedgerSummary(summary) })
+    Promise.all(selectedAccountIds.map(accountId => api.transactions.accountLedgerSummary(accountId, period)))
+      .then(summaries => { if (!cancelled) setLedgerSummary(summaries.reduce((total, summary) => ({ openingBalance: total.openingBalance + summary.openingBalance, income: total.income + summary.income, expenses: total.expenses + summary.expenses, transfersIn: total.transfersIn + summary.transfersIn, transfersOut: total.transfersOut + summary.transfersOut, netMovement: total.netMovement + summary.netMovement, closingBalance: total.closingBalance + summary.closingBalance }), { openingBalance: 0, income: 0, expenses: 0, transfersIn: 0, transfersOut: 0, netMovement: 0, closingBalance: 0 })) })
       .catch(() => { if (!cancelled) setLedgerSummary(null) })
     return () => { cancelled = true }
-  }, [month, year, dateMode, customFrom, customTo, selectedAccountId, refreshKey])
+  }, [month, year, dateMode, customFrom, customTo, selectedAccountIds, refreshKey, ledgerRefreshKey])
 
   useEffect(() => {
     api.transactions.categorizedDescriptions().then(setCatHistory).catch(() => {})
@@ -259,11 +264,20 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
         : `${year}-${String(month).padStart(2, '0')}-31`
       setScheduledTxns(all.filter(s =>
         s.isActive &&
-        s.nextDate >= periodFrom && s.nextDate <= periodTo &&
-        (!selectedAccountId || s.accountId === selectedAccountId)
+        (selectedAccountIds.length === 0 || selectedAccountIds.includes(s.accountId) || Boolean(s.targetAccountId && selectedAccountIds.includes(s.targetAccountId))) &&
+        scheduledDatesBetween(s, periodFrom, periodTo).length > 0
       ))
     }).catch(() => {})
-  }, [month, year, dateMode, customFrom, customTo, selectedAccountId, refreshKey])
+  }, [month, year, dateMode, customFrom, customTo, selectedAccountIds, refreshKey])
+
+  const scheduledPeriodFrom = dateMode === 'custom' ? customFrom : `${year}-${String(month).padStart(2, '0')}-01`
+  const scheduledPeriodTo = dateMode === 'custom' ? customTo : `${year}-${String(month).padStart(2, '0')}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`
+  const scheduledOccurrences = useMemo(() => scheduledTxns.flatMap(schedule =>
+    scheduledDatesBetween(schedule, scheduledPeriodFrom, scheduledPeriodTo).map(date => ({ schedule, date })),
+  ).sort((left, right) => left.date.localeCompare(right.date) || left.schedule.description.localeCompare(right.schedule.description)), [scheduledTxns, scheduledPeriodFrom, scheduledPeriodTo])
+  const scheduledIncome = scheduledOccurrences.filter(({ schedule }) => !schedule.isTransfer && schedule.amount > 0).reduce((sum, { schedule }) => sum + schedule.amount, 0)
+  const scheduledExpenses = Math.abs(scheduledOccurrences.filter(({ schedule }) => !schedule.isTransfer && schedule.amount < 0).reduce((sum, { schedule }) => sum + schedule.amount, 0))
+  const scheduledNet = scheduledIncome - scheduledExpenses
 
   useEffect(() => {
     if (!ctxMenu) return
@@ -274,9 +288,11 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
     return () => { window.removeEventListener('mousedown', close); window.removeEventListener('keydown', onKey) }
   }, [ctxMenu])
 
-  const income = transactions.filter(t => t.amount > 0 && !t.isTransfer && t.status === 'C').reduce((s, t) => s + t.amount, 0)
-  const expenses = transactions.filter(t => t.amount < 0 && !t.isTransfer && t.status === 'C').reduce((s, t) => s + t.amount, 0)
-  const transfers = transactions.filter(t => t.isTransfer && t.status === 'C').reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0)
+  const actualTransactions = useMemo(() => transactions.filter(transaction => isActualTransaction(transaction)), [transactions])
+  const futureTransactions = useMemo(() => transactions.filter(transaction => transaction.status === 'C' && isFutureDatedTransaction(transaction)), [transactions])
+  const income = actualTransactions.filter(t => t.amount > 0 && !t.isTransfer).reduce((s, t) => s + t.amount, 0)
+  const expenses = actualTransactions.filter(t => t.amount < 0 && !t.isTransfer).reduce((s, t) => s + t.amount, 0)
+  const transfers = actualTransactions.filter(t => t.isTransfer).reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0)
 
   const sorted = useMemo(() => {
     const getVal = (t: Transaction) => {
@@ -288,11 +304,11 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
       if (sortCol === 'account') return t.accountName ?? ''
       return t.description
     }
-    return [...transactions].sort((a, b) => {
+    return [...actualTransactions].sort((a, b) => {
       const cmp = getVal(a) < getVal(b) ? -1 : getVal(a) > getVal(b) ? 1 : 0
       return sortDir === 'asc' ? cmp : -cmp
     })
-  }, [transactions, sortCol, sortDir])
+  }, [actualTransactions, sortCol, sortDir])
 
   const filtered = useMemo(() => {
     let result = sorted
@@ -300,9 +316,20 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
     else if (filterType === 'expense') result = result.filter(t => t.amount < 0 && !t.isTransfer)
     else if (filterType === 'transfer') result = result.filter(t => t.isTransfer)
     if (filterCatIds.size > 0) result = result.filter(t => t.categoryId != null && filterCatIds.has(t.categoryId))
+    if (filterBucketIds.size > 0) result = result.filter(t => t.bucketId ? filterBucketIds.has(t.bucketId) : filterBucketIds.has('__none__'))
     if (needsCategoryOnly) result = result.filter(needsCategory)
     return result
-  }, [sorted, filterType, filterCatIds, needsCategoryOnly])
+  }, [sorted, filterType, filterCatIds, filterBucketIds, needsCategoryOnly])
+
+  const filteredFuture = useMemo(() => futureTransactions.filter(transaction => {
+    if (filterType === 'income' && (transaction.amount <= 0 || transaction.isTransfer)) return false
+    if (filterType === 'expense' && (transaction.amount >= 0 || transaction.isTransfer)) return false
+    if (filterType === 'transfer' && !transaction.isTransfer) return false
+    if (filterCatIds.size > 0 && (transaction.categoryId == null || !filterCatIds.has(transaction.categoryId))) return false
+    if (filterBucketIds.size > 0 && !(transaction.bucketId ? filterBucketIds.has(transaction.bucketId) : filterBucketIds.has('__none__'))) return false
+    if (needsCategoryOnly && !needsCategory(transaction)) return false
+    return true
+  }).sort((left, right) => left.date.localeCompare(right.date) || left.description.localeCompare(right.description)), [futureTransactions, filterType, filterCatIds, filterBucketIds, needsCategoryOnly])
 
   const needsCategoryCount = transactions.filter(t => needsCategory(t) && !t.isTransfer).length
 
@@ -311,8 +338,8 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   const typeSections = useMemo(() => {
     if (!['category', 'context', 'bucket'].includes(groupBy)) return []
     const sections = groupBy === 'category'
-      ? buildHierarchyGroups(filtered, catMap, selectedAccountId)
-      : buildDimensionGroups(filtered, groupBy as 'context' | 'bucket', selectedAccountId)
+      ? buildHierarchyGroups(filtered, catMap, selectedAccountIds)
+      : buildDimensionGroups(filtered, groupBy as 'context' | 'bucket', selectedAccountIds)
     if (sortCol === 'amount') {
       for (const ts of sections) {
         ts.groups.sort((a, b) => {
@@ -322,17 +349,17 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
       }
     }
     return sections
-  }, [filtered, catMap, groupBy, sortCol, sortDir, selectedAccountId])
+  }, [filtered, catMap, groupBy, sortCol, sortDir, selectedAccountIds])
 
   const dateGroups = useMemo(() => {
     if (groupBy !== 'date') return []
     const map = new Map<string, { key: string; label: string; total: number; rows: Transaction[] }>()
     for (const t of filtered) {
       if (!map.has(t.date)) map.set(t.date, { key: t.date, label: formatDate(t.date), total: 0, rows: [] })
-      const g = map.get(t.date)!; g.total += transactionDisplayAmount(t, selectedAccountId); g.rows.push(t)
+      const g = map.get(t.date)!; g.total += transactionDisplayAmount(t, selectedAccountIds); g.rows.push(t)
     }
     return [...map.values()].sort((a, b) => b.key.localeCompare(a.key))
-  }, [filtered, groupBy, selectedAccountId])
+  }, [filtered, groupBy, selectedAccountIds])
 
   // ─── Collapse helpers ────────────────────────────────────────────────────────
 
@@ -379,13 +406,41 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
     })
   }
 
+  function transactionWithCategory(transaction: Transaction, categoryId: string | null): Transaction {
+    const category = categoryId ? categories.find(item => item.id === categoryId) : undefined
+    const canonical = categoryId ? classificationOptions.categories.find(item => item.id === categoryId) : undefined
+    const name = canonical?.name ?? category?.name ?? null
+    const family = canonical?.family ?? category?.parentName ?? null
+    return {
+      ...transaction,
+      categoryId,
+      canonicalCategoryId: categoryId,
+      categoryName: name,
+      canonicalCategoryName: name,
+      canonicalCategoryFamily: family,
+      categoryFullName: name && family ? `${family}: ${name}` : name,
+      categoryColor: category?.color ?? null,
+    }
+  }
+
   async function handleDelete(id: string) {
     if (!confirm('Delete this transaction?')) return
-    await api.transactions.delete(id); refresh(); onRefreshAccounts()
+    await api.transactions.delete(id)
+    preserveVisiblePosition(new Set([id]))
+    setTransactions(current => current.filter(transaction => transaction.id !== id))
+    setSelected(current => { const next = new Set(current); next.delete(id); return next })
+    setLedgerRefreshKey(key => key + 1)
+    onRefreshAccounts()
   }
   async function handleBulkDelete() {
     if (!confirm(`Delete ${selected.size} transaction(s)?`)) return
-    await Promise.all([...selected].map(id => api.transactions.delete(id))); refresh(); onRefreshAccounts()
+    const ids = new Set(selected)
+    await Promise.all([...ids].map(id => api.transactions.delete(id)))
+    preserveVisiblePosition(ids)
+    setTransactions(current => current.filter(transaction => !ids.has(transaction.id)))
+    setSelected(new Set())
+    setLedgerRefreshKey(key => key + 1)
+    onRefreshAccounts()
   }
   async function handleBulkCategory(categoryId: string | null) {
     const purposeIds = [...selected].filter(id => !transactions.find(t => t.id === id)?.isTransfer)
@@ -396,22 +451,28 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
       undo: async () => { await Promise.all(prevCats.map(({ id, prev }) => api.transactions.update(id, { categoryId: prev }))) },
       redo: async () => { await api.transactions.bulkCategory(prevCats.map(p => p.id), categoryId) }
     })
-    setSelected(new Set()); refresh()
+    const ids = new Set(purposeIds)
+    preserveVisiblePosition(ids)
+    setTransactions(current => current.map(transaction => ids.has(transaction.id) ? transactionWithCategory(transaction, categoryId) : transaction))
+    setSelected(new Set())
   }
   async function handleInlineCategory(txId: string, categoryId: string | null) {
-    rememberTransactionPosition(txId)
     if (selected.has(txId) && selected.size > 1) {
-      const prevCats = [...selected].map(id => ({ id, prev: transactions.find(t => t.id === id)?.categoryId ?? null }))
-      await api.transactions.bulkCategory([...selected], categoryId)
+      const purposeIds = [...selected].filter(id => !transactions.find(transaction => transaction.id === id)?.isTransfer)
+      const prevCats = purposeIds.map(id => ({ id, prev: transactions.find(t => t.id === id)?.categoryId ?? null }))
+      await api.transactions.bulkCategory(purposeIds, categoryId)
       pushHistory({
         undo: async () => { await Promise.all(prevCats.map(({ id, prev }) => api.transactions.update(id, { categoryId: prev }))) },
         redo: async () => { await api.transactions.bulkCategory(prevCats.map(p => p.id), categoryId) }
       })
+      const ids = new Set(purposeIds)
+      preserveVisiblePosition(ids)
+      setTransactions(current => current.map(transaction => ids.has(transaction.id) ? transactionWithCategory(transaction, categoryId) : transaction))
       setSelected(new Set())
-      refresh()
     } else {
       const prevCategoryId = transactions.find(t => t.id === txId)?.categoryId ?? null
       const updated = await api.transactions.update(txId, { categoryId })
+      preserveVisiblePosition(new Set([txId]))
       setTransactions(current => current.map(transaction => transaction.id === txId ? updated : transaction))
       pushHistory({
         undo: async () => { await api.transactions.update(txId, { categoryId: prevCategoryId }) },
@@ -421,12 +482,12 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   }
 
   async function handleInlineContext(tx: Transaction, contextId: string | null) {
-    rememberTransactionPosition(tx.id)
     const previous = { contextId: tx.contextId ?? null, bucketId: tx.bucketId ?? null }
     const contextName = classificationOptions.contexts.find(option => option.id === contextId)?.name
     const purposeType = tx.amount > 0 ? 'income' : 'expense'
     const bucketId = tx.isTransfer || !canUseHouseholdBucket(contextName, purposeType) ? null : tx.bucketId ?? null
     const updated = await api.transactions.update(tx.id, { contextId, bucketId })
+    preserveVisiblePosition(new Set([tx.id]))
     setTransactions(current => current.map(transaction => transaction.id === tx.id ? updated : transaction))
     pushHistory({
       undo: async () => { await api.transactions.update(tx.id, previous) },
@@ -435,9 +496,9 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
   }
 
   async function handleInlineBucket(tx: Transaction, bucketId: string | null) {
-    rememberTransactionPosition(tx.id)
     const previousBucketId = tx.bucketId ?? null
     const updated = await api.transactions.update(tx.id, { bucketId })
+    preserveVisiblePosition(new Set([tx.id]))
     setTransactions(current => current.map(transaction => transaction.id === tx.id ? updated : transaction))
     pushHistory({
       undo: async () => { await api.transactions.update(tx.id, { bucketId: previousBucketId }) },
@@ -445,12 +506,51 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
     })
   }
 
+  function canDropOnClassification(tx: Transaction, targetId: string | null): boolean {
+    if (groupBy === 'category') return !tx.isTransfer && targetId !== null
+    if (groupBy === 'context') return true
+    if (groupBy === 'bucket') {
+      return !tx.isTransfer && canUseHouseholdBucket(tx.contextName, tx.amount > 0 ? 'income' : 'expense')
+    }
+    return false
+  }
+
+  async function dropTransaction(targetId: string | null) {
+    const txId = dragTxId.current
+    const transaction = transactions.find(item => item.id === txId)
+    setDragOverKey(null)
+    dragTxId.current = null
+    if (!transaction || !canDropOnClassification(transaction, targetId)) return
+    if (groupBy === 'category') await handleInlineCategory(transaction.id, targetId)
+    else if (groupBy === 'context') await handleInlineContext(transaction, targetId)
+    else if (groupBy === 'bucket') await handleInlineBucket(transaction, targetId)
+  }
+
+  function classificationDropProps(key: string, targetId: string | null) {
+    return {
+      onDragOver: (event: React.DragEvent) => {
+        const transaction = transactions.find(item => item.id === dragTxId.current)
+        if (!transaction || !canDropOnClassification(transaction, targetId)) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+        setDragOverKey(key)
+      },
+      onDragLeave: (event: React.DragEvent) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOverKey(null)
+      },
+      onDrop: (event: React.DragEvent) => {
+        event.preventDefault()
+        void dropTransaction(targetId)
+      },
+    }
+  }
+
   const allSelected = filtered.length > 0 && filtered.every(transaction => selected.has(transaction.id))
   const someSelected = selected.size > 0
   const selectedPurposeCount = [...selected].filter(id => !transactions.find(transaction => transaction.id === id)?.isTransfer).length
   const selectedTotal = transactions
     .filter(transaction => selected.has(transaction.id))
-    .reduce((total, transaction) => total + transactionDisplayAmount(transaction, selectedAccountId), 0)
+    .reduce((total, transaction) => total + transactionDisplayAmount(transaction, selectedAccountIds), 0)
 
   const TYPE_FILTERS = [
     { key: 'all', label: 'All' }, { key: 'income', label: 'Income' },
@@ -490,6 +590,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
           selected={filterCatIds}
           onChange={value => { setFilterCatIds(value); setNeedsCategoryOnly(false) }}
         />
+        <BucketFilterButton buckets={classificationOptions.buckets} selected={filterBucketIds} onChange={setFilterBucketIds} />
         {needsCategoryCount > 0 && (
           <button
             onClick={() => { setNeedsCategoryOnly(value => !value); setFilterCatIds(new Set()) }}
@@ -507,6 +608,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
           </button>
         )}
         <div className="flex-1" />
+        {selectedAccountIds.length > 1 && <span className="mr-4 rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-700">{selectedAccountIds.length} accounts selected</span>}
         {someSelected && (
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500">{selected.size} selected</span>
@@ -544,7 +646,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
 
       {/* Summary bar */}
       <div className="flex items-center px-4 bg-slate-50/70 border-y border-gray-200 shrink-0">
-        {selectedAccountId && ledgerSummary ? (
+        {selectedAccountIds.length > 0 && ledgerSummary ? (
           <>
             <SummaryMetric label="Income" value={ledgerSummary.income} tone="income" />
             <SummaryMetric label="Expenses" value={ledgerSummary.expenses} tone="expense" absolute />
@@ -566,7 +668,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
             <span className={`text-sm font-bold tabular-nums ${selectedTotal > 0 ? 'text-emerald-600' : selectedTotal < 0 ? 'text-slate-700' : 'text-slate-400'}`}>{fmt(selectedTotal, true)}</span>
           </div>
         )}
-        <span className="text-xs text-gray-300">{filtered.length} transactions</span>
+        <span className="text-xs text-gray-300">{filtered.length} actual{filteredFuture.length ? ` · ${filteredFuture.length} future` : ''}</span>
       </div>
 
       {/* Transaction list */}
@@ -638,9 +740,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
                   <div key={group.key}>
                     {/* Level 2: Parent category header */}
                     <div
-                      onDragOver={e => { if (groupBy === 'category') { e.preventDefault(); setDragOverKey(group.key) } }}
-                      onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverKey(null) }}
-                      onDrop={e => { if (groupBy === 'category') { e.preventDefault(); setDragOverKey(null); if (dragTxId.current !== null && group.catId !== null) { handleInlineCategory(dragTxId.current, group.catId); dragTxId.current = null } } }}
+                      {...classificationDropProps(group.key, group.targetId)}
                       className={`w-full flex items-center gap-2 pl-8 pr-4 py-2.5 transition-colors border-y shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] ${group.key === '__none' ? 'border-amber-200/70 bg-amber-50/80 hover:bg-amber-100/70' : 'border-slate-200/80 bg-slate-100/80 hover:bg-slate-200/70'} ${dragOverKey === group.key ? 'ring-2 ring-inset ring-blue-400' : ''}`}
                       style={{ borderLeft: group.color ? `3px solid ${group.color}` : '3px solid #e5e7eb' }}
                     >
@@ -676,7 +776,8 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
                           {/* Level 3: Child category header (only when multiple children exist) */}
                           {!group.isSingleLevel && (
                             <div
-                              className="w-full flex items-center gap-2 pl-14 pr-4 py-2 bg-slate-50/80 hover:bg-slate-100 transition-colors border-b border-slate-200/70"
+                              {...classificationDropProps(subKey, child.targetId)}
+                              className={`w-full flex items-center gap-2 pl-14 pr-4 py-2 bg-slate-50/80 hover:bg-slate-100 transition-colors border-b border-slate-200/70 ${dragOverKey === subKey ? 'ring-2 ring-inset ring-blue-400 bg-blue-50' : ''}`}
                             >
                               <input
                                 type="checkbox"
@@ -700,7 +801,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
                           )}
 
                           {!subCollapsed && child.rows.map(tx => (
-                            <TransactionRow key={tx.id} tx={tx} selected={selected.has(tx.id)} selectedCount={selected.size} selectedAccountId={selectedAccountId}
+                            <TransactionRow key={tx.id} tx={tx} selected={selected.has(tx.id)} selectedCount={selected.size} selectedAccountIds={selectedAccountIds}
                               categories={categories} classificationOptions={classificationOptions} colWidths={colWidths}
                               indent={group.isSingleLevel ? 'single' : 'double'}
                               onSelect={(shiftKey, metaKey) => toggleSelect(tx.id, shiftKey, metaKey)}
@@ -711,7 +812,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
                               onBucketChange={bucketId => handleInlineBucket(tx, bucketId)}
                               onRightClick={e => setCtxMenu({ x: e.clientX, y: e.clientY, tx })}
                               onDragStart={() => { dragTxId.current = tx.id }}
-                              onDragEnd={() => { dragTxId.current = null }}
+                              onDragEnd={() => { dragTxId.current = null; setDragOverKey(null) }}
                             />
                           ))}
                         </div>
@@ -739,7 +840,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
                 </span>
               </button>
               {!isCollapsed && group.rows.map(tx => (
-                <TransactionRow key={tx.id} tx={tx} selected={selected.has(tx.id)} selectedCount={selected.size} selectedAccountId={selectedAccountId}
+                <TransactionRow key={tx.id} tx={tx} selected={selected.has(tx.id)} selectedCount={selected.size} selectedAccountIds={selectedAccountIds}
                   categories={categories} classificationOptions={classificationOptions} colWidths={colWidths} indent="none"
                   onSelect={(shiftKey, metaKey) => toggleSelect(tx.id, shiftKey, metaKey)}
                   onEdit={() => setEditTx(tx)}
@@ -757,7 +858,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
         })}
         {/* ── No grouping ── */}
         {!loading && groupBy === 'none' && filtered.map(tx => (
-          <TransactionRow key={tx.id} tx={tx} selected={selected.has(tx.id)} selectedCount={selected.size} selectedAccountId={selectedAccountId}
+          <TransactionRow key={tx.id} tx={tx} selected={selected.has(tx.id)} selectedCount={selected.size} selectedAccountIds={selectedAccountIds}
             categories={categories} classificationOptions={classificationOptions} colWidths={colWidths} indent="none"
             onSelect={(shiftKey, metaKey) => toggleSelect(tx.id, shiftKey, metaKey)}
             onEdit={() => setEditTx(tx)}
@@ -771,16 +872,40 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
           />
         ))}
 
+        {/* ── Future-dated posted transactions ── */}
+        {!loading && filteredFuture.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 border-y border-dashed border-indigo-200 bg-indigo-50/70 px-4 py-2 text-[10px] font-semibold uppercase tracking-widest text-indigo-500">
+              <Calendar size={11} className="shrink-0" />
+              Future-dated transactions
+              <span className="rounded-full bg-white px-2 py-0.5 font-medium normal-case tracking-normal text-indigo-600">{filteredFuture.length}</span>
+              <span className="ml-auto font-normal normal-case tracking-normal text-indigo-400">Projected in Calendar · not counted in actual balances or totals</span>
+            </div>
+            {filteredFuture.map(tx => (
+              <TransactionRow key={tx.id} tx={tx} selected={selected.has(tx.id)} selectedCount={selected.size} selectedAccountIds={selectedAccountIds}
+                categories={categories} classificationOptions={classificationOptions} colWidths={colWidths} indent="none" future
+                onSelect={(shiftKey, metaKey) => toggleSelect(tx.id, shiftKey, metaKey)}
+                onEdit={() => setEditTx(tx)} onDelete={() => handleDelete(tx.id)}
+                onCategoryChange={catId => handleInlineCategory(tx.id, catId)}
+                onContextChange={contextId => handleInlineContext(tx, contextId)}
+                onBucketChange={bucketId => handleInlineBucket(tx, bucketId)}
+                onRightClick={e => setCtxMenu({ x: e.clientX, y: e.clientY, tx })}
+              />
+            ))}
+          </div>
+        )}
+
         {/* ── Upcoming scheduled (ghost rows) ── */}
-        {!loading && scheduledTxns.length > 0 && (
+        {!loading && scheduledOccurrences.length > 0 && (
           <div>
             <div className="flex items-center gap-2 px-4 py-2 border-y border-dashed border-gray-200 bg-gray-50/80 text-gray-400 text-[10px] font-semibold uppercase tracking-widest sticky top-[37px] z-[14]">
               <Calendar size={11} className="shrink-0" />
               Upcoming scheduled
-              <span className="ml-auto font-normal normal-case tracking-normal text-gray-300">Not counted in totals</span>
+              <span className="rounded-full bg-white px-2 py-0.5 font-medium normal-case tracking-normal text-slate-500">{scheduledOccurrences.length} occurrence{scheduledOccurrences.length === 1 ? '' : 's'}</span>
+              <div className="ml-auto flex items-center gap-4 font-medium normal-case tracking-normal"><span className="text-emerald-600">Income {fmt(scheduledIncome)}</span><span className="text-rose-500">Expenses {fmt(scheduledExpenses)}</span><span className={scheduledNet >= 0 ? 'text-emerald-600' : 'text-rose-500'}>Net {fmt(scheduledNet, true)}</span><span className="font-normal text-gray-300">Not counted in posted totals</span></div>
             </div>
-            {scheduledTxns.sort((a, b) => a.nextDate.localeCompare(b.nextDate)).map(s => (
-              <ScheduledGhostRow key={s.id} s={s} colWidths={colWidths} processing={processingScheduledId === s.id} onProcess={() => void processScheduled(s)} />
+            {scheduledOccurrences.map(({ schedule, date }) => (
+              <ScheduledGhostRow key={`${schedule.id}-${date}`} s={schedule} occurrenceDate={date} colWidths={colWidths} processing={processingScheduledId === schedule.id} onProcess={date === schedule.nextDate ? () => void processScheduled(schedule) : undefined} />
             ))}
           </div>
         )}
@@ -815,7 +940,7 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
           onSave={async data => {
             if (editTx) {
               const txId = editTx.id
-              const prev = { description: editTx.description, amount: editTx.amount, date: editTx.date, categoryId: editTx.categoryId, accountId: editTx.accountId, targetAccountId: editTx.targetAccountId ?? null, isTransfer: editTx.isTransfer ?? false, comment: editTx.comment, status: editTx.status }
+              const prev = { description: editTx.description, amount: editTx.amount, date: editTx.date, categoryId: editTx.categoryId, accountId: editTx.accountId, targetAccountId: editTx.targetAccountId ?? null, isTransfer: editTx.isTransfer ?? false, comment: editTx.comment, status: editTx.status, reportingMemberId: editTx.reportingMemberId ?? null }
               await api.transactions.update(txId, data)
               pushHistory({
                 undo: async () => { await api.transactions.update(txId, prev) },
@@ -857,17 +982,17 @@ export function TransactionsPage({ accounts, categories, selectedAccountId, mont
 // ─── Hierarchy builder (3 levels: type → parent category → child category) ───
 
 interface HierarchyChild {
-  key: string; label: string; color: string | null; catId: string | null; total: number; rows: Transaction[]
+  key: string; label: string; color: string | null; catId: string | null; targetId: string | null; total: number; rows: Transaction[]
 }
 interface HierarchyGroup {
-  key: string; label: string; color: string | null; catId: string | null
+  key: string; label: string; color: string | null; catId: string | null; targetId: string | null
   total: number; txCount: number; isSingleLevel: boolean; children: HierarchyChild[]
 }
 interface TypeSection {
   type: 'income' | 'expense' | 'transfer'; total: number; groups: HierarchyGroup[]
 }
 
-function buildHierarchyGroups(transactions: Transaction[], catMap: Map<string, Category>, selectedAccountId: string | null): TypeSection[] {
+function buildHierarchyGroups(transactions: Transaction[], catMap: Map<string, Category>, selectedAccountIds: string[]): TypeSection[] {
   const typeSections = new Map<string, TypeSection>()
 
   function getTxType(tx: Transaction): 'income' | 'expense' | 'transfer' {
@@ -913,16 +1038,16 @@ function buildHierarchyGroups(transactions: Transaction[], catMap: Map<string, C
 
     if (!typeSections.has(txType)) typeSections.set(txType, { type: txType, total: 0, groups: [] })
     const section = typeSections.get(txType)!
-    const displayAmount = transactionDisplayAmount(tx, selectedAccountId)
+    const displayAmount = transactionDisplayAmount(tx, selectedAccountIds)
     section.total += displayAmount
 
     let pg = section.groups.find(g => g.key === e.parentKey)
-    if (!pg) { pg = { key: e.parentKey, label: e.parentLabel, color: e.parentColor, catId: e.parentCatId, total: 0, txCount: 0, isSingleLevel: e.isSingleLevel, children: [] }; section.groups.push(pg) }
+    if (!pg) { pg = { key: e.parentKey, label: e.parentLabel, color: e.parentColor, catId: e.parentCatId, targetId: e.parentCatId, total: 0, txCount: 0, isSingleLevel: e.isSingleLevel, children: [] }; section.groups.push(pg) }
     if (!e.isSingleLevel) pg.isSingleLevel = false
     pg.total += displayAmount; pg.txCount++
 
     let child = pg.children.find(c => c.key === e.childKey)
-    if (!child) { child = { key: e.childKey, label: e.childLabel, color: e.childColor, catId: e.childCatId, total: 0, rows: [] }; pg.children.push(child) }
+    if (!child) { child = { key: e.childKey, label: e.childLabel, color: e.childColor, catId: e.childCatId, targetId: e.childCatId, total: 0, rows: [] }; pg.children.push(child) }
     child.total += displayAmount; child.rows.push(tx)
   }
 
@@ -940,12 +1065,13 @@ function buildHierarchyGroups(transactions: Transaction[], catMap: Map<string, C
     .filter(Boolean) as TypeSection[]
 }
 
-function buildDimensionGroups(transactions: Transaction[], dimension: 'context' | 'bucket', selectedAccountId: string | null): TypeSection[] {
+function buildDimensionGroups(transactions: Transaction[], dimension: 'context' | 'bucket', selectedAccountIds: string[]): TypeSection[] {
   const sections = new Map<TypeSection['type'], TypeSection>()
   for (const transaction of transactions) {
     const type: TypeSection['type'] = transaction.isTransfer ? 'transfer' : transaction.amount > 0 ? 'income' : 'expense'
-    const displayAmount = transactionDisplayAmount(transaction, selectedAccountId)
+    const displayAmount = transactionDisplayAmount(transaction, selectedAccountIds)
     const bucket = transactionBucketDisplay(transaction)
+    const targetId = dimension === 'context' ? transaction.contextId ?? null : transaction.bucketId ?? null
     const label = dimension === 'context'
       ? transaction.contextName ?? 'Not classified'
       : bucket.label === '—' ? 'Not classified' : bucket.label
@@ -955,7 +1081,7 @@ function buildDimensionGroups(transactions: Transaction[], dimension: 'context' 
     section.total += displayAmount
     let group = section.groups.find(item => item.key === key)
     if (!group) {
-      group = { key, label, color: TYPE_CONFIG[type].dot, catId: null, total: 0, txCount: 0, isSingleLevel: true, children: [{ key, label, color: TYPE_CONFIG[type].dot, catId: null, total: 0, rows: [] }] }
+      group = { key, label, color: TYPE_CONFIG[type].dot, catId: null, targetId, total: 0, txCount: 0, isSingleLevel: true, children: [{ key, label, color: TYPE_CONFIG[type].dot, catId: null, targetId, total: 0, rows: [] }] }
       section.groups.push(group)
     }
     group.total += displayAmount
@@ -971,10 +1097,11 @@ function buildDimensionGroups(transactions: Transaction[], dimension: 'context' 
 
 type ColWidths = { amount: number; context: number; purpose: number; bucket: number; date: number; account: number }
 
-function TransactionRow({ tx, selected, selectedCount, selectedAccountId, categories, classificationOptions, colWidths, indent = 'single', onSelect, onEdit, onDelete, onCategoryChange, onContextChange, onBucketChange, onRightClick, onDragStart, onDragEnd }: {
+function TransactionRow({ tx, selected, selectedCount, selectedAccountIds, categories, classificationOptions, colWidths, indent = 'single', future = false, onSelect, onEdit, onDelete, onCategoryChange, onContextChange, onBucketChange, onRightClick, onDragStart, onDragEnd }: {
   tx: Transaction; selected: boolean; selectedCount: number; categories: Category[]; classificationOptions: ClassificationOptions
-  selectedAccountId: string | null
+  selectedAccountIds: string[]
   colWidths: ColWidths; indent?: 'none' | 'single' | 'double'
+  future?: boolean
   onSelect: (shiftKey: boolean, metaKey?: boolean) => void; onEdit: () => void; onDelete: () => void
   onCategoryChange: (catId: string | null) => void
   onContextChange: (contextId: string | null) => void
@@ -989,7 +1116,7 @@ function TransactionRow({ tx, selected, selectedCount, selectedAccountId, catego
   const dropRef = useRef<HTMLDivElement>(null)
   const [dropPos, setDropPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
   const applyingToMany = selected && selectedCount > 1
-  const displayAmount = transactionDisplayAmount(tx, selectedAccountId)
+  const displayAmount = transactionDisplayAmount(tx, selectedAccountIds)
   const bucketDisplay = transactionBucketDisplay(tx)
   // No slice limit — show all categories; filter as user types
   const filteredCats = categories.filter(c => !q || c.fullName.toLowerCase().includes(q.toLowerCase()))
@@ -1044,9 +1171,9 @@ function TransactionRow({ tx, selected, selectedCount, selectedAccountId, catego
     <div
       data-transaction-id={tx.id}
       draggable
-      onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; onDragStart?.() }}
+      onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', tx.id); onDragStart?.() }}
       onDragEnd={onDragEnd}
-      className={`flex items-center gap-3 py-1.5 border-b border-gray-100/70 hover:bg-blue-50 group transition-colors cursor-grab active:cursor-grabbing ${selected ? 'bg-indigo-50/60' : ''} ${pl} ${pr}`}
+      className={`flex items-center gap-3 py-1.5 border-b border-gray-100/70 hover:bg-blue-50 group transition-colors cursor-grab active:cursor-grabbing ${selected ? 'bg-indigo-50/60' : ''} ${future ? 'bg-indigo-50/30 opacity-60 italic' : ''} ${pl} ${pr}`}
       onContextMenu={e => { e.preventDefault(); onRightClick(e) }}
       onClick={e => { if (e.shiftKey || e.metaKey) { e.preventDefault(); onSelect(e.shiftKey, e.metaKey) } }}
       onDoubleClick={onEdit}
@@ -1127,10 +1254,10 @@ function TransactionRow({ tx, selected, selectedCount, selectedAccountId, catego
       </div>
 
       <span className="text-xs text-gray-400 shrink-0" style={{ width: colWidths.date }}>{formatDate(tx.date)}</span>
-      <span className="text-xs text-gray-400 truncate shrink-0" style={{ width: colWidths.account }} title={`${tx.accountName}${tx.isTransfer && tx.targetAccountName ? ` → ${tx.targetAccountName}` : ''} · ${tx.memberName}`}>
-        {tx.isTransfer && tx.targetAccountName ? `${tx.accountName} → ${tx.targetAccountName}` : tx.accountName}
+      <span className="text-xs text-gray-400 truncate shrink-0" style={{ width: colWidths.account }} title={`${tx.accountName}${tx.isTransfer && tx.targetAccountName ? ` → ${tx.targetAccountName}` : ''} · Account owner: ${tx.memberName}${tx.reportingMemberName ? ` · Reporting override: ${tx.reportingMemberName}` : ''}`}>
+        {tx.isTransfer && tx.targetAccountName ? `${tx.accountName} → ${tx.targetAccountName}` : tx.accountName}{!tx.isTransfer && tx.reportingMemberName ? ` · → ${tx.reportingMemberName}` : ''}
       </span>
-      <div className="w-16 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+      <div className={`w-16 flex items-center gap-1 transition-opacity shrink-0 ${future ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
         <button onClick={onEdit} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700"><Edit2 size={12} /></button>
         <button onClick={onDelete} className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-600"><Trash2 size={12} /></button>
       </div>
@@ -1181,11 +1308,11 @@ function InlineDimensionSelect({ value, label, emptyLabel, options, onChange, mu
 
 // ─── Scheduled ghost row ─────────────────────────────────────────────────────
 
-function ScheduledGhostRow({ s, colWidths, processing, onProcess }: { s: ScheduledTransaction; colWidths: ColWidths; processing: boolean; onProcess: () => void }) {
+function ScheduledGhostRow({ s, occurrenceDate, colWidths, processing, onProcess }: { s: ScheduledTransaction; occurrenceDate: string; colWidths: ColWidths; processing: boolean; onProcess?: () => void }) {
   const freqLabel = FREQUENCIES.find(f => f.value === s.frequency)?.label ?? s.frequency
   const bucketLabel = s.isTransfer ? 'Not applicable' : s.amount > 0 ? 'Allocation source' : (s.bucketName ?? '—')
   return (
-    <div onDoubleClick={onProcess} title="Double-click to process this scheduled occurrence" className={`flex cursor-pointer items-center gap-3 border-b border-dashed border-gray-100 px-4 py-1.5 pr-4 transition-opacity ${processing ? 'pointer-events-none opacity-30' : 'opacity-50 hover:opacity-80'}`}>
+    <div onDoubleClick={onProcess} title={onProcess ? 'Double-click to process this scheduled occurrence' : 'Future occurrence — earlier occurrences must be processed first'} className={`flex items-center gap-3 border-b border-dashed border-gray-100 px-4 py-1.5 pr-4 transition-opacity ${onProcess ? 'cursor-pointer' : 'cursor-default'} ${processing ? 'pointer-events-none opacity-30' : 'opacity-50 hover:opacity-80'}`}>
       <div className="w-4 shrink-0" />
       <Calendar size={12} className="text-gray-400 shrink-0" />
       <span className="flex-1 text-sm text-gray-500 truncate min-w-0 italic">{s.description}</span>
@@ -1202,7 +1329,7 @@ function ScheduledGhostRow({ s, colWidths, processing, onProcess }: { s: Schedul
       <div className="shrink-0 text-xs text-gray-400 truncate" style={{ width: colWidths.bucket }}>
         {bucketLabel}
       </div>
-      <span className="text-xs text-gray-400 shrink-0" style={{ width: colWidths.date }}>{formatDate(s.nextDate)}</span>
+      <span className="text-xs text-gray-400 shrink-0" style={{ width: colWidths.date }}>{formatDate(occurrenceDate)}</span>
       <span className="text-xs text-gray-400 truncate shrink-0" style={{ width: colWidths.account }}>{s.accountName}</span>
       <div className="w-16 shrink-0 flex items-center">
         <span className="text-[10px] text-gray-400 bg-gray-100 rounded-full px-2 py-0.5 whitespace-nowrap">{freqLabel}</span>
@@ -1605,6 +1732,27 @@ function CategoryFilterButton({ categories, selected, onChange }: {
       )}
     </div>
   )
+}
+
+function BucketFilterButton({ buckets, selected, onChange }: {
+  buckets: ClassificationOptions['buckets']
+  selected: Set<string>
+  onChange: (ids: Set<string>) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (event: MouseEvent) => { if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false) }
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDown); document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
+  }, [open])
+  function toggle(id: string) { const next = new Set(selected); next.has(id) ? next.delete(id) : next.add(id); onChange(next) }
+  return <div ref={ref} className="relative">
+    <button onClick={() => setOpen(value => !value)} className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm transition-colors ${selected.size ? 'border-violet-500 bg-violet-50 font-medium text-violet-700' : 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100'}`}><SlidersHorizontal size={13} /> Bucket{selected.size > 0 && <span className="flex items-center gap-1"><span className="flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-[10px] font-bold text-white">{selected.size}</span><X size={11} onClick={event => { event.stopPropagation(); onChange(new Set()) }} /></span>}</button>
+    {open && <div className="absolute left-0 top-full z-50 mt-1 w-64 rounded-xl border border-gray-200 bg-white py-1 shadow-xl">{[{ id: '__none__', name: 'No Bucket / not applicable' }, ...buckets].map(bucket => <label key={bucket.id} className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-violet-50"><input type="checkbox" checked={selected.has(bucket.id)} onChange={() => toggle(bucket.id)} className="rounded text-violet-600" /><span className={`h-2 w-2 rounded-full ${bucket.id === '__none__' ? 'bg-slate-300' : 'bg-violet-500'}`} /><span className="truncate">{bucket.name}</span></label>)}{selected.size > 0 && <div className="border-t border-gray-100 p-2"><button onClick={() => onChange(new Set())} className="w-full rounded py-1 text-xs text-gray-500 hover:bg-gray-50">Clear filter ({selected.size} selected)</button></div>}</div>}
+  </div>
 }
 
 // ─── Bulk category quick pick ─────────────────────────────────────────────────

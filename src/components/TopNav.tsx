@@ -4,6 +4,7 @@ import { monthName } from '../utils'
 
 const TABS: { id: Page; label: string }[] = [
   { id: 'overview', label: 'Overview' },
+  { id: 'assets', label: 'Assets' },
   { id: 'transactions', label: 'Transactions' },
   { id: 'calendar', label: 'Calendar' },
   { id: 'merchants', label: 'Merchants' },

@@ -23,7 +23,7 @@ export function HelpInfoModal({ onClose }: { onClose: () => void }) {
         <section>
           <p className="text-sm leading-6 text-slate-500">Rangels keeps the bank ledger, who made the transaction, what it was for, and how it affects the financial plan as separate—but connected—facts.</p>
           <div className="mt-4 grid grid-cols-[1fr_42px_1fr_42px_1fr] items-stretch gap-2">
-            <MapCard icon={<Users size={18} />} title="Member" body="Anderson, Julia, or Joint" foot="Inherited from the account" />
+            <MapCard icon={<Users size={18} />} title="Member" body="Anderson, Julia, or Joint" foot="Account owner, with an optional reporting override" />
             <Arrow />
             <MapCard icon={<Landmark size={18} />} title="Account" body="The physical source or target" foot="Owns balances and imports" />
             <Arrow />

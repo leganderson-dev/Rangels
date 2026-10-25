@@ -15,6 +15,8 @@ import type {
   HouseholdMember,
   BulkTransactionChanges,
   TransferReason,
+  Asset,
+  AssetLoan,
 } from './types/finance'
 import { parseBankExport } from './lib/importers'
 import { createCategoryMatcher, normalizeDescription, relevantCategorySuggestions, transactionDuplicateKey } from './lib/matching'
@@ -23,6 +25,10 @@ import { merchantDisplayName, merchantKey, normalizeMerchantRulePhrase } from '.
 import { inferTransferClassification, isJuliaTransferDescription, isTransferFromAndersonDescription } from './lib/transfers'
 import { nextScheduledDate, scheduledDatesBetween } from './lib/schedule'
 import { today as localToday } from './utils'
+import { selectedAccountsTransactionAmount } from './lib/accountSelection'
+import { matchesAnyBudgetExclusion, matchesBudgetInclusions } from './lib/budgetMatching'
+import { transactionReportingMemberName } from './lib/reportingOwnership'
+import { isActualTransaction } from './lib/transactionTiming'
 
 const pickedFiles = new Map<string, { name: string; text: string }>()
 let classificationOptionsCache: Promise<ClassificationOptions> | null = null
@@ -199,7 +205,7 @@ async function importAlzex(): Promise<ImportResult | null> {
   return { imported, skipped, errors: errors.slice(0, 20) }
 }
 
-const backupTables = ['household_members', 'accounts', 'categories', 'contexts', 'buckets', 'canonical_categories', 'category_classifications', 'allocation_plans', 'allocation_targets', 'merchants', 'merchant_aliases', 'imports', 'transactions', 'scheduled_transactions', 'schedule_suggestion_dismissals', 'budgets', 'budget_groups', 'budget_group_members'] as const
+const backupTables = ['household_members', 'accounts', 'categories', 'contexts', 'buckets', 'canonical_categories', 'category_classifications', 'allocation_plans', 'allocation_targets', 'merchants', 'merchant_aliases', 'imports', 'transactions', 'scheduled_transactions', 'schedule_suggestion_dismissals', 'budgets', 'budget_groups', 'budget_group_members', 'assets', 'asset_valuations', 'asset_loans'] as const
 
 async function downloadBackup(): Promise<{ ok: boolean; filePath?: string }> {
   const payload: Record<string, unknown[]> = {}
@@ -301,7 +307,7 @@ async function bankPreview(token: string, accountId: string, onProgress?: Import
   onProgress?.({ stage: 'found', count: parsed.rows.length })
   const [transactionRows, categoryResult, merchantRules, accountResult] = await Promise.all([
     fetchAllRows(() => supabase.from('transactions')
-      .select('account_id,target_account_id,occurred_on,amount,description,canonical_category_id,is_transfer')),
+      .select('account_id,target_account_id,occurred_on,amount,balance,description,canonical_category_id,is_transfer,external_id')),
     supabase.from('canonical_categories').select('id,name,family,type'),
     cachedMerchantClassificationRules(),
     supabase.from('accounts').select('id,name,is_active'),
@@ -321,16 +327,28 @@ async function bankPreview(token: string, accountId: string, onProgress?: Import
   const existingKeys = new Set(
     transactionRows
       .filter(transaction => transaction.account_id === accountId)
-      .map(transaction => transactionDuplicateKey(accountId, transaction.occurred_on, Number(transaction.amount), transaction.description)),
+      .map(transaction => transactionDuplicateKey(accountId, transaction.occurred_on, Number(transaction.amount), transaction.description, transaction.balance == null ? null : Number(transaction.balance))),
   )
   const fileKeys = new Set<string>()
+  const existingExternalIds = new Set(transactionRows
+    .filter(transaction => transaction.account_id === accountId)
+    .map(transaction => transaction.external_id)
+    .filter(Boolean))
+  const fileExternalIds = new Set<string>()
   const duplicateMetadata = parsed.rows.map(row => {
-    const duplicateKey = transactionDuplicateKey(accountId, row.date, row.amount, row.description)
-    const duplicate = existingKeys.has(duplicateKey) || fileKeys.has(duplicateKey)
-    const duplicateReason = existingKeys.has(duplicateKey)
-      ? 'Already exists in this account'
-      : fileKeys.has(duplicateKey) ? 'Repeated in this CSV' : null
-    fileKeys.add(duplicateKey)
+    const duplicateKey = transactionDuplicateKey(accountId, row.date, row.amount, row.description, row.balance)
+    const duplicate = row.externalId
+      ? existingExternalIds.has(row.externalId) || fileExternalIds.has(row.externalId)
+      : existingKeys.has(duplicateKey) || fileKeys.has(duplicateKey)
+    const duplicateReason = row.externalId
+      ? existingExternalIds.has(row.externalId)
+        ? 'Already exists in this account'
+        : fileExternalIds.has(row.externalId) ? 'Repeated in this CSV' : null
+      : existingKeys.has(duplicateKey)
+        ? 'Already exists in this account'
+        : fileKeys.has(duplicateKey) ? 'Repeated in this CSV' : null
+    if (row.externalId) fileExternalIds.add(row.externalId)
+    else fileKeys.add(duplicateKey)
     return { duplicate, duplicateReason }
   })
   onProgress?.({ stage: 'duplicates', count: duplicateMetadata.filter(item => item.duplicate).length })
@@ -504,24 +522,26 @@ async function importBank(token: string, accountId: string, assignments: Record<
   let skipped = 0
   const errors: string[] = []
   const existingTransactions = await fetchAllRows(() => supabase.from('transactions')
-    .select('occurred_on,amount,description,is_transfer')
+    .select('occurred_on,amount,balance,description,is_transfer,external_id')
     .eq('account_id', accountId))
   const merchantRules = await cachedMerchantClassificationRules()
   const duplicateKeys = new Set(
     existingTransactions
-      .map(transaction => transactionDuplicateKey(accountId, transaction.occurred_on, Number(transaction.amount), transaction.description)),
+      .map(transaction => transactionDuplicateKey(accountId, transaction.occurred_on, Number(transaction.amount), transaction.description, transaction.balance == null ? null : Number(transaction.balance))),
   )
+  const externalIds = new Set(existingTransactions.map(transaction => transaction.external_id).filter(Boolean))
   const payloads: Row[] = []
   for (const [index, row] of parsed.rows.entries()) {
     const assignment = assignments[index]
     if (assignment === '__skip__') { skipped += 1; continue }
-    const duplicateKey = transactionDuplicateKey(accountId, row.date, row.amount, row.description)
-    if (duplicateKeys.has(duplicateKey)) { skipped += 1; continue }
-    duplicateKeys.add(duplicateKey)
+    const duplicateKey = transactionDuplicateKey(accountId, row.date, row.amount, row.description, row.balance)
+    if (row.externalId ? externalIds.has(row.externalId) : duplicateKeys.has(duplicateKey)) { skipped += 1; continue }
+    if (row.externalId) externalIds.add(row.externalId)
+    else duplicateKeys.add(duplicateKey)
     const sourceAccountId = assignment?.sourceAccountId ?? accountId
     const isTransfer = Boolean(assignment?.isTransfer && assignment.targetAccountId && assignment.targetAccountId !== sourceAccountId)
     const merchantRule = isTransfer ? null : matchMerchantRule(row.description, merchantRules)
-    payloads.push({ owner_id: owner, import_id: importRow.id, account_id: isTransfer ? sourceAccountId : accountId, target_account_id: isTransfer ? assignment?.targetAccountId : null, merchant_id: merchantRule?.merchantId ?? null, category_id: null, legacy_category_id: null, canonical_category_id: isTransfer ? null : assignment?.canonicalCategoryId ?? assignment?.categoryId ?? merchantRule?.canonicalCategoryId ?? null, context_id: isTransfer ? null : assignment?.contextId ?? merchantRule?.contextId ?? null, bucket_id: isTransfer ? null : assignment?.bucketId ?? merchantRule?.bucketId ?? null, tax_treatment: isTransfer ? 'none' : assignment?.taxTreatment ?? merchantRule?.taxTreatment ?? 'none', reimbursement_status: isTransfer ? 'none' : assignment?.reimbursementStatus ?? 'none', tags: assignment?.tags ?? [], occurred_on: row.date, description: row.description, normalized_description: normalizeDescription(row.description), amount: isTransfer ? assignment?.amount ?? row.amount : row.amount, balance: isTransfer ? null : row.balance ?? null, source_fingerprint: await fileHash(duplicateKey), status: 'C', is_transfer: isTransfer, transfer_reason: isTransfer ? assignment?.transferReason ?? 'account_movement' : null, classification_reviewed_at: isTransfer || assignment?.canonicalCategoryId || assignment?.categoryId || merchantRule?.canonicalCategoryId ? new Date().toISOString() : null })
+    payloads.push({ owner_id: owner, import_id: importRow.id, account_id: isTransfer ? sourceAccountId : accountId, target_account_id: isTransfer ? assignment?.targetAccountId : null, merchant_id: merchantRule?.merchantId ?? null, category_id: null, legacy_category_id: null, canonical_category_id: isTransfer ? null : assignment?.canonicalCategoryId ?? assignment?.categoryId ?? merchantRule?.canonicalCategoryId ?? null, context_id: isTransfer ? null : assignment?.contextId ?? merchantRule?.contextId ?? null, bucket_id: isTransfer ? null : assignment?.bucketId ?? merchantRule?.bucketId ?? null, tax_treatment: isTransfer ? 'none' : assignment?.taxTreatment ?? merchantRule?.taxTreatment ?? 'none', reimbursement_status: isTransfer ? 'none' : assignment?.reimbursementStatus ?? 'none', tags: assignment?.tags ?? [], occurred_on: row.date, description: row.description, normalized_description: normalizeDescription(row.description), amount: isTransfer ? assignment?.amount ?? row.amount : row.amount, balance: isTransfer ? null : row.balance ?? null, external_id: row.externalId ?? null, source_fingerprint: await fileHash(row.externalId ? `${accountId}|${row.externalId}` : duplicateKey), status: 'C', is_transfer: isTransfer, transfer_reason: isTransfer ? assignment?.transferReason ?? 'account_movement' : null, classification_reviewed_at: isTransfer || assignment?.canonicalCategoryId || assignment?.categoryId || merchantRule?.canonicalCategoryId ? new Date().toISOString() : null })
   }
   for (let index = 0; index < payloads.length; index += 500) {
     const batch = payloads.slice(index, index + 500)
@@ -667,7 +687,7 @@ async function listCategories(): Promise<Category[]> {
 
 async function fetchTransactions(filter: TransactionFilter = {}): Promise<Transaction[]> {
   const makeQuery = () => {
-    let query = supabase.from('transactions').select('id,description,comment,occurred_on,amount,account_id,target_account_id,canonical_category_id,is_transfer,transfer_reason,status,payee,tags,external_id,context_id,bucket_id,reimbursement_status,tax_treatment,created_at')
+    let query = supabase.from('transactions').select('id,description,comment,occurred_on,amount,account_id,target_account_id,canonical_category_id,is_transfer,transfer_reason,status,payee,tags,external_id,context_id,bucket_id,reporting_member_id,reimbursement_status,tax_treatment,created_at')
     if (filter.transactionId) query = query.eq('id', filter.transactionId)
     if (filter.dateFrom) query = query.gte('occurred_on', filter.dateFrom)
     if (filter.dateTo) query = query.lte('occurred_on', filter.dateTo)
@@ -679,6 +699,10 @@ async function fetchTransactions(filter: TransactionFilter = {}): Promise<Transa
       query = query.or(
         `account_id.eq.${filter.accountId},target_account_id.eq.${filter.accountId}`,
       )
+    }
+    if (filter.accountIds?.length) {
+      const ids = filter.accountIds.join(',')
+      query = query.or(`account_id.in.(${ids}),target_account_id.in.(${ids})`)
     }
     if (filter.categoryId) query = query.eq('canonical_category_id', filter.categoryId)
     if (filter.search) query = query.ilike('description', `%${filter.search}%`)
@@ -715,6 +739,8 @@ async function fetchTransactions(filter: TransactionFilter = {}): Promise<Transa
       accountName: account?.name ?? '',
       memberId: account?.member_id ?? '',
       memberName: memberMap.get(account?.member_id) ?? 'Unknown',
+      reportingMemberId: row.reporting_member_id ?? null,
+      reportingMemberName: row.reporting_member_id ? memberMap.get(row.reporting_member_id) ?? null : null,
       targetAccountId: row.target_account_id,
       targetAccountName: row.target_account_id
         ? accountMap.get(row.target_account_id)?.name ?? null
@@ -834,6 +860,7 @@ function transactionPayload(data: Record<string, any>): Row {
     canonicalCategoryId: 'canonical_category_id',
     contextId: 'context_id',
     bucketId: 'bucket_id',
+    reportingMemberId: 'reporting_member_id',
     reimbursementStatus: 'reimbursement_status',
     taxTreatment: 'tax_treatment',
   }
@@ -904,7 +931,7 @@ async function monthSummary(
   const familyColors = new Map(families.map((family, index) => [family, palette[index % palette.length]]))
   const categoryMap = new Map(classification.categories.map(category => [category.id, category]))
   const included = transactions.filter(
-    (transaction) => !transaction.isTransfer && transaction.status === 'C',
+    (transaction) => !transaction.isTransfer && isActualTransaction(transaction),
   )
   const income = included
     .filter((transaction) => transaction.amount > 0)
@@ -1084,7 +1111,7 @@ async function budgetList(month: number, year: number): Promise<Budget[]> {
           (transaction) =>
             transaction.categoryId === row.canonical_category_id &&
             transaction.amount < 0 &&
-            transaction.status === 'C',
+            isActualTransaction(transaction),
         )
         .reduce((sum, transaction) => sum + transaction.amount, 0),
     )
@@ -1102,9 +1129,11 @@ async function budgetList(month: number, year: number): Promise<Budget[]> {
   })
 }
 
-async function budgetGroupList(month: number, year: number): Promise<any[]> {
+async function budgetGroupList(month: number, year: number, accountIds?: string[], reportingMemberName?: string, applyOwnershipOverrides = false): Promise<any[]> {
   const [groupResult, memberResult, categories, transactions] = await Promise.all([
-    supabase.from('budget_groups').select('*').eq('month', month).eq('year', year),
+    // Budget groups are reusable monthly definitions. The selected month scopes
+    // actual spending, not the lifetime of the group itself.
+    supabase.from('budget_groups').select('*').order('created_at'),
     supabase.from('budget_group_members').select('*'),
     listCategories(),
     listTransactions({ month, year }),
@@ -1124,26 +1153,31 @@ async function budgetGroupList(month: number, year: number): Promise<any[]> {
     const members = (memberResult.data ?? []).filter(
       (member) => member.group_id === group.id,
     )
-    const purposeIds = new Set(members.filter(member => member.member_type === 'purpose').map(member => member.canonical_category_id))
-    const families = new Set(members.filter(member => member.member_type === 'purpose_family').map(member => member.purpose_family))
-    const bucketIds = new Set(members.filter(member => member.member_type === 'bucket').map(member => member.bucket_id))
-    const contextIds = new Set(members.filter(member => member.member_type === 'context').map(member => member.context_id))
-    const spent = Math.abs(
-      transactions
-        .filter(
-          (transaction) => {
-            if (transaction.amount >= 0 || transaction.isTransfer) return false
-            const category = transaction.categoryId ? categoryMap.get(transaction.categoryId) : undefined
-            return Boolean(
-              (transaction.categoryId && purposeIds.has(transaction.categoryId)) ||
-              (category?.parentName && families.has(category.parentName)) ||
-              (transaction.bucketId && bucketIds.has(transaction.bucketId)) ||
-              (transaction.contextId && contextIds.has(transaction.contextId))
-            )
-          },
-        )
-        .reduce((sum, transaction) => sum + transaction.amount, 0),
-    )
+    const ruleSets = (isExclusion: boolean) => {
+      const rules = members.filter(member => Boolean(member.is_exclusion) === isExclusion)
+      return {
+        purposeIds: new Set(rules.filter(member => member.member_type === 'purpose').map(member => member.canonical_category_id)),
+        families: new Set(rules.filter(member => member.member_type === 'purpose_family').map(member => member.purpose_family)),
+        bucketIds: new Set(rules.filter(member => member.member_type === 'bucket').map(member => member.bucket_id)),
+        contextIds: new Set(rules.filter(member => member.member_type === 'context').map(member => member.context_id)),
+      }
+    }
+    const includes = ruleSets(false)
+    const exclusions = ruleSets(true)
+    const matchingTransactions = transactions.filter((transaction) => {
+      if (transaction.amount >= 0 || transaction.isTransfer || !isActualTransaction(transaction)) return false
+      if (accountIds && !accountIds.includes(transaction.accountId)) return false
+      if (reportingMemberName && transactionReportingMemberName(transaction, applyOwnershipOverrides) !== reportingMemberName) return false
+      const category = transaction.categoryId ? categoryMap.get(transaction.categoryId) : undefined
+      return matchesBudgetInclusions(transaction, category?.parentName, includes)
+        && !matchesAnyBudgetExclusion(transaction, category?.parentName, exclusions)
+    })
+    const spent = Math.abs(matchingTransactions.reduce((sum, transaction) => sum + transaction.amount, 0))
+    const spentByMember = matchingTransactions.reduce<Record<string, number>>((totals, transaction) => {
+      const member = transactionReportingMemberName(transaction, applyOwnershipOverrides) || 'Unassigned'
+      totals[member] = (totals[member] ?? 0) + Math.abs(transaction.amount)
+      return totals
+    }, {})
     return {
       id: group.id,
       name: group.name,
@@ -1151,9 +1185,12 @@ async function budgetGroupList(month: number, year: number): Promise<any[]> {
       year: group.year,
       amount: Number(group.amount),
       spent,
+      spentByMember,
+      transactions: matchingTransactions,
       members: members.map((member) => ({
         id: member.id,
         groupId: member.group_id,
+        isExclusion: Boolean(member.is_exclusion),
         memberType: member.member_type ?? 'purpose',
         memberId: member.canonical_category_id ?? member.bucket_id ?? member.context_id ?? member.purpose_family,
         memberName: member.member_type === 'purpose_family'
@@ -1197,7 +1234,7 @@ async function listMerchantInsights(): Promise<MerchantInsight[]> {
   const groups = new Map<string, MerchantHistoryGroup>()
 
   for (const transaction of transactions) {
-    if (transaction.status !== 'C' || transaction.isTransfer) continue
+    if (!isActualTransaction(transaction) || transaction.isTransfer) continue
     const key = merchantKey(transaction.description)
     if (!key) continue
     const current: MerchantHistoryGroup = groups.get(key) ?? {
@@ -1366,6 +1403,16 @@ async function saveMerchantRule(data: {
 }
 
 export const api = {
+  session: {
+    recover: async (): Promise<void> => {
+      const { error } = await supabase.auth.refreshSession()
+      fail(error)
+      classificationOptionsCache = null
+      accountMetadataCache = null
+      householdMembersCache = null
+      invalidateTransactionQueries()
+    },
+  },
   members: {
     list: listHouseholdMembers,
   },
@@ -1450,6 +1497,75 @@ export const api = {
   },
   classification: {
     options: listClassificationOptions,
+  },
+  assets: {
+    list: async (): Promise<Asset[]> => {
+      const [{ data: assets, error: assetsError }, { data: valuations, error: valuationsError }, { data: loans, error: loansError }, options] = await Promise.all([
+        supabase.from('assets').select('*').order('name'),
+        supabase.from('asset_valuations').select('*').order('valued_on', { ascending: false }),
+        supabase.from('asset_loans').select('*').order('name'),
+        listClassificationOptions(),
+      ])
+      fail(assetsError); fail(valuationsError); fail(loansError)
+      const contextNames = new Map(options.contexts.map(context => [context.id, context.name]))
+      return (assets ?? []).map((asset: Row) => {
+        const valuation = (valuations ?? []).find((row: Row) => row.asset_id === asset.id)
+        return {
+          id: asset.id,
+          name: asset.name,
+          assetType: asset.asset_type,
+          role: asset.role,
+          contextId: asset.context_id,
+          contextName: asset.context_id ? contextNames.get(asset.context_id) ?? null : null,
+          valuation: valuation ? { id: valuation.id, value: Number(valuation.value), valuedOn: valuation.valued_on } : null,
+          loans: (loans ?? []).filter((row: Row) => row.asset_id === asset.id).map((row: Row): AssetLoan => ({
+            id: row.id,
+            assetId: row.asset_id,
+            name: row.name,
+            balance: Number(row.balance),
+            balanceOn: row.balance_on,
+            interestRate: Number(row.interest_rate),
+            repaymentType: row.repayment_type,
+            remainingTermYears: row.remaining_term_years === null ? null : Number(row.remaining_term_years),
+          })),
+        } as Asset
+      })
+    },
+    add: async (data: { name: string; role: Asset['role']; contextId: string | null; value: number; valuedOn: string }): Promise<void> => {
+      const owner = await ownerId()
+      const { data: asset, error } = await supabase.from('assets').insert({ owner_id: owner, name: data.name.trim(), role: data.role, context_id: data.contextId }).select('id').single()
+      fail(error)
+      if (!asset) throw new Error('Could not create the asset.')
+      const { error: valuationError } = await supabase.from('asset_valuations').insert({ owner_id: owner, asset_id: asset.id, value: data.value, valued_on: data.valuedOn })
+      if (valuationError) {
+        await supabase.from('assets').delete().eq('id', asset.id)
+        fail(valuationError)
+      }
+    },
+    update: async (id: string, data: { name: string; role: Asset['role']; contextId: string | null; value: number; valuedOn: string }): Promise<void> => {
+      const owner = await ownerId()
+      const { error } = await supabase.from('assets').update({ name: data.name.trim(), role: data.role, context_id: data.contextId, updated_at: new Date().toISOString() }).eq('id', id)
+      fail(error)
+      const { error: valuationError } = await supabase.from('asset_valuations').upsert({ owner_id: owner, asset_id: id, value: data.value, valued_on: data.valuedOn }, { onConflict: 'asset_id,valued_on' })
+      fail(valuationError)
+    },
+    delete: async (id: string): Promise<void> => {
+      const { error } = await supabase.from('assets').delete().eq('id', id)
+      fail(error)
+    },
+    addLoan: async (assetId: string, data: { name: string; balance: number; balanceOn: string; interestRate: number; repaymentType: 'interest_only' | 'principal_and_interest'; remainingTermYears: number }): Promise<void> => {
+      const owner = await ownerId()
+      const { error } = await supabase.from('asset_loans').insert({ owner_id: owner, asset_id: assetId, name: data.name.trim(), balance: data.balance, balance_on: data.balanceOn, interest_rate: data.interestRate, repayment_type: data.repaymentType, remaining_term_years: data.remainingTermYears })
+      fail(error)
+    },
+    updateLoan: async (id: string, data: { name: string; balance: number; balanceOn: string; interestRate: number; repaymentType: 'interest_only' | 'principal_and_interest'; remainingTermYears: number }): Promise<void> => {
+      const { error } = await supabase.from('asset_loans').update({ name: data.name.trim(), balance: data.balance, balance_on: data.balanceOn, interest_rate: data.interestRate, repayment_type: data.repaymentType, remaining_term_years: data.remainingTermYears, updated_at: new Date().toISOString() }).eq('id', id)
+      fail(error)
+    },
+    deleteLoan: async (id: string): Promise<void> => {
+      const { error } = await supabase.from('asset_loans').delete().eq('id', id)
+      fail(error)
+    },
   },
   categories: {
     list: listCategories,
@@ -1569,20 +1685,21 @@ export const api = {
         categoryId: row.canonical_category_id!,
       }))
     },
-    calendarSummary: async (month: number, year: number, accountId?: string) => {
+    calendarSummary: async (month: number, year: number, accountIds: string[] = []) => {
       const [monthStart, monthEnd] = monthRange(month, year)
+      const selectedAccountSet = new Set(accountIds)
       const previousDay = new Date(`${monthStart}T00:00:00`)
       previousDay.setDate(previousDay.getDate() - 1)
       const previousDate = previousDay.toISOString().slice(0, 10)
-      const [accounts, before, current, selectedLedger, schedules] = await Promise.all([
+      const [accounts, before, current, selectedLedgers, schedules] = await Promise.all([
         listAccounts(),
-        accountId ? Promise.resolve([]) : listTransactions({ dateTo: previousDate }),
-        listTransactions({ month, year, accountId }),
-        accountId ? accountLedgerSummary(accountId, { dateFrom: monthStart, dateTo: monthEnd }) : Promise.resolve(null),
+        accountIds.length ? Promise.resolve([]) : listTransactions({ dateTo: previousDate }),
+        listTransactions({ month, year, accountIds: accountIds.length ? accountIds : undefined }),
+        accountIds.length ? Promise.all(accountIds.map(accountId => accountLedgerSummary(accountId, { dateFrom: monthStart, dateTo: monthEnd }))) : Promise.resolve([]),
         scheduledList(),
       ])
-      const startBalance = selectedLedger
-        ? selectedLedger.openingBalance
+      const startBalance = selectedLedgers.length
+        ? selectedLedgers.reduce((sum, ledger) => sum + ledger.openingBalance, 0)
         : accounts.reduce((sum, account) => sum + account.initialBalance, 0) +
           before
             .filter((transaction) => !transaction.isTransfer && transaction.status === 'C')
@@ -1595,7 +1712,7 @@ export const api = {
       })
       const projected = new Map<string, ScheduledTransaction[]>()
       schedules.filter(schedule => schedule.isActive && (
-        !accountId || schedule.accountId === accountId || schedule.targetAccountId === accountId
+        accountIds.length === 0 || selectedAccountSet.has(schedule.accountId) || Boolean(schedule.targetAccountId && selectedAccountSet.has(schedule.targetAccountId))
       )).forEach(schedule => {
         scheduledDatesBetween(schedule, monthStart, monthEnd).forEach(date => {
           const rows = projected.get(date) ?? []
@@ -1621,10 +1738,14 @@ export const api = {
             .reduce((sum, row) => sum + row.amount, 0) + projectedNormal
               .filter(row => row.amount < 0)
               .reduce((sum, row) => sum + row.amount, 0)
-          const transferMovement = accountId
+          const transferMovement = accountIds.length
             ? [...rows.filter(row => row.isTransfer && row.status === 'C'), ...projectedRows.filter(row => row.isTransfer)].reduce((sum, row) => {
-                if (row.targetAccountId === accountId) return sum + Math.abs(row.amount)
-                if (row.accountId === accountId) return sum - Math.abs(row.amount)
+                if ('date' in row) return sum + selectedAccountsTransactionAmount(row, accountIds)
+                const sourceSelected = selectedAccountSet.has(row.accountId)
+                const targetSelected = Boolean(row.targetAccountId && selectedAccountSet.has(row.targetAccountId))
+                if (sourceSelected && targetSelected) return sum
+                if (targetSelected) return sum + Math.abs(row.amount)
+                if (sourceSelected) return sum - Math.abs(row.amount)
                 return sum
               }, 0)
             : 0
@@ -1756,7 +1877,7 @@ export const api = {
     },
     setMembers: async (
       groupId: string,
-      members: { memberType: 'purpose' | 'purpose_family' | 'bucket' | 'context'; memberId: string }[],
+      members: { memberType: 'purpose' | 'purpose_family' | 'bucket' | 'context'; memberId: string; isExclusion?: boolean }[],
     ): Promise<void> => {
       const owner = await ownerId()
       const { error: deleteError } = await supabase
@@ -1774,6 +1895,7 @@ export const api = {
           purpose_family: member.memberType === 'purpose_family' ? member.memberId : null,
           bucket_id: member.memberType === 'bucket' ? member.memberId : null,
           context_id: member.memberType === 'context' ? member.memberId : null,
+          is_exclusion: Boolean(member.isExclusion),
           include_children: false,
         })),
       )

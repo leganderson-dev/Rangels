@@ -249,7 +249,7 @@ export function ImportBankModal({ accounts, categories, onClose, onDone }: Props
         <div className="flex flex-col items-center justify-center py-10 gap-4">
           <Upload size={40} className="text-gray-300" />
           <p className="text-sm text-gray-500">Select a CSV export from your bank</p>
-          <p className="text-xs text-gray-400">Supports CommBank, NAB, ING and most Australian bank formats</p>
+          <p className="text-xs text-gray-400">Supports CommBank, NAB, ING, American Express and most Australian bank formats</p>
           <div className="flex gap-3 items-center mt-2">
             <div>
               <label className="block text-xs text-gray-500 mb-1">Import to account</label>

@@ -6,6 +6,7 @@ export type ParsedBankRow = {
   amount: number
   description: string
   balance?: number
+  externalId?: string
 }
 
 function amount(value = ''): number {
@@ -29,13 +30,29 @@ export function parseBankExport(text: string): { format: string; rows: ParsedBan
   const hasHeader = !/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(parsed[0][0]?.trim() ?? '')
   const data = hasHeader ? parsed.slice(1) : parsed
   let format = 'CommBank'
-  if (header.some(value => value.includes('credit')) && header.some(value => value.includes('debit'))) format = 'ING'
+  if (header.includes('date processed') && header.includes('foreign spend amount') && header.includes('appears on your statement as')) format = 'American Express'
+  else if (header.some(value => value.includes('credit')) && header.some(value => value.includes('debit'))) format = 'ING'
   else if (header.some(value => value.includes('reference')) || header.some(value => value.includes('nab'))) format = 'NAB'
   else if (!data.every(row => row.length >= 4)) format = 'Generic'
 
   const rows = data.map((row): ParsedBankRow | null => {
     let value: ParsedBankRow
-    if (format === 'ING') {
+    if (format === 'American Express') {
+      const dateIndex = header.indexOf('date')
+      const descriptionIndex = header.indexOf('description')
+      const statementDescriptionIndex = header.indexOf('appears on your statement as')
+      const amountIndex = header.indexOf('amount')
+      const referenceIndex = header.indexOf('reference')
+      const reference = row[referenceIndex]?.trim().replace(/^'+|'+$/g, '')
+      value = {
+        date: isoDate(row[dateIndex]),
+        description: row[descriptionIndex]?.trim() || row[statementDescriptionIndex]?.trim(),
+        // American Express exports charges as positive and credits/refunds as
+        // negative. Rangels stores expenses as negative and credits as positive.
+        amount: -amount(row[amountIndex]),
+        externalId: reference ? `amex:${reference}` : undefined,
+      }
+    } else if (format === 'ING') {
       const credit = amount(row[2])
       const debit = amount(row[3])
       value = { date: isoDate(row[0]), description: row[1]?.trim(), amount: credit || -Math.abs(debit), balance: amount(row[4]) }

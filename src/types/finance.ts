@@ -41,6 +41,8 @@ export interface Transaction {
   accountName: string
   memberId: string
   memberName: string
+  reportingMemberId?: string | null
+  reportingMemberName?: string | null
   targetAccountId: string | null
   targetAccountName: string | null
   categoryId: string | null
@@ -72,6 +74,7 @@ export interface BulkTransactionChanges {
   canonicalCategoryId?: string | null
   contextId?: string | null
   bucketId?: string | null
+  reportingMemberId?: string | null
   reimbursementStatus?: 'none' | 'to_be_reimbursed' | 'reimbursed'
   taxTreatment?: 'none' | 'deductible' | 'review'
   transferReason?: TransferReason | null
@@ -94,6 +97,34 @@ export interface ClassificationOptions {
   contexts: ClassificationOption[]
   buckets: ClassificationOption[]
   categories: CanonicalCategory[]
+}
+
+export interface AssetValuation {
+  id: string
+  value: number
+  valuedOn: string
+}
+
+export interface AssetLoan {
+  id: string
+  assetId: string
+  name: string
+  balance: number
+  balanceOn: string
+  interestRate: number
+  repaymentType: 'interest_only' | 'principal_and_interest' | null
+  remainingTermYears: number | null
+}
+
+export interface Asset {
+  id: string
+  name: string
+  assetType: 'property'
+  role: 'home' | 'investment' | 'other'
+  contextId: string | null
+  contextName: string | null
+  valuation: AssetValuation | null
+  loans: AssetLoan[]
 }
 
 export interface AllocationTargetSummary {
@@ -275,6 +306,7 @@ export interface TransactionFilter {
   dateFrom?: string
   dateTo?: string
   accountId?: string | null
+  accountIds?: string[]
   categoryId?: string | null
   search?: string
   groupBy?: 'category' | 'date' | 'account'

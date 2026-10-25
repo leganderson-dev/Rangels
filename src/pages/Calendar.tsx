@@ -6,6 +6,7 @@ import { TransactionFormModal } from '../components/TransactionFormModal'
 import { CategoryPill } from '../components/CategoryPill'
 import { scheduledDatesBetween } from '../lib/schedule'
 import type { Transaction, Account, Category, ScheduledTransaction } from '../types/finance'
+import { selectedAccountsTransactionAmount } from '../lib/accountSelection'
 
 interface CalendarDay {
   date: string
@@ -21,6 +22,7 @@ interface Props {
   accounts: Account[]
   categories: Category[]
   selectedAccountId: string | null
+  selectedAccountIds: string[]
   month: number
   year: number
   onRefreshAccounts: () => void
@@ -61,7 +63,7 @@ function buildGrid(year: number, month: number, dayMap: Map<string, CalendarDay>
   return cells
 }
 
-export function CalendarPage({ accounts, categories, selectedAccountId, month, year, onRefreshAccounts }: Props) {
+export function CalendarPage({ accounts, categories, selectedAccountId, selectedAccountIds, month, year, onRefreshAccounts }: Props) {
   const [calData, setCalData] = useState<{ startBalance: number; days: CalendarDay[] } | null>(null)
   const [loading, setLoading] = useState(false)
   const [calError, setCalError] = useState<string | null>(null)
@@ -73,7 +75,7 @@ export function CalendarPage({ accounts, categories, selectedAccountId, month, y
     setLoading(true)
     setCalError(null)
     api.transactions
-      .calendarSummary(month, year, selectedAccountId ?? undefined)
+      .calendarSummary(month, year, selectedAccountIds)
       .then(data => { if (!cancelled) { setCalData(data); setLoading(false) } })
       .catch((err: any) => {
         if (!cancelled) {
@@ -85,7 +87,7 @@ export function CalendarPage({ accounts, categories, selectedAccountId, month, y
         }
       })
     return () => { cancelled = true }
-  }, [month, year, selectedAccountId, calKey])
+  }, [month, year, selectedAccountIds, calKey])
 
   useEffect(() => loadCalendar(), [loadCalendar])
 
@@ -121,6 +123,7 @@ export function CalendarPage({ accounts, categories, selectedAccountId, month, y
           valueClass={net >= 0 ? 'text-emerald-600' : 'text-rose-500'}
           last
         />
+        {selectedAccountIds.length > 1 && <div className="ml-auto flex items-center px-4"><span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-700">{selectedAccountIds.length} accounts selected</span></div>}
       </div>
 
       {/* Weekday headers */}
@@ -216,6 +219,7 @@ export function CalendarPage({ accounts, categories, selectedAccountId, month, y
           accounts={accounts}
           categories={categories}
           selectedAccountId={selectedAccountId}
+          selectedAccountIds={selectedAccountIds}
           onClose={() => setSelectedDay(null)}
           onChanged={() => { refreshCalendar(); onRefreshAccounts() }}
         />
@@ -226,11 +230,12 @@ export function CalendarPage({ accounts, categories, selectedAccountId, month, y
 
 // ─── Day transactions panel ───────────────────────────────────────────────────
 
-function DayPanel({ date, accounts, categories, selectedAccountId, onClose, onChanged }: {
+function DayPanel({ date, accounts, categories, selectedAccountId, selectedAccountIds, onClose, onChanged }: {
   date: string
   accounts: Account[]
   categories: Category[]
   selectedAccountId: string | null
+  selectedAccountIds: string[]
   onClose: () => void
   onChanged: () => void
 }) {
@@ -245,21 +250,21 @@ function DayPanel({ date, accounts, categories, selectedAccountId, onClose, onCh
     let cancelled = false
     setLoading(true)
     Promise.all([
-      api.transactions.list({ dateFrom: date, dateTo: date, accountId: selectedAccountId ?? undefined }),
+      api.transactions.list({ dateFrom: date, dateTo: date, accountIds: selectedAccountIds.length ? selectedAccountIds : undefined }),
       api.scheduled.list(),
     ])
       .then(([data, schedules]) => { if (!cancelled) {
         setTxs(data)
         setScheduledForDay(schedules.filter(schedule =>
           schedule.isActive &&
-          (!selectedAccountId || schedule.accountId === selectedAccountId || schedule.targetAccountId === selectedAccountId) &&
+          (selectedAccountIds.length === 0 || selectedAccountIds.includes(schedule.accountId) || Boolean(schedule.targetAccountId && selectedAccountIds.includes(schedule.targetAccountId))) &&
           scheduledDatesBetween(schedule, date, date).includes(date)
         ))
         setLoading(false)
       } })
       .catch(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [date, selectedAccountId, refreshKey])
+  }, [date, selectedAccountIds, refreshKey])
 
   // Close on Escape
   useEffect(() => {
@@ -343,6 +348,7 @@ function DayPanel({ date, accounts, categories, selectedAccountId, onClose, onCh
               tone="income"
               onEdit={setEditTx}
               onDelete={handleDelete}
+              selectedAccountIds={selectedAccountIds}
             />
           )}
           {!loading && expenseTxs.length > 0 && (
@@ -353,6 +359,7 @@ function DayPanel({ date, accounts, categories, selectedAccountId, onClose, onCh
               tone="expense"
               onEdit={setEditTx}
               onDelete={handleDelete}
+              selectedAccountIds={selectedAccountIds}
             />
           )}
           {!loading && transferTxs.length > 0 && (
@@ -360,12 +367,14 @@ function DayPanel({ date, accounts, categories, selectedAccountId, onClose, onCh
               label="Transfers"
               transactions={transferTxs}
               tone="transfer"
+              total={transferTxs.reduce((sum, transaction) => sum + selectedAccountsTransactionAmount(transaction, selectedAccountIds), 0)}
               onEdit={setEditTx}
               onDelete={handleDelete}
+              selectedAccountIds={selectedAccountIds}
             />
           )}
           {!loading && scheduledForDay.length > 0 && (
-            <ScheduledDayGroup transactions={scheduledForDay} selectedAccountId={selectedAccountId} />
+            <ScheduledDayGroup transactions={scheduledForDay} selectedAccountIds={selectedAccountIds} />
           )}
         </div>
       </div>
@@ -390,37 +399,43 @@ function DayPanel({ date, accounts, categories, selectedAccountId, onClose, onCh
   )
 }
 
-function ScheduledDayGroup({ transactions, selectedAccountId }: {
+function scheduledDisplayAmount(item: ScheduledTransaction, selectedAccountIds: string[]): number {
+  if (!item.isTransfer || selectedAccountIds.length === 0) return item.amount
+  const selected = new Set(selectedAccountIds)
+  const sourceSelected = selected.has(item.accountId)
+  const targetSelected = Boolean(item.targetAccountId && selected.has(item.targetAccountId))
+  if (sourceSelected && targetSelected) return 0
+  if (targetSelected) return Math.abs(item.amount)
+  if (sourceSelected) return -Math.abs(item.amount)
+  return item.amount
+}
+
+function ScheduledDayGroup({ transactions, selectedAccountIds }: {
   transactions: ScheduledTransaction[]
-  selectedAccountId: string | null
+  selectedAccountIds: string[]
 }) {
-  const total = transactions.reduce((sum, item) => {
-    if (!item.isTransfer) return sum + item.amount
-    if (!selectedAccountId) return sum
-    if (item.targetAccountId === selectedAccountId) return sum + Math.abs(item.amount)
-    if (item.accountId === selectedAccountId) return sum - Math.abs(item.amount)
-    return sum
-  }, 0)
+  const total = transactions.reduce((sum, item) => sum + scheduledDisplayAmount(item, selectedAccountIds), 0)
   return <section>
     <div className="flex items-center justify-between border-y border-violet-100 bg-violet-50 px-5 py-2 text-violet-700">
       <span className="text-[11px] font-bold uppercase tracking-widest">Scheduled <span className="font-medium opacity-60">{transactions.length}</span></span>
       <span className="text-xs font-bold tabular-nums">{fmt(total, true)}</span>
     </div>
-    {transactions.map(item => <div key={item.id} className="flex items-center gap-3 border-b border-violet-50 bg-violet-50/20 px-5 py-3">
+    {transactions.map(item => { const displayAmount = scheduledDisplayAmount(item, selectedAccountIds); return <div key={item.id} className="flex items-center gap-3 border-b border-violet-50 bg-violet-50/20 px-5 py-3">
       <Calendar size={14} className="shrink-0 text-violet-400" />
       <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium italic text-slate-600">{item.description}</p><p className="mt-0.5 text-[11px] text-violet-400">Projected · {item.categoryFullName ?? item.transferReason?.replaceAll('_', ' ') ?? 'Needs purpose'}</p></div>
-      <span className={`shrink-0 text-sm font-bold tabular-nums ${item.amount > 0 ? 'text-emerald-600' : 'text-slate-700'}`}>{fmt(item.amount, true)}</span>
-    </div>)}
+      <span className={`shrink-0 text-sm font-bold tabular-nums ${displayAmount > 0 ? 'text-emerald-600' : 'text-slate-700'}`}>{fmt(displayAmount, true)}</span>
+    </div>})}
   </section>
 }
 
-function DayTxGroup({ label, transactions, total, tone, onEdit, onDelete }: {
+function DayTxGroup({ label, transactions, total, tone, onEdit, onDelete, selectedAccountIds }: {
   label: string
   transactions: Transaction[]
   total?: number
   tone: 'income' | 'expense' | 'transfer'
   onEdit: (transaction: Transaction) => void
   onDelete: (id: string) => void
+  selectedAccountIds: string[]
 }) {
   const tones = {
     income: 'bg-emerald-50 text-emerald-700 border-emerald-100',
@@ -440,6 +455,7 @@ function DayTxGroup({ label, transactions, total, tone, onEdit, onDelete }: {
         <DayTxRow
           key={tx.id}
           tx={tx}
+          selectedAccountIds={selectedAccountIds}
           onEdit={() => onEdit(tx)}
           onDelete={() => onDelete(tx.id)}
         />
@@ -448,7 +464,8 @@ function DayTxGroup({ label, transactions, total, tone, onEdit, onDelete }: {
   )
 }
 
-function DayTxRow({ tx, onEdit, onDelete }: { tx: Transaction; onEdit: () => void; onDelete: () => void }) {
+function DayTxRow({ tx, selectedAccountIds, onEdit, onDelete }: { tx: Transaction; selectedAccountIds: string[]; onEdit: () => void; onDelete: () => void }) {
+  const displayAmount = selectedAccountsTransactionAmount(tx, selectedAccountIds)
   return (
     <div className="flex items-center gap-3 px-5 py-3 border-b border-gray-50 hover:bg-gray-50 group">
       <div className="flex-1 min-w-0">
@@ -463,7 +480,7 @@ function DayTxRow({ tx, onEdit, onDelete }: { tx: Transaction; onEdit: () => voi
           : tx.amount > 0 ? 'text-emerald-600'
           : 'text-slate-700'
       }`}>
-        {tx.isTransfer ? `→ ${tx.targetAccountName ?? ''}` : fmt(tx.amount)}
+        {tx.isTransfer ? `${fmt(displayAmount, true)} → ${tx.targetAccountName ?? ''}` : fmt(displayAmount)}
       </span>
       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
         <button onClick={onEdit} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-400 hover:text-gray-700">
